@@ -106,9 +106,9 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
   writes once and feeds the daily briefing, storm-chasing targets, forecast-game
   answer key, SSWXCon score, severe-weather history, and pattern analysis.
 
-> 📸 **Screenshots referenced** for items U-07, U-11, U-15, U-19, U-20 — attach these
-> to the repo (e.g. `/docs/examples/`) before building those modules so the AI matches
-> your expectations exactly.
+> 📸 **Design references saved** in `/docs/examples/` (see its `README.md`) for
+> **U-07, U-11, U-15, U-19**. Build those modules to match the style/behavior shown.
+> ⏳ Still needed: a reference for **U-20** (Forecast Game) if you have one.
 
 ---
 
@@ -126,6 +126,8 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       `tier_addons`, `badges`, `user_badges`, `saved_locations`, `loyalty_points`,
       `loyalty_rules`, `referrals`, `app_config` (versioned *L2*), `push_subscriptions`,
       `weather_cache`, `news_posts`, `signup_form_fields`, `game_*`, `contact_pins`
+  - Note: **tiers are admin-assigned** (no payment processor in Beta — see §7.4);
+    `profiles.tier_id` is set/managed from the admin panel.
 - [ ] **1B Auth** migration off localStorage → Supabase Auth *(U-pervasive, L2)*
 - [ ] **1C Data-proxy Edge Functions** (cached, rate-limited, retrying *L2*):
       `nws-proxy`, `spc-proxy`, `storm-reports`, `mrms-proxy`, tile/image cache *L2*
@@ -178,7 +180,7 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [ ] **U-28** Richer, less-boring user profiles
 - [ ] **U-23** Emergency Storm Contact → "SSWX Emergency Storm Contact — Direct
       Administrative Line"; remove personal phone from description; correct PIN opens a
-      **direct line to admin** (email/SMS relay)
+      **direct line to admin** via **email relay + free carrier email-to-SMS gateway**
 - [ ] **U-22** FAQ / Module Guide: remove tier correlation; explain modules + add-ons only
 
 ### ☐ Phase 7 — Admin & Content Tools
@@ -214,22 +216,31 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 Fair but not easy. All values editable from the admin panel.
 - **Referral that converts to paid:** 100 pts
 - **Membership renewal:** 50 pts/month renewed
-- **Forecast Game win (closest):** 50 pts · 2nd: 30 · 3rd: 20 · 4th: 10
+- **Forecast Game win (closest):** 35 pts · 2nd: 25 · 3rd: 15 · 4th: 10  *(approved 2026-06-10)*
 - **Sample prize ladder:** 500 pts = 10% off one month · 1,200 = 25% off one month ·
   2,500 = 50% off one month · 5,000 = one free month
 - Monthly game points reset after monthly winner; loyalty points persist toward prizes.
 
 ---
 
-## 7. Open Questions for Jeremy
+## 7. Answers / Resolved Decisions (2026-06-10)
 
-1. **Screenshots** for U-07, U-11, U-15, U-19, U-20 — please add to `/docs/examples/`.
-2. **U-23 direct line** — preferred relay: email forward, SMS (e.g. Twilio — small cost),
-   or both? Twilio SMS isn't free; email is. Your call.
-3. **Anthropic API key** — do you have one, or provision at Phase 2?
-4. **Payments/tiers** — which processor (Stripe?) is handling the paid subscriptions?
-   Not in your 29 items but required for a paid Beta — confirm current setup.
-5. **Loyalty point values** (Section 6) — approve or adjust.
+1. **Screenshots** — ✅ Provided & saved in `/docs/examples/` for U-07, U-11, U-15, U-19.
+   Still open: a U-20 (Forecast Game) reference if one exists.
+2. **U-23 direct line** — ✅ **Email + SMS, both free.** Implementation: email relay
+   (free) for sure; SMS via **carrier email-to-SMS gateway** (e.g. `number@vtext.com`,
+   `@tmomail.net`) which is **free** because the recipient is the admin (we know the
+   carrier). No Twilio / paid SMS needed for Beta.
+3. **Anthropic API key** — ✅ **Provision it.** Store in Supabase Edge Function secrets
+   (never in the repo or client). Done at Phase 2.
+4. **Payments/tiers** — ✅ **Manual for Beta.** Members sign up via a **third-party app**,
+   then an **admin handles payment during a setup meeting**. So **no payment-processor
+   integration is needed for Beta**; tiers are **assigned/managed by an admin** in the
+   admin panel. (Revisit automated billing post-Beta.)
+5. **Loyalty point values** — ✅ Approved with one change (game wins now 35/25/15/10).
+
+### Still open
+- A **U-20 Forecast Game** visual reference (optional but helpful).
 
 ---
 
@@ -266,3 +277,9 @@ features tracked in the Phase Checklist; they move into this log if a regression
 - **2026-06-10** — Backend gets a **dedicated** project `stormsync-vip`
   (ref `djonpetxdjuwcbgftqmt`) for isolation from the live `app-center` site.
   Paused the dormant `SSWX Team Portal` (data preserved) to stay on the free tier. $0/mo.
+- **2026-06-10** — Design references for U-07/U-11/U-15/U-19 saved to `/docs/examples/`.
+- **2026-06-10** — U-23 relay = email + **free** carrier email-to-SMS gateway (no Twilio).
+- **2026-06-10** — **No payment processor for Beta**; signup via third-party app, admin
+  handles payment at setup meeting and assigns tiers in the admin panel.
+- **2026-06-10** — Anthropic API key to be provisioned; stored in Edge Function secrets.
+- **2026-06-10** — Forecast Game points set to 35/25/15/10.

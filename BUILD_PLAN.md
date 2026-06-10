@@ -114,12 +114,18 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 
 ## 5. PHASE CHECKLIST (cross off as we go)
 
-### ☐ Phase 0 — Foundation & Guardrails
-- [ ] Install `@supabase/supabase-js`; wire client to `stormsync-vip` (anon key via env)
-- [ ] Enable TypeScript **strict**; fix resulting errors *(L2)*
-- [ ] CI: typecheck + build must pass on every push *(L2)*
-- [ ] Centralized error logging + global error-boundary standard *(L2)*
-- [ ] Module status standard (loading/error/empty/ok) — no dead spinners *(L2)*
+### ✅ Phase 0 — Foundation & Guardrails  (COMPLETE — 2026-06-10)
+- [x] Install `@supabase/supabase-js`; wire client to `stormsync-vip` (anon key via env)
+      → `src/lib/supabase.ts`, `src/vite-env.d.ts`, `.env.example`
+- [x] Enable TypeScript **strict**; fix resulting errors *(L2)* — strict was already on
+      but never enforced; fixed 3 latent type errors (see Fix Log F-01..F-03)
+- [x] CI: typecheck + build must pass on every push *(L2)* → `.github/workflows/ci.yml`
+      (verified locally: typecheck clean, build succeeds)
+- [x] Centralized error logging + global error-boundary standard *(L2)*
+      → `src/lib/logger.ts` (+ global handlers), `ErrorBoundary` wired, root boundary in `main.tsx`
+- [x] Module status standard (loading/error/empty/ok) — no dead spinners *(L2)*
+      → `src/components/ModuleStatus.tsx` (`<ModuleState>`, `ModuleError/Empty/Loading`)
+- [x] Bonus: added `.gitignore` (none existed — `.env`/`node_modules` were untracked-risk)
 
 ### ☐ Phase 1 — Backend Migration: Render → Supabase (KEYSTONE)
 - [ ] **1A Schema** (RLS + indexes on all): `profiles`, `tiers`, `addons`,
@@ -248,6 +254,16 @@ Fair but not easy. All values editable from the admin panel.
 
 > Format for every entry: **What needed fixing · What it does · Why it happened ·
 > What we learned · What we did to fix it.** Append, never delete.
+
+### Fixed
+| ID | What needed fixing | What it does (the module) | Why it happened | What we learned | What we did to fix it |
+|---|---|---|---|---|---|
+| F-01 | Type error in `ExtendedForecast.tsx` (`.map` callback typed `t: string`) | 7-day extended forecast table | Open-Meteo `daily.time` is typed `(string\|number)[]`; callback declared `string`, so the signatures didn't match under strict `tsc` | Strict was on in tsconfig but **never enforced** — Vercel's `vite build` strips types and skips `tsc`, so latent type bugs shipped silently | Widened the param to `string \| number` (body already casts with `as string`) |
+| F-02 | Same error in `PrecipitationMap.tsx` | Precipitation map / daily precip | Identical `daily.time` typing issue | Same root cause as F-01 — recurring pattern across map modules | Widened param to `string \| number` |
+| F-03 | Type error in `Forecast.tsx` (`nwsPeriods` is `unknown[]`) | NWS official forecast list | `properties.periods` typed `unknown[]`; `.map` callback declared the full object shape, incompatible with `(value: unknown)` | Untyped API responses need an explicit cast at the boundary, not at each call site | Cast `nwsPeriods` to the period shape once at definition; simplified the `.map` callback |
+
+> All three were **pre-existing** (surfaced the moment the CI `tsc` gate was added in
+> Phase 0). The new CI workflow now blocks any future type regression on push/PR.
 
 ### Discovered during investigation (awaiting their phase)
 | ID | What needed fixing | What it does (the module) | Why it happened | What we learned | Fix (when done) |

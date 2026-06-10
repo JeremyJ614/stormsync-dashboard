@@ -1,4 +1,5 @@
-import { Component, type ReactNode } from "react";
+import { Component, type ErrorInfo, type ReactNode } from "react";
+import { logger } from "@/lib/logger";
 
 interface Props {
   children: ReactNode;
@@ -21,7 +22,13 @@ export class ErrorBoundary extends Component<Props, State> {
     return { hasError: true, error };
   }
 
-  componentDidCatch() {}
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    // Route all render-time crashes through the centralized logger.
+    logger.captureException(error, "React render error", {
+      scope: this.props.pageName ?? "ErrorBoundary",
+      componentStack: info.componentStack,
+    });
+  }
 
   render() {
     if (this.state.hasError) {

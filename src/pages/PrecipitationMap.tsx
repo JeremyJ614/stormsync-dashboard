@@ -22,7 +22,7 @@ export default function PrecipitationMap({ location }: Props) {
     cloud: hourly.cloud_cover ? hourly.cloud_cover[i] : 0,
   })) ?? [];
 
-  const days = daily?.time?.map((t: string, i: number) => ({
+  const days = daily?.time?.map((t: string | number, i: number) => ({
     date: format(parseISO(t as string), "MMM d"),
     precip: daily.precipitation_sum ? +(daily.precipitation_sum[i] as number).toFixed(2) : 0,
     prob: daily.precipitation_probability_max ? daily.precipitation_probability_max[i] : 0,

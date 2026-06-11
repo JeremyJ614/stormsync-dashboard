@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { contactStore } from "../lib/adminStore";
-import { getEmergencyPin } from "../hooks/useAuth";
+import { checkEmergencyPin } from "../hooks/useAuth";
 import { Mail, Headphones, AlertTriangle, Send, Lock, CheckCircle, Phone } from "lucide-react";
 
 type Tab = "general" | "service" | "emergency";
@@ -127,8 +127,8 @@ function EmergencyTab() {
           <input value={pin} onChange={e => { setPin(e.target.value.replace(/\D/g, "").slice(0, 4)); setErr(""); }}
             type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4}
             className="w-40 bg-muted/30 border border-border rounded-lg px-3 py-2 text-center tracking-[1em] font-mono outline-none focus:border-red-500/60" />
-          <button onClick={() => {
-            if (pin === getEmergencyPin()) { setUnlocked(true); setErr(""); }
+          <button onClick={async () => {
+            if (await checkEmergencyPin(pin)) { setUnlocked(true); setErr(""); }
             else setErr("Incorrect PIN");
           }} className="px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/40 text-red-300 text-sm font-semibold hover:bg-red-500/30">
             Unlock

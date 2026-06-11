@@ -144,11 +144,26 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [x] Pointed frontend at the Edge Function (`src/config.ts`; legacy `VITE_API_URL` kept
       only as fallback). Typecheck + build green.
 - [x] Ran `get_advisors` (security) — all resolved except 3 intentional.
-- [ ] **1B Auth** migration off localStorage → Supabase Auth *(U-pervasive, L2)* — **NEXT**;
-      needs a decision on PIN→password (keep email + 4-digit PIN vs. email + password)
-- [ ] In the running app, confirm Forecast Discussion (U-03), SSWXCon (U-05), Warning
-      Center (U-06), SPC (U-07), Thunder (U-11) now render real data
-- [ ] Remove legacy `VITE_API_URL`/Render references entirely (after 1B verified)
+- [x] **1B Auth** migration off localStorage → Supabase Auth *(U-pervasive, L2)* —
+      **DONE 2026-06-11.** Decision: **email + 4-digit PIN** (kept the existing UX). The
+      PIN is deterministically expanded to the Supabase password via `pinToPassword`
+      (`pin_<PIN>_sswx`) in both `src/hooks/useAuth.ts` and the Edge Function, because
+      the project's 6-char password minimum can't be changed from here. Rewrote
+      `useAuth` as a shared Supabase-session store (async `login`/`signup`/`logout`,
+      `loading` flag); `User` now mirrors `profiles` (no `pin`). New `src/lib/userAdmin.ts`
+      drives admin user management (list via RLS, tier/modules/badges/referrals via
+      direct table writes, signup questions + emergency PIN via `signup_questions`/
+      `app_config`). Privileged auth ops (create/delete/reset-PIN) go through the new
+      `admin-users` Edge Function (verify_jwt + `is_admin` re-check, service role).
+      Contact's emergency line now verifies via the `check_emergency_pin` RPC instead of
+      reading the PIN. Seeded the admin auth account (`JayMyers@StormSync.Media`, PIN 1337).
+      **Verified end-to-end** (admin login, create→member login, non-admin create blocked 403,
+      RLS scoping, set-pin, delete-cascade). Typecheck + build green.
+      *(News/broadcasts/contact-inbox remain localStorage — they belong to Phase 7.)*
+- [ ] In the running app (browser), confirm login/signup, admin panel CRUD, and that
+      Forecast Discussion (U-03), SSWXCon (U-05), Warning Center (U-06), SPC (U-07),
+      Thunder (U-11) render real data
+- [ ] Remove legacy `VITE_API_URL`/Render references entirely (after in-app verify)
 
 ### ☐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)*
 - [ ] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default)
@@ -254,6 +269,9 @@ Fair but not easy. All values editable from the admin panel.
    admin panel. (Revisit automated billing post-Beta.)
 5. **Loyalty point values** — ✅ Approved with one change (game wins now 35/25/15/10).
 
+6. **PIN vs. password** (Phase 1B) — ✅ **Email + 4-digit PIN** (keep existing UX). The
+   PIN is expanded to the Supabase password internally; security equals a raw 4-digit PIN.
+
 ### Still open
 - A **U-20 Forecast Game** visual reference (optional but helpful).
 
@@ -275,6 +293,7 @@ Fair but not easy. All values editable from the admin panel.
 > Phase 0). The new CI workflow now blocks any future type regression on push/PR.
 
 | F-04 | National alerts returned HTTP 400 | Warning Center / all-US alerts (U-06) | New `weather` proxy mirrored the legacy `/alerts/active?limit=500`; NWS has **removed** the `limit` parameter ("not recognized") | Don't assume legacy upstream params still exist — verify against the live API | Dropped `limit`; use `/alerts/active?status=actual` (returns all active alerts). Verified 258 features |
+| F-05 | Hand-seeded admin login failed with `Database error querying schema` (HTTP 500) | Supabase Auth sign-in for the seed admin (Phase 1B) | When inserting the admin straight into `auth.users` via SQL, GoTrue's token columns (`confirmation_token`, `recovery_token`, `email_change*`, `phone_change*`, `reauthentication_token`) were left `NULL`; GoTrue can't scan `NULL` into Go strings | Manually-seeded auth users must set those token columns to `''`, not `NULL` (the admin API does this automatically — only raw SQL inserts are affected) | `coalesce(...,'')` on all token columns for the seed row; login then returns a token. Users created via the `admin-users` function / `signUp` are unaffected |
 
 ### Discovered during investigation (awaiting their phase)
 | ID | What needed fixing | What it does (the module) | Why it happened | What we learned | Fix (when done) |
@@ -292,6 +311,7 @@ Fair but not easy. All values editable from the admin panel.
 | U-20 | Forecast Game not working / wrong design | Daily prediction game | Built incorrectly; no backend | — | _pending Phase 2/4_ |
 | U-29 | Weather news broken + page stretch | Weather news feed | Data source + CSS overflow | — | _pending Phase 5_ |
 | U-13 | MRMS subtabs not working | MRMS radar products | Proxy/config | — | _pending Phase 5_ |
+| D-01 | Self-signup lets a user pick **any tier** (incl. Tier 4) and the `handle_new_user` trigger trusts it | Public signup tier selection (Login page) | Pre-existing behavior carried over from the localStorage version; the `protect_profile_columns` guard only covers UPDATEs, not the INSERT trigger | Privilege should not be self-granted; per §7.4 tiers are admin-assigned, so the signup tier picker is legacy | **Awaiting approval** — preserved current behavior to avoid scope creep. Proposed fix: force self-signup to Tier 1 and let admins raise it |
 
 *(Remaining U-items 01,02,04,09,10,12,14,15,21,22,23,24,25,26,27,28 are redesigns/new
 features tracked in the Phase Checklist; they move into this log if a regression/bug arises.)*
@@ -318,3 +338,11 @@ features tracked in the Phase Checklist; they move into this log if a regression
   (public contact form), `check_emergency_pin` callable by authenticated (members verify PIN).
 - **2026-06-10 (Phase 1)** — Internal helpers `is_admin`/`modules_for_tier` moved to a
   non-REST-exposed `private` schema; policies resolve them by OID and keep working.
+- **2026-06-11 (Phase 1B)** — Auth = **email + 4-digit PIN** (kept existing UX). PIN is
+  deterministically expanded to the Supabase password (`pin_<PIN>_sswx`) since the 6-char
+  minimum isn't changeable from here; effective security equals a raw 4-digit PIN.
+- **2026-06-11 (Phase 1B)** — Privileged auth ops (create/delete/reset-PIN) live in the
+  `admin-users` Edge Function (verify_jwt=true + `is_admin` re-check + service role);
+  non-privileged profile edits (tier/modules/badges/referrals) go direct via RLS.
+- **2026-06-11 (Phase 1B)** — `auth_leaked_password_protection` (HaveIBeenPwned) left
+  **disabled**: it would conflict with the PIN-derived password scheme. Accepted.

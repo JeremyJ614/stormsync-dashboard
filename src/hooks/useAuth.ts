@@ -1,11 +1,12 @@
-import { useEffect, useState, useCallback, useSyncExternalStore } from "react";
+import { useCallback, useSyncExternalStore } from "react";
+import { supabase, isSupabaseConfigured } from "../lib/supabase";
+import { logger } from "../lib/logger";
 
 export type Tier = 1 | 2 | 3 | 4;
 
 export interface User {
   id: string;
   email: string;
-  pin: string;
   name: string;
   tier: Tier;
   isAdmin: boolean;
@@ -13,8 +14,8 @@ export interface User {
   enabledModules: string[];
   referrals: number;
   joinedAt: string;
-  badges?: string[];
-  customAnswers?: Record<string, string>;
+  badges: string[];
+  customAnswers: Record<string, string>;
 }
 
 export type QuestionType = "text" | "email" | "select" | "textarea" | "number" | "tel" | "date" | "checkbox";
@@ -48,11 +49,6 @@ export const ALL_BADGES: BadgeDef[] = [
   { id: "storm-chaser", label: "Storm Chaser", color: "#ef4444", description: "Active field storm chaser.", group: "Achievement" },
   { id: "spotter", label: "Trained Spotter", color: "#4ade80", description: "Skywarn trained severe weather spotter.", group: "Achievement" },
 ];
-
-const USERS_KEY = "stormsync_users_v1";
-const CURRENT_KEY = "stormsync_current_user_v1";
-const QUESTIONS_KEY = "stormsync_signup_questions_v1";
-const EMERGENCY_PIN_KEY = "stormsync_emergency_pin_v1";
 
 export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = [
   { id: "/", label: "Home", alwaysOn: true },
@@ -97,204 +93,185 @@ export const DEFAULT_QUESTIONS: SignupQuestion[] = [
   { id: "tier", label: "Tier", required: true, type: "select", options: ["1", "2", "3", "4"] },
 ];
 
-const ADMIN_EMAIL = "JayMyers@StormSync.Media";
-const ADMIN_PIN = "1337";
-
-function seedAdmin(): User[] {
-  return [{
-    id: "admin-jay",
-    email: ADMIN_EMAIL,
-    pin: ADMIN_PIN,
-    name: "Jay Myers",
-    tier: 4,
-    isAdmin: true,
-    createdAt: new Date().toISOString(),
-    joinedAt: new Date().toISOString(),
-    enabledModules: ALL_MODULES.map(m => m.id),
-    referrals: 0,
-    badges: ["sswx-exec-board", "tier-4", "founder"],
-    customAnswers: {},
-  }];
+/**
+ * The shape of a row from `public.profiles`. Auth credentials (the PIN) live in
+ * Supabase Auth (`auth.users`), never here — so there is no `pin` column.
+ */
+export interface ProfileRow {
+  id: string;
+  email: string;
+  name: string;
+  tier: number;
+  is_admin: boolean;
+  enabled_modules: string[] | null;
+  referrals: number | null;
+  badges: string[] | null;
+  custom_answers: Record<string, string> | null;
+  joined_at: string;
+  created_at: string;
 }
 
-export function adminCreateUser(input: {
-  name: string; email: string; pin: string; tier: Tier; isAdmin?: boolean; badges?: string[]; customAnswers?: Record<string, string>;
-}): { ok: boolean; error?: string; user?: User } {
-  if (!/^\d{4}$/.test(input.pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
-  if (!/^[^@]+@[^@]+\.[^@]+$/.test(input.email)) return { ok: false, error: "Invalid email" };
-  const users = loadUsers();
-  if (users.find(u => u.email.toLowerCase() === input.email.toLowerCase())) {
-    return { ok: false, error: "Email already registered" };
-  }
-  const tierMods = (t: Tier): string[] => {
-    const base = ALL_MODULES.filter(m => m.alwaysOn).map(m => m.id);
-    const tier1 = ["/", "/forecast", "/aqi", "/moon", "/skygazing", "/glossary", "/learn", "/dashboard"];
-    const tier2 = [...tier1, "/spc", "/warnings", "/sswxcon", "/history", "/loyalty", "/game", "/lightning-globe", "/aurora"];
-    const tier3 = [...tier2, "/thunder", "/meso", "/ingredients", "/swti", "/timing", "/hazards", "/summary", "/rotation", "/climatology", "/mosquito", "/chasing", "/comparator", "/wpi"];
-    const tier4 = ALL_MODULES.map(m => m.id);
-    const mods = t === 1 ? tier1 : t === 2 ? tier2 : t === 3 ? tier3 : tier4;
-    return [...new Set([...base, ...mods])];
+export function rowToUser(r: ProfileRow): User {
+  const tier = (r.tier >= 1 && r.tier <= 4 ? r.tier : 1) as Tier;
+  return {
+    id: r.id,
+    email: r.email,
+    name: r.name,
+    tier,
+    isAdmin: r.is_admin,
+    enabledModules: r.enabled_modules ?? [],
+    referrals: r.referrals ?? 0,
+    badges: r.badges ?? [],
+    customAnswers: r.custom_answers ?? {},
+    joinedAt: r.joined_at,
+    createdAt: r.created_at,
   };
-  const user: User = {
-    id: `u_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-    email: input.email,
-    pin: input.pin,
-    name: input.name,
-    tier: input.tier,
-    isAdmin: !!input.isAdmin,
-    createdAt: new Date().toISOString(),
-    joinedAt: new Date().toISOString(),
-    enabledModules: tierMods(input.tier),
-    referrals: 0,
-    badges: input.badges ?? [`tier-${input.tier}`],
-    customAnswers: input.customAnswers ?? {},
-  };
-  saveUsers([...users, user]);
-  return { ok: true, user };
 }
 
-export function setUserBadges(userId: string, badgeIds: string[]) {
-  const users = loadUsers().map(u => u.id === userId ? { ...u, badges: badgeIds } : u);
-  saveUsers(users);
+/**
+ * Members sign in with a 4-digit PIN, but Supabase Auth enforces a 6-character
+ * minimum password (a project-level setting we cannot change from here). We
+ * deterministically expand the PIN into the actual Supabase password. The member
+ * only ever types their PIN; effective security is identical to a raw 4-digit PIN.
+ *
+ * NOTE: the `admin-users` Edge Function must use this exact same transformation
+ * when creating accounts or resetting PINs, or logins will not match.
+ */
+export function pinToPassword(pin: string): string {
+  return `pin_${pin}_sswx`;
 }
 
-function loadUsers(): User[] {
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    if (!raw) {
-      const seeded = seedAdmin();
-      localStorage.setItem(USERS_KEY, JSON.stringify(seeded));
-      return seeded;
-    }
-    const parsed = JSON.parse(raw) as User[];
-    if (!parsed.some(u => u.email.toLowerCase() === ADMIN_EMAIL.toLowerCase())) {
-      const merged = [...parsed, ...seedAdmin()];
-      localStorage.setItem(USERS_KEY, JSON.stringify(merged));
-      return merged;
-    }
-    return parsed;
-  } catch {
-    return seedAdmin();
-  }
+// ─── Shared auth store (one session/profile fetch shared by all components) ──────
+interface AuthState {
+  user: User | null;
+  loading: boolean;
 }
 
-function saveUsers(users: User[]): void {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-  window.dispatchEvent(new Event("stormsync-auth-changed"));
-}
-
-function loadCurrent(): User | null {
-  try {
-    const id = localStorage.getItem(CURRENT_KEY);
-    if (!id) return null;
-    return loadUsers().find(u => u.id === id) ?? null;
-  } catch { return null; }
-}
-
+let state: AuthState = { user: null, loading: isSupabaseConfigured };
 const listeners = new Set<() => void>();
+
+function emit(next: AuthState) {
+  state = next;
+  listeners.forEach((l) => l());
+}
+
+async function loadProfile(userId: string): Promise<User | null> {
+  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+  if (error) {
+    logger.error("Failed to load profile", { scope: "auth", error });
+    return null;
+  }
+  return data ? rowToUser(data as ProfileRow) : null;
+}
+
+let initialized = false;
+function init() {
+  if (initialized) return;
+  initialized = true;
+  if (!isSupabaseConfigured) {
+    emit({ user: null, loading: false });
+    return;
+  }
+  // onAuthStateChange fires immediately with the initial session (INITIAL_SESSION),
+  // so it doubles as our first load — no separate getSession() call needed.
+  // NOTE: we must NOT `await` other supabase calls synchronously inside this
+  // callback (it holds an internal lock and can deadlock); defer with setTimeout.
+  supabase.auth.onAuthStateChange((_event, session) => {
+    if (session?.user) {
+      const uid = session.user.id;
+      // Show loading only on first sign-in; on token refresh keep the current user
+      // visible (avoids a skeleton flash every time the token rotates).
+      if (!state.user) emit({ user: null, loading: true });
+      setTimeout(async () => {
+        emit({ user: await loadProfile(uid), loading: false });
+      }, 0);
+    } else {
+      emit({ user: null, loading: false });
+    }
+  });
+}
+
 function subscribe(cb: () => void) {
+  init();
   listeners.add(cb);
-  const handler = () => cb();
-  window.addEventListener("stormsync-auth-changed", handler);
-  return () => {
-    listeners.delete(cb);
-    window.removeEventListener("stormsync-auth-changed", handler);
-  };
+  return () => listeners.delete(cb);
 }
-function getSnapshot(): string {
-  return localStorage.getItem(CURRENT_KEY) ?? "";
+function getSnapshot(): AuthState {
+  return state;
 }
-function getServerSnapshot() { return ""; }
+const SERVER_SNAPSHOT: AuthState = { user: null, loading: true };
+function getServerSnapshot(): AuthState {
+  return SERVER_SNAPSHOT;
+}
+
+export interface AuthResult {
+  ok: boolean;
+  error?: string;
+  /** Signup succeeded but the project requires email confirmation before login. */
+  needsConfirmation?: boolean;
+}
 
 export function useAuth() {
-  useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const [user, setUser] = useState<User | null>(() => loadCurrent());
+  const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
+  const user = snap.user;
 
-  useEffect(() => {
-    const handler = () => setUser(loadCurrent());
-    window.addEventListener("stormsync-auth-changed", handler);
-    return () => window.removeEventListener("stormsync-auth-changed", handler);
-  }, []);
-
-  const login = useCallback((email: string, pin: string): { ok: boolean; error?: string } => {
-    const users = loadUsers();
-    const u = users.find(x => x.email.toLowerCase() === email.toLowerCase() && x.pin === pin);
-    if (!u) return { ok: false, error: "Invalid email or PIN" };
-    localStorage.setItem(CURRENT_KEY, u.id);
-    window.dispatchEvent(new Event("stormsync-auth-changed"));
-    setUser(u);
+  const login = useCallback(async (email: string, pin: string): Promise<AuthResult> => {
+    if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+    if (!/^\d{4}$/.test(pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
+    const { error } = await supabase.auth.signInWithPassword({
+      email: email.trim(),
+      password: pinToPassword(pin),
+    });
+    if (error) return { ok: false, error: "Invalid email or PIN" };
     return { ok: true };
   }, []);
 
-  const signup = useCallback((data: { name: string; email: string; pin: string; tier: Tier }): { ok: boolean; error?: string } => {
-    if (!/^\d{4}$/.test(data.pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
-    if (!/^[^@]+@[^@]+\.[^@]+$/.test(data.email)) return { ok: false, error: "Invalid email" };
-    const users = loadUsers();
-    if (users.find(u => u.email.toLowerCase() === data.email.toLowerCase())) {
-      return { ok: false, error: "Email already registered" };
-    }
-    const tierMods = (t: Tier): string[] => {
-      const base = ALL_MODULES.filter(m => m.alwaysOn).map(m => m.id);
-      const tier1 = ["/", "/forecast", "/aqi", "/moon", "/skygazing", "/glossary", "/learn", "/dashboard"];
-      const tier2 = [...tier1, "/spc", "/warnings", "/sswxcon", "/history", "/loyalty", "/game", "/lightning-globe", "/aurora"];
-      const tier3 = [...tier2, "/thunder", "/meso", "/ingredients", "/swti", "/timing", "/hazards", "/summary", "/rotation", "/climatology", "/mosquito", "/chasing", "/comparator", "/wpi"];
-      const tier4 = ALL_MODULES.map(m => m.id);
-      const mods = t === 1 ? tier1 : t === 2 ? tier2 : t === 3 ? tier3 : tier4;
-      return [...new Set([...base, ...mods])];
-    };
-    const newUser: User = {
-      id: `u_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-      email: data.email,
-      pin: data.pin,
-      name: data.name,
-      tier: data.tier,
-      isAdmin: false,
-      createdAt: new Date().toISOString(),
-      joinedAt: new Date().toISOString(),
-      enabledModules: tierMods(data.tier),
-      referrals: 0,
-    };
-    saveUsers([...users, newUser]);
-    localStorage.setItem(CURRENT_KEY, newUser.id);
-    window.dispatchEvent(new Event("stormsync-auth-changed"));
-    setUser(newUser);
-    return { ok: true };
+  const signup = useCallback(
+    async (data: { name: string; email: string; pin: string; tier: Tier }): Promise<AuthResult> => {
+      if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+      if (!/^\d{4}$/.test(data.pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
+      if (!/^[^@]+@[^@]+\.[^@]+$/.test(data.email)) return { ok: false, error: "Invalid email" };
+      const { data: result, error } = await supabase.auth.signUp({
+        email: data.email.trim(),
+        password: pinToPassword(data.pin),
+        options: { data: { name: data.name.trim(), tier: data.tier } },
+      });
+      if (error) return { ok: false, error: error.message };
+      if (!result.session) return { ok: true, needsConfirmation: true };
+      return { ok: true };
+    },
+    [],
+  );
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut();
   }, []);
 
-  const logout = useCallback(() => {
-    localStorage.removeItem(CURRENT_KEY);
-    window.dispatchEvent(new Event("stormsync-auth-changed"));
-    setUser(null);
-  }, []);
-
-  const monthsActive = user ? Math.max(1, Math.floor((Date.now() - new Date(user.joinedAt).getTime()) / (30 * 24 * 60 * 60_000)) + 1) : 0;
+  const monthsActive = user
+    ? Math.max(1, Math.floor((Date.now() - new Date(user.joinedAt).getTime()) / (30 * 24 * 60 * 60_000)) + 1)
+    : 0;
   const loyaltyPoints = user ? monthsActive * 100 + user.referrals * 250 : 0;
 
-  return { user, login, signup, logout, loyaltyPoints, monthsActive };
+  return { user, loading: snap.loading, login, signup, logout, loyaltyPoints, monthsActive };
 }
 
 export function hasModuleAccess(user: User | null, path: string): boolean {
-  const mod = ALL_MODULES.find(m => m.id === path);
+  const mod = ALL_MODULES.find((m) => m.id === path);
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
   return user.enabledModules.includes(path);
 }
 
-export function listUsers(): User[] { return loadUsers(); }
-export function persistUsers(users: User[]) { saveUsers(users); }
-export function getQuestions(): SignupQuestion[] {
-  try {
-    const raw = localStorage.getItem(QUESTIONS_KEY);
-    if (!raw) return DEFAULT_QUESTIONS;
-    return JSON.parse(raw) as SignupQuestion[];
-  } catch { return DEFAULT_QUESTIONS; }
-}
-export function saveQuestions(q: SignupQuestion[]) {
-  localStorage.setItem(QUESTIONS_KEY, JSON.stringify(q));
-}
-export function getEmergencyPin(): string {
-  return localStorage.getItem(EMERGENCY_PIN_KEY) ?? "0077";
-}
-export function saveEmergencyPin(p: string) {
-  localStorage.setItem(EMERGENCY_PIN_KEY, p);
+/**
+ * Verify the Emergency Storm Contact PIN without ever reading it client-side
+ * (the PIN is not selectable by members under RLS — see `check_emergency_pin`).
+ */
+export async function checkEmergencyPin(candidate: string): Promise<boolean> {
+  if (!isSupabaseConfigured) return false;
+  const { data, error } = await supabase.rpc("check_emergency_pin", { candidate });
+  if (error) {
+    logger.error("Emergency PIN check failed", { scope: "auth", error });
+    return false;
+  }
+  return data === true;
 }

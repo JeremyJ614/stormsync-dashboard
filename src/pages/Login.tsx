@@ -13,18 +13,31 @@ export default function Login() {
   const [name, setName] = useState("");
   const [tier, setTier] = useState<Tier>(2);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    if (mode === "login") {
-      const r = login(email, pin);
-      if (!r.ok) { setError(r.error || "Login failed"); return; }
-      navigate("/");
-    } else {
-      const r = signup({ name, email, pin, tier });
-      if (!r.ok) { setError(r.error || "Signup failed"); return; }
-      navigate("/");
+    setNotice("");
+    setSubmitting(true);
+    try {
+      if (mode === "login") {
+        const r = await login(email, pin);
+        if (!r.ok) { setError(r.error || "Login failed"); return; }
+        navigate("/");
+      } else {
+        const r = await signup({ name, email, pin, tier });
+        if (!r.ok) { setError(r.error || "Signup failed"); return; }
+        if (r.needsConfirmation) {
+          setNotice("Account created. Check your email to confirm it, then log in with your PIN.");
+          setMode("login");
+          return;
+        }
+        navigate("/");
+      }
+    } finally {
+      setSubmitting(false);
     }
   }
 
@@ -85,14 +98,19 @@ export default function Login() {
               <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {error}
             </div>
           )}
-          <button type="submit" className="w-full bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary font-semibold py-2.5 rounded-lg transition-colors">
-            {mode === "login" ? "Log in" : "Create Account"}
+          {notice && (
+            <div className="flex items-start gap-2 bg-primary/10 border border-primary/30 rounded-lg px-3 py-2 text-xs text-primary">
+              <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {notice}
+            </div>
+          )}
+          <button type="submit" disabled={submitting} className="w-full bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary font-semibold py-2.5 rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+            {submitting ? "Please wait…" : mode === "login" ? "Log in" : "Create Account"}
           </button>
         </form>
 
         <p className="text-[10px] text-muted-foreground text-center leading-relaxed">
-          Accounts are stored locally in this browser. Migrate to a server-backed DB
-          (Postgres via @workspace/db) for production multi-device access.
+          Accounts are secured by StormSync's Supabase backend with multi-device sync.
+          Sign in with your email and 4-digit PIN.
         </p>
       </div>
     </div>

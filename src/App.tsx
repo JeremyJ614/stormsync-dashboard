@@ -60,7 +60,8 @@ function PW({ children, name }: { children: React.ReactNode; name: string }) {
 }
 
 function Gated({ path, children }: { path: string; children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user, loading } = useAuth();
+  if (loading) return <PageSkeleton />;
   if (!hasModuleAccess(user, path)) {
     return (
       <div className="p-6 max-w-md mx-auto mt-12 text-center bg-card border border-border rounded-2xl space-y-3">

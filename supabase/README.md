@@ -43,6 +43,25 @@ Public proxy for NOAA/NWS/SPC data — replaces the retired Render backend.
 Routes: `/nws/points`, `/nws/alerts`, `/nws/forecast`, `/spc/storm-reports`,
 `/spc/outlook-geojson`. Best-effort caching via `weather_cache`.
 
+### `admin-users` (`supabase/functions/admin-users/index.ts`)
+Admin-only, **privileged** auth operations that need the service role (Phase 1B).
+`verify_jwt = true`, and the body additionally re-checks the caller is an admin
+(`profiles.is_admin`). POST `{ action, ... }`:
+- `create` — `auth.admin.createUser` (email pre-confirmed) + admin-only profile fields.
+- `delete` — `auth.admin.deleteUser` (profile cascades; the seed admin is protected).
+- `set-pin` — `auth.admin.updateUserById` password reset.
+
+Non-privileged profile edits (tier/modules/badges/referrals) are done from the client
+directly under RLS and do **not** go through this function. Members sign in with a
+4-digit PIN expanded to the Supabase password by `pinToPassword` (`pin_<PIN>_sswx`),
+which must stay identical between `src/hooks/useAuth.ts` and this function.
+
+## Seed admin
+`JayMyers@StormSync.Media` is seeded directly in `auth.users` (PIN `1337`). Auth users
+inserted via raw SQL must set GoTrue's token columns (`confirmation_token`,
+`recovery_token`, `email_change*`, `phone_change*`, `reauthentication_token`) to `''`,
+not `NULL`, or sign-in fails with `Database error querying schema` (see Fix Log F-05).
+
 ## Secrets to set (when reached)
 - **Phase 2 (Storm Engine):** `ANTHROPIC_API_KEY` — set via Supabase Edge Function
   secrets. Never commit it.

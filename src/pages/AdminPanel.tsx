@@ -1,8 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
-import { useAuth, listUsers, persistUsers, adminCreateUser, setUserBadges, ALL_MODULES, ALL_BADGES, getEmergencyPin, saveEmergencyPin, getQuestions, saveQuestions, type User, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
+import { useAuth, ALL_MODULES, ALL_BADGES, type User, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
+import {
+  listUsers, adminCreateUser, adminDeleteUser, adminSetPin,
+  setUserTier, setUserModules, setUserBadges, setUserReferrals,
+  getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
+} from "../lib/userAdmin";
 import { newsStore, broadcastStore, contactStore, type NewsPost, type Broadcast, type ContactSubmission } from "../lib/adminStore";
-import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X } from "lucide-react";
+import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2 } from "lucide-react";
 
 type Tab = "users" | "modules" | "badges" | "broadcasts" | "inbox" | "news" | "settings";
 
@@ -29,8 +34,9 @@ export default function AdminPanel() {
       </div>
 
       <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-3 text-xs text-yellow-200/90 leading-relaxed">
-        <strong>Browser-local data:</strong> users, news, broadcasts and submissions are stored in localStorage on this device.
-        Migrate to a server DB (postgres + drizzle in <code>lib/db</code>) for true multi-device persistence and real push notifications.
+        <strong>Users, badges &amp; settings are server-backed</strong> (Supabase, multi-device).
+        News, broadcasts and the contact inbox are still browser-local on this device — those move to the
+        backend in a later phase.
       </div>
 
       <div className="flex gap-1 border-b border-border flex-wrap">
@@ -76,20 +82,49 @@ function badgeChip(id: string) {
 }
 
 function UsersTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const refresh = () => setUsers(listUsers());
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  function addReferral(id: string) {
-    const all = listUsers().map(u => u.id === id ? { ...u, referrals: u.referrals + 1 } : u);
-    persistUsers(all); refresh();
+  const refresh = useCallback(async () => {
+    try {
+      setUsers(await listUsers());
+      setErr("");
+    } catch {
+      setErr("Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function withBusy(id: string, fn: () => Promise<void>) {
+    setBusyId(id);
+    try { await fn(); } finally { setBusyId(null); }
   }
-  function removeUser(id: string) {
-    if (!confirm("Delete this user?")) return;
-    persistUsers(listUsers().filter(u => u.id !== id)); refresh();
+  async function addReferral(u: User) {
+    await withBusy(u.id, async () => { await setUserReferrals(u.id, u.referrals + 1); await refresh(); });
   }
-  function setTier(id: string, tier: Tier) {
-    persistUsers(listUsers().map(u => u.id === id ? { ...u, tier } : u)); refresh();
+  async function removeUser(u: User) {
+    if (!confirm(`Delete ${u.name}? This permanently removes their account.`)) return;
+    await withBusy(u.id, async () => {
+      const r = await adminDeleteUser(u.id);
+      if (!r.ok) { alert(r.error ?? "Delete failed"); return; }
+      await refresh();
+    });
+  }
+  async function changeTier(u: User, tier: Tier) {
+    await withBusy(u.id, async () => { await setUserTier(u.id, tier); await refresh(); });
+  }
+  async function resetPin(u: User) {
+    const pin = window.prompt(`Enter a new 4-digit PIN for ${u.name}:`);
+    if (pin == null) return;
+    await withBusy(u.id, async () => {
+      const r = await adminSetPin(u.id, pin.trim());
+      alert(r.ok ? "PIN updated." : (r.error ?? "Failed to set PIN"));
+    });
   }
 
   return (
@@ -100,15 +135,22 @@ function UsersTab() {
         </button>
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={refresh} />}
+      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={() => void refresh()} />}
+
+      {err && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{err}</div>}
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h2 className="text-sm font-semibold">All Users ({users.length})</h2>
         </div>
+        {loading ? (
+          <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading users…</div>
+        ) : users.length === 0 ? (
+          <div className="p-6 text-center text-sm text-muted-foreground">No users yet. Create the first account above.</div>
+        ) : (
         <div className="divide-y divide-border">
           {users.map(u => (
-            <div key={u.id} className="p-4 flex flex-wrap items-center gap-3">
+            <div key={u.id} className={`p-4 flex flex-wrap items-center gap-3 ${busyId === u.id ? "opacity-50 pointer-events-none" : ""}`}>
               <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
                 {u.name.split(" ").map(p => p[0]).slice(0, 2).join("")}
               </div>
@@ -118,18 +160,20 @@ function UsersTab() {
                   {u.isAdmin && <span className="px-1.5 py-0.5 rounded text-[9px] bg-yellow-400/15 text-yellow-300 border border-yellow-400/30 uppercase">Admin</span>}
                   {(u.badges ?? []).map(badgeChip)}
                 </div>
-                <div className="text-xs text-muted-foreground">{u.email} · PIN: {u.pin}</div>
+                <div className="text-xs text-muted-foreground">{u.email}</div>
               </div>
-              <select value={u.tier} onChange={e => setTier(u.id, Number(e.target.value) as Tier)}
+              <select value={u.tier} onChange={e => changeTier(u, Number(e.target.value) as Tier)}
                 className="bg-muted/30 border border-border rounded-lg px-2 py-1 text-xs">
                 <option value={1}>Tier 1</option><option value={2}>Tier 2</option><option value={3}>Tier 3</option><option value={4}>Tier 4</option>
               </select>
               <div className="text-xs text-muted-foreground tabular-nums">Refs: <span className="text-yellow-400 font-bold">{u.referrals}</span></div>
-              <button onClick={() => addReferral(u.id)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
-              {!u.isAdmin && <button onClick={() => removeUser(u.id)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
+              <button onClick={() => addReferral(u)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
+              <button onClick={() => resetPin(u)} title="Reset PIN" className="p-1.5 rounded hover:bg-primary/15 text-primary transition-colors"><KeyRound className="w-3.5 h-3.5" /></button>
+              {!u.isAdmin && <button onClick={() => removeUser(u)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );
@@ -143,17 +187,23 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [isAdmin, setIsAdmin] = useState(false);
   const [badges, setBadges] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function toggleBadge(id: string) {
     setBadges(b => b.includes(id) ? b.filter(x => x !== id) : [...b, id]);
   }
 
-  function submit() {
+  async function submit() {
     setError("");
     if (!name.trim()) { setError("Name required"); return; }
-    const result = adminCreateUser({ name: name.trim(), email: email.trim(), pin, tier, isAdmin, badges });
-    if (!result.ok) { setError(result.error ?? "Failed"); return; }
-    onCreated(); onClose();
+    setSubmitting(true);
+    try {
+      const result = await adminCreateUser({ name: name.trim(), email: email.trim(), pin, tier, isAdmin, badges });
+      if (!result.ok) { setError(result.error ?? "Failed"); return; }
+      onCreated(); onClose();
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -192,7 +242,9 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-3 py-1.5 rounded bg-muted/30 border border-border text-sm">Cancel</button>
-          <button onClick={submit} className="px-3 py-1.5 rounded bg-primary/20 border border-primary/40 text-primary text-sm font-semibold">Create</button>
+          <button onClick={submit} disabled={submitting} className="px-3 py-1.5 rounded bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{submitting ? "Creating…" : "Create"}
+          </button>
         </div>
       </div>
     </div>
@@ -200,18 +252,34 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 function ModulesTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
-  const [selectedId, setSelectedId] = useState(users[0]?.id ?? "");
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await listUsers();
+        setUsers(u);
+        setSelectedId(prev => prev || u[0]?.id || "");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
   const selected = users.find(u => u.id === selectedId);
 
-  function toggle(path: string) {
+  async function toggle(path: string) {
     if (!selected) return;
     const enabled = selected.enabledModules.includes(path)
       ? selected.enabledModules.filter(m => m !== path)
       : [...selected.enabledModules, path];
-    const all = users.map(u => u.id === selected.id ? { ...u, enabledModules: enabled } : u);
-    persistUsers(all); setUsers(all);
+    setUsers(prev => prev.map(u => u.id === selected.id ? { ...u, enabledModules: enabled } : u)); // optimistic
+    const r = await setUserModules(selected.id, enabled);
+    if (!r.ok) { alert(r.error ?? "Failed to update modules"); setUsers(await listUsers()); }
   }
+
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
     <div className="grid md:grid-cols-3 gap-4">
@@ -252,20 +320,36 @@ function ModulesTab() {
 }
 
 function BadgesTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
-  const [selectedId, setSelectedId] = useState(users[0]?.id ?? "");
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await listUsers();
+        setUsers(u);
+        setSelectedId(prev => prev || u[0]?.id || "");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
   const selected = users.find(u => u.id === selectedId);
 
-  function toggle(badgeId: string) {
+  async function toggle(badgeId: string) {
     if (!selected) return;
     const next = (selected.badges ?? []).includes(badgeId)
       ? (selected.badges ?? []).filter(b => b !== badgeId)
       : [...(selected.badges ?? []), badgeId];
-    setUserBadges(selected.id, next);
-    setUsers(listUsers());
+    setUsers(prev => prev.map(u => u.id === selected.id ? { ...u, badges: next } : u)); // optimistic
+    const r = await setUserBadges(selected.id, next);
+    if (!r.ok) { alert(r.error ?? "Failed to update badges"); setUsers(await listUsers()); }
   }
 
   const groups: Array<"Role" | "Tier" | "Achievement"> = ["Role", "Tier", "Achievement"];
+
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
     <div className="grid md:grid-cols-3 gap-4">
@@ -314,7 +398,8 @@ function BadgesTab() {
 }
 
 function BroadcastsTab() {
-  const [users] = useState<User[]>(listUsers());
+  const [users, setUsers] = useState<User[]>([]);
+  useEffect(() => { listUsers().then(setUsers).catch(() => setUsers([])); }, []);
   const [items, setItems] = useState<Broadcast[]>(broadcastStore.list());
   const [msg, setMsg] = useState("");
   const [level, setLevel] = useState<"info" | "warning" | "alert">("info");
@@ -460,9 +545,10 @@ function NewsTab({ adminName }: { adminName: string }) {
 }
 
 function SettingsTab() {
-  const [pin, setPin] = useState(getEmergencyPin());
+  const [pin, setPin] = useState("");
   const [savedPin, setSavedPin] = useState(false);
-  const [questions, setQuestions] = useState<SignupQuestion[]>(getQuestions());
+  const [questions, setQuestions] = useState<SignupQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
 
   // New question editor state
   const [qLabel, setQLabel] = useState("");
@@ -474,9 +560,28 @@ function SettingsTab() {
   // Edit state for existing question
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  function saveP() {
+  useEffect(() => {
+    (async () => {
+      try {
+        setPin(await getEmergencyPin());
+        setQuestions(await getQuestions());
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function commit(next: SignupQuestion[]) {
+    setQuestions(next);
+    const r = await saveQuestions(next);
+    if (!r.ok) { alert(r.error ?? "Failed to save questions"); setQuestions(await getQuestions()); }
+  }
+
+  async function saveP() {
     if (!/^\d{4}$/.test(pin)) { alert("PIN must be exactly 4 digits"); return; }
-    saveEmergencyPin(pin); setSavedPin(true); setTimeout(() => setSavedPin(false), 1500);
+    const r = await saveEmergencyPin(pin);
+    if (!r.ok) { alert(r.error ?? "Failed to save PIN"); return; }
+    setSavedPin(true); setTimeout(() => setSavedPin(false), 1500);
   }
   function addQ() {
     if (!qLabel.trim()) return;
@@ -488,19 +593,21 @@ function SettingsTab() {
       placeholder: qPlaceholder.trim() || undefined,
       options: (qType === "select" || qType === "checkbox") ? qOptions.split(",").map(s => s.trim()).filter(Boolean) : undefined,
     };
-    const next = [...questions, q]; setQuestions(next); saveQuestions(next);
+    void commit([...questions, q]);
     setQLabel(""); setQPlaceholder(""); setQOptions(""); setQRequired(false); setQType("text");
   }
   function delQ(id: string) {
     if (!confirm("Delete this question?")) return;
-    const next = questions.filter(q => q.id !== id); setQuestions(next); saveQuestions(next);
+    void commit(questions.filter(q => q.id !== id));
   }
+  // Local-only edit; persisted when the admin clicks "Done" (avoids a write per keystroke).
   function updateQ(id: string, patch: Partial<SignupQuestion>) {
-    const next = questions.map(q => q.id === id ? { ...q, ...patch } : q);
-    setQuestions(next); saveQuestions(next);
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, ...patch } : q));
   }
 
   const isCore = (id: string) => ["name", "email", "pin", "tier"].includes(id);
+
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
     <div className="space-y-4">
@@ -556,7 +663,7 @@ function SettingsTab() {
                       <input value={(q.options ?? []).join(", ")} onChange={e => updateQ(q.id, { options: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} placeholder="Option A, Option B, Option C" className="w-full bg-card border border-border rounded px-2 py-1 text-xs" />
                     )}
                     <div className="flex justify-end">
-                      <button onClick={() => setEditingId(null)} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Done</button>
+                      <button onClick={() => { setEditingId(null); void commit(questions); }} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Done</button>
                     </div>
                   </div>
                 )}

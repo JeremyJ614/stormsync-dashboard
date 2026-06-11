@@ -127,19 +127,28 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       → `src/components/ModuleStatus.tsx` (`<ModuleState>`, `ModuleError/Empty/Loading`)
 - [x] Bonus: added `.gitignore` (none existed — `.env`/`node_modules` were untracked-risk)
 
-### ☐ Phase 1 — Backend Migration: Render → Supabase (KEYSTONE)
-- [ ] **1A Schema** (RLS + indexes on all): `profiles`, `tiers`, `addons`,
-      `tier_addons`, `badges`, `user_badges`, `saved_locations`, `loyalty_points`,
-      `loyalty_rules`, `referrals`, `app_config` (versioned *L2*), `push_subscriptions`,
-      `weather_cache`, `news_posts`, `signup_form_fields`, `game_*`, `contact_pins`
-  - Note: **tiers are admin-assigned** (no payment processor in Beta — see §7.4);
-    `profiles.tier_id` is set/managed from the admin panel.
-- [ ] **1B Auth** migration off localStorage → Supabase Auth *(U-pervasive, L2)*
-- [ ] **1C Data-proxy Edge Functions** (cached, rate-limited, retrying *L2*):
-      `nws-proxy`, `spc-proxy`, `storm-reports`, `mrms-proxy`, tile/image cache *L2*
-- [ ] Point frontend at Edge Functions; **remove `VITE_API_URL` / Render entirely**
-- [ ] Verify Forecast Discussion (U-03), SSWXCon (U-05), Warning Center (U-06) load real data
-- [ ] Run `get_advisors` (security + performance) and resolve findings
+### ◐ Phase 1 — Backend Migration: Render → Supabase (KEYSTONE) — IN PROGRESS
+- [x] **1A Schema** (RLS + indexes on all) — migration `phase1_core_schema` on
+      `stormsync-vip`: `profiles`, `app_config` (versioned *L2*), `badge_defs`,
+      `signup_questions`, `news_posts`, `broadcasts`/`broadcast_seen`,
+      `contact_submissions`, `game_guesses`/`game_winners`, `saved_locations`,
+      `loyalty_events`, `referrals`, `push_subscriptions`, `weather_cache`.
+      Auto-profile trigger + tier-escalation guard; seeds for tier_modules,
+      emergency_pin, loyalty_rules, badges, signup questions. **Tiers admin-assigned**
+      (no payment processor — §7.4). Source: `supabase/README.md`.
+- [x] **1A Security hardening** — `phase1_security_hardening`; advisors down to 3
+      intentional notices (Decision Log). RLS on every table.
+- [x] **1C Data-proxy Edge Function** `weather` (`supabase/functions/weather/index.ts`):
+      NWS points/alerts/forecast, SPC storm-reports, SPC outlook GeoJSON; best-effort
+      cache; CORS; SSRF-guard. **Verified live** (258 alerts, real storm reports, SPC polygons).
+- [x] Pointed frontend at the Edge Function (`src/config.ts`; legacy `VITE_API_URL` kept
+      only as fallback). Typecheck + build green.
+- [x] Ran `get_advisors` (security) — all resolved except 3 intentional.
+- [ ] **1B Auth** migration off localStorage → Supabase Auth *(U-pervasive, L2)* — **NEXT**;
+      needs a decision on PIN→password (keep email + 4-digit PIN vs. email + password)
+- [ ] In the running app, confirm Forecast Discussion (U-03), SSWXCon (U-05), Warning
+      Center (U-06), SPC (U-07), Thunder (U-11) now render real data
+- [ ] Remove legacy `VITE_API_URL`/Render references entirely (after 1B verified)
 
 ### ☐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)*
 - [ ] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default)
@@ -265,6 +274,8 @@ Fair but not easy. All values editable from the admin panel.
 > All three were **pre-existing** (surfaced the moment the CI `tsc` gate was added in
 > Phase 0). The new CI workflow now blocks any future type regression on push/PR.
 
+| F-04 | National alerts returned HTTP 400 | Warning Center / all-US alerts (U-06) | New `weather` proxy mirrored the legacy `/alerts/active?limit=500`; NWS has **removed** the `limit` parameter ("not recognized") | Don't assume legacy upstream params still exist — verify against the live API | Dropped `limit`; use `/alerts/active?status=actual` (returns all active alerts). Verified 258 features |
+
 ### Discovered during investigation (awaiting their phase)
 | ID | What needed fixing | What it does (the module) | Why it happened | What we learned | Fix (when done) |
 |---|---|---|---|---|---|
@@ -299,3 +310,11 @@ features tracked in the Phase Checklist; they move into this log if a regression
   handles payment at setup meeting and assigns tiers in the admin panel.
 - **2026-06-10** — Anthropic API key to be provisioned; stored in Edge Function secrets.
 - **2026-06-10** — Forecast Game points set to 35/25/15/10.
+- **2026-06-10 (Phase 1)** — `weather` Edge Function deployed with `verify_jwt = false`:
+  it proxies only PUBLIC NOAA/NWS/SPC data and writes solely to a service-role cache, so
+  it is intentionally public (matches the frontend's header-less `fetch` calls).
+- **2026-06-10 (Phase 1)** — Accepted 3 security-advisor notices as intentional:
+  `weather_cache` (service-role-only, RLS-on-no-policy), `contact_submissions` anon INSERT
+  (public contact form), `check_emergency_pin` callable by authenticated (members verify PIN).
+- **2026-06-10 (Phase 1)** — Internal helpers `is_admin`/`modules_for_tier` moved to a
+  non-REST-exposed `private` schema; policies resolve them by OID and keep working.

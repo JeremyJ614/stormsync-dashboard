@@ -1,8 +1,51 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { useAuth, type Tier } from "../hooks/useAuth";
+import { useAuth, type SignupQuestion } from "../hooks/useAuth";
+import { getQuestions } from "../lib/userAdmin";
 import { LogIn, UserPlus, Lock, Mail, User as UserIcon, AlertCircle } from "lucide-react";
 const logoUrl = "/logo.png";
+
+// These are rendered natively above; only admin-added questions render dynamically.
+const CORE_QUESTION_IDS = ["name", "email", "pin", "tier"];
+
+function CustomQuestionField({ q, value, onChange }: { q: SignupQuestion; value: string; onChange: (v: string) => void }) {
+  const base = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
+  return (
+    <label className="block">
+      <span className="text-xs text-muted-foreground uppercase tracking-widest mb-1 block">
+        {q.label}{q.required ? " *" : ""}
+      </span>
+      {q.type === "textarea" ? (
+        <textarea value={value} onChange={e => onChange(e.target.value)} required={q.required}
+          placeholder={q.placeholder} rows={3} className={`${base} resize-none`} />
+      ) : q.type === "select" ? (
+        <select value={value} onChange={e => onChange(e.target.value)} required={q.required} className={base}>
+          <option value="">— select —</option>
+          {(q.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : q.type === "checkbox" ? (
+        <div className="space-y-1.5">
+          {(q.options ?? []).map(o => {
+            const selected = value ? value.split(", ") : [];
+            const on = selected.includes(o);
+            return (
+              <label key={o} className="flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={on} onChange={() => {
+                  const next = on ? selected.filter(x => x !== o) : [...selected, o];
+                  onChange(next.join(", "));
+                }} />
+                {o}
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <input value={value} onChange={e => onChange(e.target.value)} required={q.required}
+          type={q.type} placeholder={q.placeholder} className={base} />
+      )}
+    </label>
+  );
+}
 
 export default function Login() {
   const [, navigate] = useLocation();
@@ -11,10 +54,18 @@ export default function Login() {
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
   const [name, setName] = useState("");
-  const [tier, setTier] = useState<Tier>(2);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [customQuestions, setCustomQuestions] = useState<SignupQuestion[]>([]);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+
+  // Admin-defined signup questions (the Signups tab in the admin panel edits these).
+  useEffect(() => {
+    getQuestions()
+      .then(qs => setCustomQuestions(qs.filter(q => !CORE_QUESTION_IDS.includes(q.id))))
+      .catch(() => setCustomQuestions([]));
+  }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,7 +78,13 @@ export default function Login() {
         if (!r.ok) { setError(r.error || "Login failed"); return; }
         navigate("/");
       } else {
-        const r = await signup({ name, email, pin, tier });
+        // Keyed by question label so answers stay readable if questions are later edited.
+        const customAnswers: Record<string, string> = {};
+        for (const q of customQuestions) {
+          if (q.required && !(answers[q.id] ?? "").trim()) { setError(`"${q.label}" is required`); return; }
+          if ((answers[q.id] ?? "").trim()) customAnswers[q.label] = answers[q.id].trim();
+        }
+        const r = await signup({ name, email, pin, customAnswers });
         if (!r.ok) { setError(r.error || "Signup failed"); return; }
         if (r.needsConfirmation) {
           setNotice("Account created. Check your email to confirm it, then log in with your PIN.");
@@ -80,18 +137,15 @@ export default function Login() {
               type="password" inputMode="numeric" pattern="[0-9]{4}" maxLength={4}
               className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 tracking-[1em] text-center font-mono" />
           </label>
+          {mode === "signup" && customQuestions.map(q => (
+            <CustomQuestionField key={q.id} q={q} value={answers[q.id] ?? ""}
+              onChange={v => setAnswers(a => ({ ...a, [q.id]: v }))} />
+          ))}
           {mode === "signup" && (
-            <label className="block">
-              <span className="text-xs text-muted-foreground uppercase tracking-widest mb-1 block">Choose Tier</span>
-              <select value={tier} onChange={e => setTier(Number(e.target.value) as Tier)}
-                className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40">
-                <option value={1}>Tier 1 — Essentials</option>
-                <option value={2}>Tier 2 — Core Severe</option>
-                <option value={3}>Tier 3 — Pro</option>
-                <option value={4}>Tier 4 — Elite</option>
-              </select>
-              <p className="text-[10px] text-muted-foreground mt-1">Your assigned tier unlocks a default module set. Admin can adjust your access anytime.</p>
-            </label>
+            <p className="text-[10px] text-muted-foreground leading-relaxed">
+              New accounts start at <strong className="text-foreground">Tier 1</strong>. Your tier is
+              upgraded by a StormSync admin after your membership is set up.
+            </p>
           )}
           {error && (
             <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2 text-xs text-red-300">

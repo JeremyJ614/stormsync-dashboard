@@ -37,19 +37,6 @@ export interface BadgeDef {
   group: "Role" | "Tier" | "Achievement";
 }
 
-export const ALL_BADGES: BadgeDef[] = [
-  { id: "sswx-member", label: "SSWX Member", color: "#7B8FD9", description: "Verified StormSync community member.", group: "Role" },
-  { id: "sswx-dept-head", label: "Department Head", color: "#22d3ee", description: "Leads a department within StormSync Media.", group: "Role" },
-  { id: "sswx-exec-board", label: "Executive Board", color: "#fde047", description: "Member of the SSWX Executive Board.", group: "Role" },
-  { id: "tier-1", label: "Tier 1", color: "#94a3b8", description: "Tier 1 subscriber.", group: "Tier" },
-  { id: "tier-2", label: "Tier 2", color: "#22d3ee", description: "Tier 2 subscriber.", group: "Tier" },
-  { id: "tier-3", label: "Tier 3", color: "#a855f7", description: "Tier 3 subscriber.", group: "Tier" },
-  { id: "tier-4", label: "Tier 4 Elite", color: "#fde047", description: "Tier 4 elite subscriber with emergency line access.", group: "Tier" },
-  { id: "founder", label: "Founder", color: "#fb923c", description: "Founding member of StormSync Media.", group: "Achievement" },
-  { id: "storm-chaser", label: "Storm Chaser", color: "#ef4444", description: "Active field storm chaser.", group: "Achievement" },
-  { id: "spotter", label: "Trained Spotter", color: "#4ade80", description: "Skywarn trained severe weather spotter.", group: "Achievement" },
-];
-
 export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = [
   { id: "/", label: "Home", alwaysOn: true },
   { id: "/dashboard", label: "Dashboard" },
@@ -86,11 +73,12 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/contact", label: "Contact", alwaysOn: true },
 ];
 
+// Core questions are rendered natively by the signup form; tier is intentionally
+// absent — tiers are admin-assigned (§7.4 / D-01), never self-selected.
 export const DEFAULT_QUESTIONS: SignupQuestion[] = [
   { id: "name", label: "Full Name", required: true, type: "text" },
   { id: "email", label: "Email Address", required: true, type: "email" },
   { id: "pin", label: "4-Digit PIN", required: true, type: "text" },
-  { id: "tier", label: "Tier", required: true, type: "select", options: ["1", "2", "3", "4"] },
 ];
 
 /**
@@ -226,15 +214,17 @@ export function useAuth() {
     return { ok: true };
   }, []);
 
+  // Self-signup never carries a tier — new accounts start at Tier 1 and an admin
+  // raises them (the DB trigger ignores any client-supplied tier; see D-01).
   const signup = useCallback(
-    async (data: { name: string; email: string; pin: string; tier: Tier }): Promise<AuthResult> => {
+    async (data: { name: string; email: string; pin: string; customAnswers?: Record<string, string> }): Promise<AuthResult> => {
       if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
       if (!/^\d{4}$/.test(data.pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(data.email)) return { ok: false, error: "Invalid email" };
       const { data: result, error } = await supabase.auth.signUp({
         email: data.email.trim(),
         password: pinToPassword(data.pin),
-        options: { data: { name: data.name.trim(), tier: data.tier } },
+        options: { data: { name: data.name.trim(), custom_answers: data.customAnswers ?? {} } },
       });
       if (error) return { ok: false, error: error.message };
       if (!result.session) return { ok: true, needsConfirmation: true };

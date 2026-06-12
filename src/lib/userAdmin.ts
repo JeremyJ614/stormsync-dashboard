@@ -89,8 +89,14 @@ async function updateProfile(id: string, patch: Record<string, unknown>): Promis
   return { ok: true };
 }
 
-export function setUserTier(id: string, tier: Tier): Promise<MutationResult> {
-  return updateProfile(id, { tier });
+/** Assigning a tier also resets the user's modules to that tier's default set. */
+export async function setUserTier(id: string, tier: Tier): Promise<MutationResult> {
+  const { error } = await supabase.rpc("admin_set_user_tier", { uid: id, new_tier: tier });
+  if (error) {
+    logger.error("Failed to set tier", { scope: "admin", error });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true };
 }
 
 export function setUserModules(id: string, enabledModules: string[]): Promise<MutationResult> {

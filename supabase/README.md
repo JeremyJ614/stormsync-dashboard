@@ -26,14 +26,28 @@ Applied so far (Phase 1A):
    non-exposed `private` schema (policies still resolve them by OID; RPC endpoints
    removed), locked trigger-only functions, restricted `check_emergency_pin` to members.
 
+3. **`phase1b_signup_tier_lockdown`** — D-01 fix: `handle_new_user` no longer reads
+   `tier` from client metadata (always Tier 1; admin email exception). The `tier`
+   signup question row was deleted (tiers are admin-assigned).
+4. **`phase1b_admin_set_user_tier_rpc`** — `public.admin_set_user_tier(uid, new_tier)`:
+   admin-guarded; sets the tier AND refreshes `enabled_modules` to the tier's defaults.
+   Used by the admin panel tier dropdown and the `admin-users` create flow.
+5. **`phase1b_admin_delete_badge_rpc`** — `public.admin_delete_badge(badge_id)`:
+   admin-guarded; deletes the `badge_defs` row and strips the id from every profile's
+   `badges` array atomically (no dangling ids).
+
 ### Helper functions
 - `private.is_admin()` — used by RLS policies; returns true for the row owner-admin or service role.
 - `public.check_emergency_pin(text)` — members verify the emergency line PIN without ever reading it.
+- `public.admin_set_user_tier(uuid, int)` / `public.admin_delete_badge(text)` — admin-only RPCs (above).
 
 ### Accepted advisor notices (intentional)
 - `weather_cache` has RLS on with no policy → service-role-only by design.
 - `contact_submissions` allows anonymous INSERT → public contact form by design.
-- `check_emergency_pin` callable by authenticated → members verify the PIN by design.
+- `check_emergency_pin`, `admin_set_user_tier`, `admin_delete_badge` callable by
+  authenticated → all internally guarded (`is_admin()` for the admin RPCs); verified
+  non-admin calls fail with "admin only".
+- Leaked-password protection disabled → conflicts with the PIN-derived password scheme.
 
 ## Edge Functions
 
@@ -47,7 +61,8 @@ Routes: `/nws/points`, `/nws/alerts`, `/nws/forecast`, `/spc/storm-reports`,
 Admin-only, **privileged** auth operations that need the service role (Phase 1B).
 `verify_jwt = true`, and the body additionally re-checks the caller is an admin
 (`profiles.is_admin`). POST `{ action, ... }`:
-- `create` — `auth.admin.createUser` (email pre-confirmed) + admin-only profile fields.
+- `create` — `auth.admin.createUser` (email pre-confirmed); profile lands Tier 1 via the
+  trigger, then the requested tier is applied with `admin_set_user_tier` + admin-only fields.
 - `delete` — `auth.admin.deleteUser` (profile cascades; the seed admin is protected).
 - `set-pin` — `auth.admin.updateUserById` password reset.
 

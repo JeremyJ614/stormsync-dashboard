@@ -80,14 +80,21 @@ async function handleCreate(body: CreateBody): Promise<Response> {
 
   // Create the auth user with email pre-confirmed (admin-provisioned). The
   // `handle_new_user` trigger creates the matching profile row from this metadata.
+  // Tier is NOT read from metadata (D-01 hardening) — every new profile starts at
+  // Tier 1, so we assign the requested tier (+ its module set) right after.
   const { data: created, error: createErr } = await admin.auth.admin.createUser({
     email,
     password: pinToPassword(pin),
     email_confirm: true,
-    user_metadata: { name, tier, custom_answers: body.customAnswers ?? {} },
+    user_metadata: { name, custom_answers: body.customAnswers ?? {} },
   });
   if (createErr || !created.user) {
     return json({ ok: false, error: createErr?.message ?? "Could not create user" });
+  }
+
+  if (tier !== 1) {
+    const { error: tierErr } = await admin.rpc("admin_set_user_tier", { uid: created.user.id, new_tier: tier });
+    if (tierErr) return json({ ok: false, error: tierErr.message });
   }
 
   // Apply admin-only fields the signup trigger doesn't set from metadata.

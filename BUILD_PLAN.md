@@ -160,10 +160,29 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       **Verified end-to-end** (admin login, create→member login, non-admin create blocked 403,
       RLS scoping, set-pin, delete-cascade). Typecheck + build green.
       *(News/broadcasts/contact-inbox remain localStorage — they belong to Phase 7.)*
-- [ ] In the running app (browser), confirm login/signup, admin panel CRUD, and that
-      Forecast Discussion (U-03), SSWXCon (U-05), Warning Center (U-06), SPC (U-07),
-      Thunder (U-11) render real data
-- [ ] Remove legacy `VITE_API_URL`/Render references entirely (after in-app verify)
+- [x] **In-app browser verification (DONE 2026-06-11)** — drove the real UI headless
+      (Chromium/Playwright vs the Vite dev server + live Supabase): login/signup flows,
+      admin panel CRUD (users, badges, signups), profile, gating. Module data checks:
+      **U-03** real NWS AFD renders (AI plain-language tab still pending Phase 2) ·
+      **U-05** SSWXCon live (score 9.4, real alert counts, auto-refresh) ·
+      **U-06** real storm reports (13 torn/37 hail/353 wind — "always 0" bug gone) ·
+      **U-07** live SPC risk polygons render · **U-11** map renders but the
+      `day1probotlk_torn` overlay had 0 upstream features at test time — module is
+      already slated for the Phase 3 rebuild ("likely built wrong").
+      Note: the U-29 weather-news 404 (`/news/weather` route not implemented in the
+      `weather` proxy) confirmed pre-existing, still pending Phase 5.
+- [x] **D-01 self-signup tier escalation FIXED** (2026-06-11) — see Fix Log F-06.
+- [x] **U-27 Badge system pulled forward & DONE** (2026-06-11) — admin Badge Library
+      CRUD (create/edit/delete) with hex color picker + live glowing-badge preview;
+      `admin_delete_badge` RPC strips deleted ids from every profile; badges render
+      glowing in admin lists and on user profiles. *(SVG icons: not included — revisit
+      post-Beta if wanted.)*
+- [x] **Signups admin area (U-24 first pass) DONE** (2026-06-11) — dedicated "Signups"
+      tab: question builder (add/edit/delete/reorder) and the questions now **render
+      live on the public signup form**, with answers stored to the member's profile
+      (`custom_answers`). Tier question removed (admin-assigned). Richer styling/branding
+      for the form builder can still grow in Phase 7.
+- [ ] Remove legacy `VITE_API_URL`/Render references entirely
 
 ### ☐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)*
 - [ ] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default)
@@ -205,8 +224,9 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [ ] **L1** "My Locations" — save/switch multiple places everywhere
 - [ ] **U-21** Loyalty Dashboard: admin-configurable; points for referrals *(L1)*, renewals,
       game wins; prizes = discounts/coupons; fair-but-not-easy point system (proposed below)
-- [ ] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
-      color picker**; SVG icons if cheaply available
+- [x] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
+      color picker** — **DONE EARLY in Phase 1B follow-up (2026-06-11)**; SVG icons
+      deferred post-Beta
 - [ ] **U-28** Richer, less-boring user profiles
 - [ ] **U-23** Emergency Storm Contact → "SSWX Emergency Storm Contact — Direct
       Administrative Line"; remove personal phone from description; correct PIN opens a
@@ -214,7 +234,9 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [ ] **U-22** FAQ / Module Guide: remove tier correlation; explain modules + add-ons only
 
 ### ☐ Phase 7 — Admin & Content Tools
-- [ ] **U-24** Admin: signup-form builder (custom questions/fields, its own section, richer)
+- [◐] **U-24** Admin: signup-form builder (custom questions/fields, its own section, richer)
+      — **first pass done 2026-06-11** (own "Signups" tab; questions render live on the
+      public signup form; reorder/edit/delete). "Richer" polish can continue here.
 - [ ] **U-25** SSWX News: robust rich-text editor
 - [ ] **U-21/U-27** Admin sections for Loyalty rules + Badges CRUD
 - [ ] **L2** Versioned `app_config`: change tiers/modules/points without redeploy
@@ -294,6 +316,7 @@ Fair but not easy. All values editable from the admin panel.
 
 | F-04 | National alerts returned HTTP 400 | Warning Center / all-US alerts (U-06) | New `weather` proxy mirrored the legacy `/alerts/active?limit=500`; NWS has **removed** the `limit` parameter ("not recognized") | Don't assume legacy upstream params still exist — verify against the live API | Dropped `limit`; use `/alerts/active?status=actual` (returns all active alerts). Verified 258 features |
 | F-05 | Hand-seeded admin login failed with `Database error querying schema` (HTTP 500) | Supabase Auth sign-in for the seed admin (Phase 1B) | When inserting the admin straight into `auth.users` via SQL, GoTrue's token columns (`confirmation_token`, `recovery_token`, `email_change*`, `phone_change*`, `reauthentication_token`) were left `NULL`; GoTrue can't scan `NULL` into Go strings | Manually-seeded auth users must set those token columns to `''`, not `NULL` (the admin API does this automatically — only raw SQL inserts are affected) | `coalesce(...,'')` on all token columns for the seed row; login then returns a token. Users created via the `admin-users` function / `signUp` are unaffected |
+| F-06 (was D-01) | Self-signup could pick **any tier** (incl. Tier 4); worse, raw API callers could put `tier`/`is_admin` in signup metadata | Public signup / tier assignment | The signup trigger trusted client-supplied `raw_user_meta_data->>'tier'`, carried over from the localStorage version; `auth.signUp` metadata is fully client-controlled | **Never derive privilege from client metadata** — the UI hiding a field doesn't stop a raw API call | Migration `phase1b_signup_tier_lockdown`: trigger now hard-codes Tier 1 (admin email exception only); tier picker removed from the signup form; admins assign tiers via new `admin_set_user_tier` RPC (also refreshes the tier's module set). **Verified by attack**: signup requesting tier 4 + is_admin landed Tier 1/non-admin |
 
 ### Discovered during investigation (awaiting their phase)
 | ID | What needed fixing | What it does (the module) | Why it happened | What we learned | Fix (when done) |
@@ -311,7 +334,8 @@ Fair but not easy. All values editable from the admin panel.
 | U-20 | Forecast Game not working / wrong design | Daily prediction game | Built incorrectly; no backend | — | _pending Phase 2/4_ |
 | U-29 | Weather news broken + page stretch | Weather news feed | Data source + CSS overflow | — | _pending Phase 5_ |
 | U-13 | MRMS subtabs not working | MRMS radar products | Proxy/config | — | _pending Phase 5_ |
-| D-01 | Self-signup lets a user pick **any tier** (incl. Tier 4) and the `handle_new_user` trigger trusts it | Public signup tier selection (Login page) | Pre-existing behavior carried over from the localStorage version; the `protect_profile_columns` guard only covers UPDATEs, not the INSERT trigger | Privilege should not be self-granted; per §7.4 tiers are admin-assigned, so the signup tier picker is legacy | **Awaiting approval** — preserved current behavior to avoid scope creep. Proposed fix: force self-signup to Tier 1 and let admins raise it |
+
+*(D-01 was approved 2026-06-11 and fixed — moved to the Fixed table as **F-06**.)*
 
 *(Remaining U-items 01,02,04,09,10,12,14,15,21,22,23,24,25,26,27,28 are redesigns/new
 features tracked in the Phase Checklist; they move into this log if a regression/bug arises.)*
@@ -346,3 +370,12 @@ features tracked in the Phase Checklist; they move into this log if a regression
   non-privileged profile edits (tier/modules/badges/referrals) go direct via RLS.
 - **2026-06-11 (Phase 1B)** — `auth_leaked_password_protection` (HaveIBeenPwned) left
   **disabled**: it would conflict with the PIN-derived password scheme. Accepted.
+- **2026-06-11 (Phase 1B follow-up)** — Jeremy approved: fix D-01 now, pull U-27 badge
+  CRUD forward, and give signups a dedicated admin area. All three done & verified.
+- **2026-06-11 (Phase 1B follow-up)** — New admin RPCs `admin_set_user_tier` (tier change
+  also refreshes the module set) and `admin_delete_badge` (deletes a def + strips the id
+  from all profiles). Both `SECURITY DEFINER` with an internal `is_admin()` guard —
+  the resulting two security-advisor notices are **intentional** (same pattern as
+  `check_emergency_pin`; verified non-admins get "admin only").
+- **2026-06-11 (Phase 1B follow-up)** — Tier is no longer a signup question (row deleted);
+  signup answers are stored keyed by question label in `profiles.custom_answers`.

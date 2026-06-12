@@ -51,7 +51,7 @@ export default function Forecast({ location }: Props) {
     sunset: daily!.sunset?.[i],
   })) ?? [];
 
-  const nwsPeriods = (Array.isArray(nwsForecast) ? nwsForecast : ((nwsForecast as unknown as { properties?: { periods?: unknown[] } })?.properties?.periods ?? [])).slice(0, 14);
+  const nwsPeriods = (Array.isArray(nwsForecast) ? nwsForecast : ((nwsForecast as unknown as { properties?: { periods?: unknown[] } })?.properties?.periods ?? [])).slice(0, 14) as Array<{ name: string; temperature: number; temperatureUnit: string; windSpeed: string; windDirection: string; shortForecast: string; detailedForecast: string }>;
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -112,7 +112,7 @@ export default function Forecast({ location }: Props) {
                 <h3 className="text-sm font-semibold">NWS Official Forecast</h3>
               </div>
               <div className="divide-y divide-border">
-                {nwsPeriods.map((period: { name: string; temperature: number; temperatureUnit: string; windSpeed: string; windDirection: string; shortForecast: string; detailedForecast: string }, i: number) => (
+                {nwsPeriods.map((period, i: number) => (
                   <div key={i} className="px-4 py-3">
                     <div className="flex items-center justify-between mb-1">
                       <span className="text-sm font-medium">{period.name}</span>

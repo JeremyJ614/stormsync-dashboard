@@ -1,14 +1,24 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
-import { useAuth, listUsers, persistUsers, adminCreateUser, setUserBadges, ALL_MODULES, ALL_BADGES, getEmergencyPin, saveEmergencyPin, getQuestions, saveQuestions, type User, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
+import { useAuth, ALL_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
+import {
+  listUsers, adminCreateUser, adminDeleteUser, adminSetPin,
+  setUserTier, setUserModules, setUserBadges, setUserReferrals,
+  getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
+} from "../lib/userAdmin";
+import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
+import { BadgeChip } from "../components/BadgeChip";
 import { newsStore, broadcastStore, contactStore, type NewsPost, type Broadcast, type ContactSubmission } from "../lib/adminStore";
-import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X } from "lucide-react";
+import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 
-type Tab = "users" | "modules" | "badges" | "broadcasts" | "inbox" | "news" | "settings";
+type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "news" | "settings";
 
 export default function AdminPanel() {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("users");
+  const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
+  const reloadBadges = useCallback(() => { listBadgeDefs().then(setBadgeDefs).catch(() => {}); }, []);
+  useEffect(() => { reloadBadges(); }, [reloadBadges]);
 
   if (!user || !user.isAdmin) {
     return (
@@ -29,8 +39,9 @@ export default function AdminPanel() {
       </div>
 
       <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-3 text-xs text-yellow-200/90 leading-relaxed">
-        <strong>Browser-local data:</strong> users, news, broadcasts and submissions are stored in localStorage on this device.
-        Migrate to a server DB (postgres + drizzle in <code>lib/db</code>) for true multi-device persistence and real push notifications.
+        <strong>Users, badges &amp; settings are server-backed</strong> (Supabase, multi-device).
+        News, broadcasts and the contact inbox are still browser-local on this device — those move to the
+        backend in a later phase.
       </div>
 
       <div className="flex gap-1 border-b border-border flex-wrap">
@@ -38,6 +49,7 @@ export default function AdminPanel() {
           { id: "users", label: "Users", icon: Users },
           { id: "modules", label: "Module Access", icon: Settings },
           { id: "badges", label: "Badges", icon: Award },
+          { id: "signups", label: "Signups", icon: ClipboardList },
           { id: "broadcasts", label: "Send Notification", icon: Bell },
           { id: "inbox", label: "Contact Inbox", icon: Mail },
           { id: "news", label: "SSWX News", icon: Newspaper },
@@ -54,9 +66,10 @@ export default function AdminPanel() {
         })}
       </div>
 
-      {tab === "users" && <UsersTab />}
+      {tab === "users" && <UsersTab badgeDefs={badgeDefs} />}
       {tab === "modules" && <ModulesTab />}
-      {tab === "badges" && <BadgesTab />}
+      {tab === "badges" && <BadgesTab badgeDefs={badgeDefs} reloadBadges={reloadBadges} />}
+      {tab === "signups" && <SignupsTab />}
       {tab === "broadcasts" && <BroadcastsTab />}
       {tab === "inbox" && <InboxTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
@@ -65,31 +78,50 @@ export default function AdminPanel() {
   );
 }
 
-function badgeChip(id: string) {
-  const b = ALL_BADGES.find(x => x.id === id);
-  if (!b) return null;
-  return (
-    <span key={id} className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest border" style={{ background: b.color + "20", color: b.color, borderColor: b.color + "60" }} title={b.description}>
-      {b.label}
-    </span>
-  );
-}
-
-function UsersTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
+function UsersTab({ badgeDefs }: { badgeDefs: BadgeDef[] }) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState("");
   const [showCreate, setShowCreate] = useState(false);
-  const refresh = () => setUsers(listUsers());
+  const [busyId, setBusyId] = useState<string | null>(null);
 
-  function addReferral(id: string) {
-    const all = listUsers().map(u => u.id === id ? { ...u, referrals: u.referrals + 1 } : u);
-    persistUsers(all); refresh();
+  const refresh = useCallback(async () => {
+    try {
+      setUsers(await listUsers());
+      setErr("");
+    } catch {
+      setErr("Failed to load users.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function withBusy(id: string, fn: () => Promise<void>) {
+    setBusyId(id);
+    try { await fn(); } finally { setBusyId(null); }
   }
-  function removeUser(id: string) {
-    if (!confirm("Delete this user?")) return;
-    persistUsers(listUsers().filter(u => u.id !== id)); refresh();
+  async function addReferral(u: User) {
+    await withBusy(u.id, async () => { await setUserReferrals(u.id, u.referrals + 1); await refresh(); });
   }
-  function setTier(id: string, tier: Tier) {
-    persistUsers(listUsers().map(u => u.id === id ? { ...u, tier } : u)); refresh();
+  async function removeUser(u: User) {
+    if (!confirm(`Delete ${u.name}? This permanently removes their account.`)) return;
+    await withBusy(u.id, async () => {
+      const r = await adminDeleteUser(u.id);
+      if (!r.ok) { alert(r.error ?? "Delete failed"); return; }
+      await refresh();
+    });
+  }
+  async function changeTier(u: User, tier: Tier) {
+    await withBusy(u.id, async () => { await setUserTier(u.id, tier); await refresh(); });
+  }
+  async function resetPin(u: User) {
+    const pin = window.prompt(`Enter a new 4-digit PIN for ${u.name}:`);
+    if (pin == null) return;
+    await withBusy(u.id, async () => {
+      const r = await adminSetPin(u.id, pin.trim());
+      alert(r.ok ? "PIN updated." : (r.error ?? "Failed to set PIN"));
+    });
   }
 
   return (
@@ -100,15 +132,22 @@ function UsersTab() {
         </button>
       </div>
 
-      {showCreate && <CreateUserModal onClose={() => setShowCreate(false)} onCreated={refresh} />}
+      {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => void refresh()} />}
+
+      {err && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{err}</div>}
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <h2 className="text-sm font-semibold">All Users ({users.length})</h2>
         </div>
+        {loading ? (
+          <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading users…</div>
+        ) : users.length === 0 ? (
+          <div className="p-6 text-center text-sm text-muted-foreground">No users yet. Create the first account above.</div>
+        ) : (
         <div className="divide-y divide-border">
           {users.map(u => (
-            <div key={u.id} className="p-4 flex flex-wrap items-center gap-3">
+            <div key={u.id} className={`p-4 flex flex-wrap items-center gap-3 ${busyId === u.id ? "opacity-50 pointer-events-none" : ""}`}>
               <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
                 {u.name.split(" ").map(p => p[0]).slice(0, 2).join("")}
               </div>
@@ -116,26 +155,29 @@ function UsersTab() {
                 <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
                   {u.name}
                   {u.isAdmin && <span className="px-1.5 py-0.5 rounded text-[9px] bg-yellow-400/15 text-yellow-300 border border-yellow-400/30 uppercase">Admin</span>}
-                  {(u.badges ?? []).map(badgeChip)}
+                  {(u.badges ?? []).map(id => <BadgeChip key={id} id={id} defs={badgeDefs} />)}
                 </div>
-                <div className="text-xs text-muted-foreground">{u.email} · PIN: {u.pin}</div>
+                <div className="text-xs text-muted-foreground">{u.email}</div>
               </div>
-              <select value={u.tier} onChange={e => setTier(u.id, Number(e.target.value) as Tier)}
+              <select value={u.tier} onChange={e => changeTier(u, Number(e.target.value) as Tier)}
+                title="Changing tier resets the user's modules to that tier's defaults"
                 className="bg-muted/30 border border-border rounded-lg px-2 py-1 text-xs">
                 <option value={1}>Tier 1</option><option value={2}>Tier 2</option><option value={3}>Tier 3</option><option value={4}>Tier 4</option>
               </select>
               <div className="text-xs text-muted-foreground tabular-nums">Refs: <span className="text-yellow-400 font-bold">{u.referrals}</span></div>
-              <button onClick={() => addReferral(u.id)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
-              {!u.isAdmin && <button onClick={() => removeUser(u.id)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
+              <button onClick={() => addReferral(u)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
+              <button onClick={() => resetPin(u)} title="Reset PIN" className="p-1.5 rounded hover:bg-primary/15 text-primary transition-colors"><KeyRound className="w-3.5 h-3.5" /></button>
+              {!u.isAdmin && <button onClick={() => removeUser(u)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
             </div>
           ))}
         </div>
+        )}
       </div>
     </div>
   );
 }
 
-function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+function CreateUserModal({ badgeDefs, onClose, onCreated }: { badgeDefs: BadgeDef[]; onClose: () => void; onCreated: () => void }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [pin, setPin] = useState("");
@@ -143,17 +185,23 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
   const [isAdmin, setIsAdmin] = useState(false);
   const [badges, setBadges] = useState<string[]>([]);
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   function toggleBadge(id: string) {
     setBadges(b => b.includes(id) ? b.filter(x => x !== id) : [...b, id]);
   }
 
-  function submit() {
+  async function submit() {
     setError("");
     if (!name.trim()) { setError("Name required"); return; }
-    const result = adminCreateUser({ name: name.trim(), email: email.trim(), pin, tier, isAdmin, badges });
-    if (!result.ok) { setError(result.error ?? "Failed"); return; }
-    onCreated(); onClose();
+    setSubmitting(true);
+    try {
+      const result = await adminCreateUser({ name: name.trim(), email: email.trim(), pin, tier, isAdmin, badges });
+      if (!result.ok) { setError(result.error ?? "Failed"); return; }
+      onCreated(); onClose();
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -180,7 +228,7 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         <div>
           <div className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-1.5">Badges</div>
           <div className="flex flex-wrap gap-1.5">
-            {ALL_BADGES.map(b => (
+            {badgeDefs.map(b => (
               <button key={b.id} onClick={() => toggleBadge(b.id)}
                 className="px-2 py-1 rounded text-[10px] font-bold uppercase tracking-widest border transition-colors"
                 style={{ background: badges.includes(b.id) ? b.color + "30" : "transparent", color: badges.includes(b.id) ? b.color : "#64748b", borderColor: badges.includes(b.id) ? b.color + "80" : "#1e293b" }}>
@@ -192,7 +240,9 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
         {error && <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/30 rounded p-2">{error}</div>}
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-3 py-1.5 rounded bg-muted/30 border border-border text-sm">Cancel</button>
-          <button onClick={submit} className="px-3 py-1.5 rounded bg-primary/20 border border-primary/40 text-primary text-sm font-semibold">Create</button>
+          <button onClick={submit} disabled={submitting} className="px-3 py-1.5 rounded bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-1.5">
+            {submitting && <Loader2 className="w-3.5 h-3.5 animate-spin" />}{submitting ? "Creating…" : "Create"}
+          </button>
         </div>
       </div>
     </div>
@@ -200,18 +250,34 @@ function CreateUserModal({ onClose, onCreated }: { onClose: () => void; onCreate
 }
 
 function ModulesTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
-  const [selectedId, setSelectedId] = useState(users[0]?.id ?? "");
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await listUsers();
+        setUsers(u);
+        setSelectedId(prev => prev || u[0]?.id || "");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
   const selected = users.find(u => u.id === selectedId);
 
-  function toggle(path: string) {
+  async function toggle(path: string) {
     if (!selected) return;
     const enabled = selected.enabledModules.includes(path)
       ? selected.enabledModules.filter(m => m !== path)
       : [...selected.enabledModules, path];
-    const all = users.map(u => u.id === selected.id ? { ...u, enabledModules: enabled } : u);
-    persistUsers(all); setUsers(all);
+    setUsers(prev => prev.map(u => u.id === selected.id ? { ...u, enabledModules: enabled } : u)); // optimistic
+    const r = await setUserModules(selected.id, enabled);
+    if (!r.ok) { alert(r.error ?? "Failed to update modules"); setUsers(await listUsers()); }
   }
+
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
     <div className="grid md:grid-cols-3 gap-4">
@@ -251,62 +317,198 @@ function ModulesTab() {
   );
 }
 
-function BadgesTab() {
-  const [users, setUsers] = useState<User[]>(listUsers());
-  const [selectedId, setSelectedId] = useState(users[0]?.id ?? "");
+const BADGE_GROUPS: Array<BadgeDef["group"]> = ["Role", "Tier", "Achievement"];
+
+function BadgeEditor({ initial, onSave, onCancel, saving }: {
+  initial: Omit<BadgeDef, "id"> & { id?: string };
+  onSave: (b: Omit<BadgeDef, "id">) => void;
+  onCancel: () => void;
+  saving: boolean;
+}) {
+  const [label, setLabel] = useState(initial.label);
+  const [color, setColor] = useState(initial.color);
+  const [description, setDescription] = useState(initial.description);
+  const [group, setGroup] = useState<BadgeDef["group"]>(initial.group);
+  const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group };
+
+  return (
+    <div className="space-y-2 bg-muted/20 rounded-lg p-3">
+      <div className="flex items-center gap-2 flex-wrap">
+        <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Badge label"
+          className="bg-card border border-border rounded px-2 py-1.5 text-sm flex-1 min-w-[140px]" />
+        <select value={group} onChange={e => setGroup(e.target.value as BadgeDef["group"])}
+          className="bg-card border border-border rounded px-2 py-1.5 text-xs">
+          {BADGE_GROUPS.map(g => <option key={g} value={g}>{g}</option>)}
+        </select>
+      </div>
+      <input value={description} onChange={e => setDescription(e.target.value)} placeholder="Description (shown on hover)"
+        className="w-full bg-card border border-border rounded px-2 py-1.5 text-xs" />
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Color</span>
+        <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(color) ? color : "#7B8FD9"}
+          onChange={e => setColor(e.target.value)}
+          className="w-9 h-8 bg-transparent border border-border rounded cursor-pointer p-0.5" />
+        <input value={color} onChange={e => setColor(e.target.value)} placeholder="#22d3ee" maxLength={7}
+          className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs font-mono" />
+        <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="md" /></span>
+      </div>
+      <div className="flex justify-end gap-2 pt-1">
+        <button onClick={onCancel} className="px-3 py-1 rounded bg-muted/30 border border-border text-xs">Cancel</button>
+        <button onClick={() => onSave({ label, color, description, group })} disabled={saving}
+          className="px-3 py-1 rounded bg-primary/20 border border-primary/40 text-primary text-xs font-semibold disabled:opacity-60 flex items-center gap-1.5">
+          {saving && <Loader2 className="w-3 h-3 animate-spin" />} Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; reloadBadges: () => void }) {
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  async function doSave(fn: () => Promise<{ ok: boolean; error?: string }>) {
+    setSaving(true);
+    try {
+      const r = await fn();
+      if (!r.ok) { alert(r.error ?? "Failed"); return false; }
+      reloadBadges();
+      return true;
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(b: BadgeDef) {
+    if (!confirm(`Delete the "${b.label}" badge? It will be removed from every user who has it.`)) return;
+    await doSave(() => deleteBadge(b.id));
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+        <div>
+          <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> Badge Library ({badgeDefs.length})</h3>
+          <p className="text-[11px] text-muted-foreground">Create, edit, and delete badge definitions. Pick any hex color — the badge glows with it.</p>
+        </div>
+        <button onClick={() => { setCreating(true); setEditingId(null); }}
+          className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/30">
+          <Plus className="w-3.5 h-3.5" /> New Badge
+        </button>
+      </div>
+      <div className="p-3 space-y-3 max-h-[460px] overflow-y-auto">
+        {creating && (
+          <BadgeEditor saving={saving}
+            initial={{ label: "", color: "#7B8FD9", description: "", group: "Achievement" }}
+            onCancel={() => setCreating(false)}
+            onSave={async b => { if (await doSave(() => createBadge(b))) setCreating(false); }} />
+        )}
+        {BADGE_GROUPS.map(g => {
+          const inGroup = badgeDefs.filter(b => b.group === g);
+          if (!inGroup.length) return null;
+          return (
+            <div key={g}>
+              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{g} Badges</div>
+              <div className="space-y-1.5">
+                {inGroup.map(b => editingId === b.id ? (
+                  <BadgeEditor key={b.id} saving={saving} initial={b}
+                    onCancel={() => setEditingId(null)}
+                    onSave={async patch => { if (await doSave(() => updateBadge(b.id, patch))) setEditingId(null); }} />
+                ) : (
+                  <div key={b.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
+                    <BadgeChip id={b.id} defs={badgeDefs} />
+                    <span className="text-xs text-muted-foreground flex-1 truncate">{b.description}</span>
+                    <span className="text-[10px] font-mono text-muted-foreground/70">{b.color}</span>
+                    <button onClick={() => { setEditingId(b.id); setCreating(false); }} title="Edit"
+                      className="p-1.5 rounded hover:bg-primary/15 text-primary"><Pencil className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => remove(b)} title="Delete"
+                      className="p-1.5 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BadgesTab({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; reloadBadges: () => void }) {
+  const [users, setUsers] = useState<User[]>([]);
+  const [selectedId, setSelectedId] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const u = await listUsers();
+        setUsers(u);
+        setSelectedId(prev => prev || u[0]?.id || "");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
   const selected = users.find(u => u.id === selectedId);
 
-  function toggle(badgeId: string) {
+  async function toggle(badgeId: string) {
     if (!selected) return;
     const next = (selected.badges ?? []).includes(badgeId)
       ? (selected.badges ?? []).filter(b => b !== badgeId)
       : [...(selected.badges ?? []), badgeId];
-    setUserBadges(selected.id, next);
-    setUsers(listUsers());
+    setUsers(prev => prev.map(u => u.id === selected.id ? { ...u, badges: next } : u)); // optimistic
+    const r = await setUserBadges(selected.id, next);
+    if (!r.ok) { alert(r.error ?? "Failed to update badges"); setUsers(await listUsers()); }
   }
 
-  const groups: Array<"Role" | "Tier" | "Achievement"> = ["Role", "Tier", "Achievement"];
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
-    <div className="grid md:grid-cols-3 gap-4">
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Select User</h3></div>
-        <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
-          {users.map(u => (
-            <button key={u.id} onClick={() => setSelectedId(u.id)} className={`w-full text-left px-4 py-2.5 ${selectedId === u.id ? "bg-primary/10" : "hover:bg-muted/30"}`}>
-              <div className="text-sm font-medium truncate">{u.name}</div>
-              <div className="flex flex-wrap gap-1 mt-1">{(u.badges ?? []).map(badgeChip)}</div>
-            </button>
-          ))}
+    <div className="space-y-4">
+      <BadgeLibrary badgeDefs={badgeDefs} reloadBadges={reloadBadges} />
+
+      <div className="grid md:grid-cols-3 gap-4">
+        <div className="bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Select User</h3></div>
+          <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+            {users.map(u => (
+              <button key={u.id} onClick={() => setSelectedId(u.id)} className={`w-full text-left px-4 py-2.5 ${selectedId === u.id ? "bg-primary/10" : "hover:bg-muted/30"}`}>
+                <div className="text-sm font-medium truncate">{u.name}</div>
+                <div className="flex flex-wrap gap-1 mt-1">{(u.badges ?? []).map(id => <BadgeChip key={id} id={id} defs={badgeDefs} />)}</div>
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
-      <div className="md:col-span-2 bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border">
-          <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> {selected ? `Badges for ${selected.name}` : "Pick a user"}</h3>
-          <p className="text-[11px] text-muted-foreground">Click any badge to toggle. Badges appear next to the user's name throughout the app.</p>
-        </div>
-        <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
-          {selected && groups.map(g => (
-            <div key={g}>
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">{g} Badges</div>
-              <div className="grid sm:grid-cols-2 gap-2">
-                {ALL_BADGES.filter(b => b.group === g).map(b => {
-                  const on = (selected.badges ?? []).includes(b.id);
-                  return (
-                    <button key={b.id} onClick={() => toggle(b.id)}
-                      className="text-left p-3 rounded-lg border transition-colors"
-                      style={{ borderColor: on ? b.color + "80" : "#1e293b", background: on ? b.color + "15" : "transparent" }}>
-                      <div className="flex items-center gap-2">
-                        <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border" style={{ background: b.color + "25", color: b.color, borderColor: b.color + "60" }}>{b.label}</span>
-                        {on && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
-                      </div>
-                      <div className="text-xs text-muted-foreground mt-1.5">{b.description}</div>
-                    </button>
-                  );
-                })}
+        <div className="md:col-span-2 bg-card border border-border rounded-xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> {selected ? `Badges for ${selected.name}` : "Pick a user"}</h3>
+            <p className="text-[11px] text-muted-foreground">Click any badge to toggle. Badges appear next to the user's name throughout the app.</p>
+          </div>
+          <div className="p-4 space-y-4 max-h-[500px] overflow-y-auto">
+            {selected && BADGE_GROUPS.map(g => (
+              <div key={g}>
+                <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">{g} Badges</div>
+                <div className="grid sm:grid-cols-2 gap-2">
+                  {badgeDefs.filter(b => b.group === g).map(b => {
+                    const on = (selected.badges ?? []).includes(b.id);
+                    return (
+                      <button key={b.id} onClick={() => toggle(b.id)}
+                        className="text-left p-3 rounded-lg border transition-colors"
+                        style={{ borderColor: on ? b.color + "80" : "#1e293b", background: on ? b.color + "15" : "transparent" }}>
+                        <div className="flex items-center gap-2">
+                          <BadgeChip id={b.id} defs={badgeDefs} />
+                          {on && <Check className="w-3.5 h-3.5 text-primary ml-auto" />}
+                        </div>
+                        <div className="text-xs text-muted-foreground mt-1.5">{b.description}</div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -314,7 +516,8 @@ function BadgesTab() {
 }
 
 function BroadcastsTab() {
-  const [users] = useState<User[]>(listUsers());
+  const [users, setUsers] = useState<User[]>([]);
+  useEffect(() => { listUsers().then(setUsers).catch(() => setUsers([])); }, []);
   const [items, setItems] = useState<Broadcast[]>(broadcastStore.list());
   const [msg, setMsg] = useState("");
   const [level, setLevel] = useState<"info" | "warning" | "alert">("info");
@@ -460,47 +663,28 @@ function NewsTab({ adminName }: { adminName: string }) {
 }
 
 function SettingsTab() {
-  const [pin, setPin] = useState(getEmergencyPin());
+  const [pin, setPin] = useState("");
   const [savedPin, setSavedPin] = useState(false);
-  const [questions, setQuestions] = useState<SignupQuestion[]>(getQuestions());
+  const [loading, setLoading] = useState(true);
 
-  // New question editor state
-  const [qLabel, setQLabel] = useState("");
-  const [qType, setQType] = useState<QuestionType>("text");
-  const [qRequired, setQRequired] = useState(false);
-  const [qPlaceholder, setQPlaceholder] = useState("");
-  const [qOptions, setQOptions] = useState("");
+  useEffect(() => {
+    (async () => {
+      try {
+        setPin(await getEmergencyPin());
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
 
-  // Edit state for existing question
-  const [editingId, setEditingId] = useState<string | null>(null);
-
-  function saveP() {
+  async function saveP() {
     if (!/^\d{4}$/.test(pin)) { alert("PIN must be exactly 4 digits"); return; }
-    saveEmergencyPin(pin); setSavedPin(true); setTimeout(() => setSavedPin(false), 1500);
-  }
-  function addQ() {
-    if (!qLabel.trim()) return;
-    const q: SignupQuestion = {
-      id: `q_${Date.now()}`,
-      label: qLabel.trim(),
-      required: qRequired,
-      type: qType,
-      placeholder: qPlaceholder.trim() || undefined,
-      options: (qType === "select" || qType === "checkbox") ? qOptions.split(",").map(s => s.trim()).filter(Boolean) : undefined,
-    };
-    const next = [...questions, q]; setQuestions(next); saveQuestions(next);
-    setQLabel(""); setQPlaceholder(""); setQOptions(""); setQRequired(false); setQType("text");
-  }
-  function delQ(id: string) {
-    if (!confirm("Delete this question?")) return;
-    const next = questions.filter(q => q.id !== id); setQuestions(next); saveQuestions(next);
-  }
-  function updateQ(id: string, patch: Partial<SignupQuestion>) {
-    const next = questions.map(q => q.id === id ? { ...q, ...patch } : q);
-    setQuestions(next); saveQuestions(next);
+    const r = await saveEmergencyPin(pin);
+    if (!r.ok) { alert(r.error ?? "Failed to save PIN"); return; }
+    setSavedPin(true); setTimeout(() => setSavedPin(false), 1500);
   }
 
-  const isCore = (id: string) => ["name", "email", "pin", "tier"].includes(id);
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
 
   return (
     <div className="space-y-4">
@@ -516,10 +700,88 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <div className="bg-card border border-border rounded-xl p-4">
+        <p className="text-xs text-muted-foreground">Signup form questions moved to the <strong className="text-foreground">Signups</strong> tab.</p>
+      </div>
+    </div>
+  );
+}
 
+function SignupsTab() {
+  const [questions, setQuestions] = useState<SignupQuestion[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  // New question editor state
+  const [qLabel, setQLabel] = useState("");
+  const [qType, setQType] = useState<QuestionType>("text");
+  const [qRequired, setQRequired] = useState(false);
+  const [qPlaceholder, setQPlaceholder] = useState("");
+  const [qOptions, setQOptions] = useState("");
+
+  // Edit state for existing question
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setQuestions(await getQuestions());
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function commit(next: SignupQuestion[]) {
+    setQuestions(next);
+    const r = await saveQuestions(next);
+    if (!r.ok) { alert(r.error ?? "Failed to save questions"); setQuestions(await getQuestions()); }
+  }
+
+  function move(id: string, dir: -1 | 1) {
+    const i = questions.findIndex(q => q.id === id);
+    const j = i + dir;
+    if (i < 0 || j < 0 || j >= questions.length) return;
+    const next = [...questions];
+    [next[i], next[j]] = [next[j], next[i]];
+    void commit(next);
+  }
+
+  function addQ() {
+    if (!qLabel.trim()) return;
+    const q: SignupQuestion = {
+      id: `q_${Date.now()}`,
+      label: qLabel.trim(),
+      required: qRequired,
+      type: qType,
+      placeholder: qPlaceholder.trim() || undefined,
+      options: (qType === "select" || qType === "checkbox") ? qOptions.split(",").map(s => s.trim()).filter(Boolean) : undefined,
+    };
+    void commit([...questions, q]);
+    setQLabel(""); setQPlaceholder(""); setQOptions(""); setQRequired(false); setQType("text");
+  }
+  function delQ(id: string) {
+    if (!confirm("Delete this question?")) return;
+    void commit(questions.filter(q => q.id !== id));
+  }
+  // Local-only edit; persisted when the admin clicks "Done" (avoids a write per keystroke).
+  function updateQ(id: string, patch: Partial<SignupQuestion>) {
+    setQuestions(prev => prev.map(q => q.id === id ? { ...q, ...patch } : q));
+  }
+
+  const isCore = (id: string) => ["name", "email", "pin"].includes(id);
+
+  if (loading) return <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>;
+
+  return (
+    <div className="space-y-4">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <h3 className="text-sm font-semibold">Signup Form Questions</h3>
-        <p className="text-xs text-muted-foreground">Core questions (name/email/PIN/tier) are locked. Add, edit, or remove custom prompts for new signups.</p>
+        <h3 className="text-sm font-semibold flex items-center gap-2"><ClipboardList className="w-4 h-4 text-primary" /> Signup Form Builder</h3>
+        <p className="text-xs text-muted-foreground">
+          These questions render live on the public signup form, in this order. Core questions
+          (name/email/PIN) are locked. Tier is <strong className="text-foreground">not</strong> asked at
+          signup — every new account starts at Tier 1 and an admin assigns the real tier in the Users tab.
+          Members' answers appear in their profile's custom answers.
+        </p>
 
         <div className="space-y-1.5">
           {questions.map(q => {
@@ -535,6 +797,8 @@ function SettingsTab() {
                     {core && <span className="text-[10px] uppercase px-1.5 py-0.5 rounded bg-yellow-400/15 text-yellow-300">core</span>}
                     {!core && (
                       <>
+                        <button onClick={() => move(q.id, -1)} title="Move up" className="p-1 rounded hover:bg-primary/15 text-primary"><ArrowUp className="w-3 h-3" /></button>
+                        <button onClick={() => move(q.id, 1)} title="Move down" className="p-1 rounded hover:bg-primary/15 text-primary"><ArrowDown className="w-3 h-3" /></button>
                         <button onClick={() => setEditingId(q.id)} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Edit</button>
                         <button onClick={() => delQ(q.id)} className="p-1 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3 h-3" /></button>
                       </>
@@ -556,7 +820,7 @@ function SettingsTab() {
                       <input value={(q.options ?? []).join(", ")} onChange={e => updateQ(q.id, { options: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} placeholder="Option A, Option B, Option C" className="w-full bg-card border border-border rounded px-2 py-1 text-xs" />
                     )}
                     <div className="flex justify-end">
-                      <button onClick={() => setEditingId(null)} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Done</button>
+                      <button onClick={() => { setEditingId(null); void commit(questions); }} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Done</button>
                     </div>
                   </div>
                 )}

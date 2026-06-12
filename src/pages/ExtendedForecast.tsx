@@ -17,7 +17,7 @@ export default function ExtendedForecast({ location }: Props) {
   const daily = weather?.hourly;
   const d = weather?.daily;
 
-  const days = d?.time?.map((t: string, i: number) => ({
+  const days = d?.time?.map((t: string | number, i: number) => ({
     date: format(parseISO(t as string), "EEE, MMM d"),
     dateShort: format(parseISO(t as string), "EEE"),
     high: d.temperature_2m_max ? Math.round(cToF(d.temperature_2m_max[i] as number)) : 0,

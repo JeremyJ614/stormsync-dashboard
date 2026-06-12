@@ -1,9 +1,14 @@
 import { Link } from "wouter";
-import { useAuth } from "../hooks/useAuth";
+import { useEffect, useState } from "react";
+import { useAuth, type BadgeDef } from "../hooks/useAuth";
+import { listBadgeDefs } from "../lib/badges";
+import { BadgeChip } from "../components/BadgeChip";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar } from "lucide-react";
 
 export default function Profile() {
   const { user, loyaltyPoints, monthsActive, logout } = useAuth();
+  const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
+  useEffect(() => { listBadgeDefs().then(setBadgeDefs).catch(() => {}); }, []);
   if (!user) {
     return (
       <div className="p-6 text-center">
@@ -21,9 +26,10 @@ export default function Profile() {
           <div className="flex-1 min-w-0">
             <h1 className="text-xl font-bold">{user.name}</h1>
             <div className="text-sm text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{user.email}</div>
-            <div className="flex items-center gap-2 mt-1">
+            <div className="flex items-center gap-2 mt-1 flex-wrap">
               <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-primary/15 text-primary border border-primary/30 uppercase tracking-widest">Tier {user.tier}</span>
               {user.isAdmin && <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-yellow-400/15 text-yellow-300 border border-yellow-400/30 uppercase tracking-widest flex items-center gap-1"><Shield className="w-2.5 h-2.5" /> Admin</span>}
+              {(user.badges ?? []).map(id => <BadgeChip key={id} id={id} defs={badgeDefs} />)}
             </div>
           </div>
         </div>

@@ -1,5 +1,9 @@
-// Backend API — set VITE_API_URL in Vercel env vars (e.g. https://stormsync-api.onrender.com)
-export const BASE_API = `${import.meta.env.VITE_API_URL ?? ""}/api`;
+// Weather data proxy. Prefers the Supabase `weather` Edge Function (replaces the
+// retired Render backend); falls back to the legacy VITE_API_URL if Supabase isn't set.
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
+export const BASE_API = SUPABASE_URL
+  ? `${SUPABASE_URL}/functions/v1/weather`
+  : `${import.meta.env.VITE_API_URL ?? ""}/api`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

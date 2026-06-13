@@ -4,11 +4,16 @@ import { BASE_API } from "../config";
 
 export type SPCProduct =
   | "day1otlk_cat" | "day2otlk_cat" | "day3otlk_cat"
-  | "day1probotlk_torn" | "day2probotlk_torn"
-  | "day1probotlk_wind" | "day2probotlk_wind"
-  | "day1probotlk_hail" | "day2probotlk_hail";
+  | "day1otlk_torn" | "day2otlk_torn"
+  | "day1otlk_wind" | "day2otlk_wind"
+  | "day1otlk_hail" | "day2otlk_hail";
 
-// SSWX categorical risk colors (Level 1-5 style, warm amber→magenta progression)
+// ─────────────────────────────────────────────────────────────────────────────
+//  SSWX SPC MAP STYLING — edit colors + legend wording here.
+//  (Max Velocity / Ryan Hall style: your own categorical colors + legend.)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Categorical risk colors + legend wording (TSTM = general thunder, then levels 1-5).
 const CAT_COLORS: Record<string, { color: string; label: string; level: number }> = {
   TSTM:  { color: "#6b7280", label: "General Thunder",         level: 0 },
   MRGL:  { color: "#fbbf24", label: "Level 1 · Marginal",     level: 1 },
@@ -18,7 +23,8 @@ const CAT_COLORS: Record<string, { color: string; label: string; level: number }
   HIGH:  { color: "#c026d3", label: "Level 5 · High/Extreme", level: 5 },
 };
 
-// Probabilistic risk colors (% thresholds → color)
+// Probabilistic risk colors (% thresholds → color). SPC labels features as
+// fractions ("0.05" = 5%); we normalize to whole percent before matching.
 const PROB_COLORS: { label: string; color: string; match: (v: number) => boolean }[] = [
   { label: "2%",      color: "#bbf7d0", match: (v) => v >= 2  && v < 5  },
   { label: "5%",      color: "#fef08a", match: (v) => v >= 5  && v < 10 },
@@ -29,7 +35,18 @@ const PROB_COLORS: { label: string; color: string; match: (v: number) => boolean
   { label: "60%+",    color: "#c026d3", match: (v) => v >= 60            },
 ];
 
+// Significant-severe ("hatched") areas come through as non-numeric labels
+// (e.g. "SIGN", "CIG1"). Outlined, no fill — drawn over the probability shading.
+const SIG_STYLE: L.PathOptions = { fillOpacity: 0, color: "#000000", weight: 1.5, opacity: 0.85, dashArray: "4 3" };
+
 function isCategorical(product: SPCProduct) { return product.endsWith("_cat"); }
+
+/** SPC probability labels are fractions ("0.05"); normalize to whole percent. */
+function labelToPct(label: string): number | null {
+  const f = parseFloat(label);
+  if (Number.isNaN(f)) return null;
+  return f <= 1 ? Math.round(f * 100) : Math.round(f);
+}
 
 function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature): L.PathOptions {
   if (isCategorical(product)) {
@@ -39,12 +56,12 @@ function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature): L.PathO
     const alpha = label === "TSTM" ? 0.25 : 0.65;
     return { fillColor: cat.color, fillOpacity: alpha, color: cat.color, weight: 0.5, opacity: 0.6 };
   }
-  // Probabilistic
-  const raw = String(feature.properties?.LABEL ?? "0").replace("%","");
-  const val = parseFloat(raw);
-  const tier = PROB_COLORS.find(p => p.match(val));
+  // Probabilistic — significant-severe hatched areas have non-numeric labels.
+  const pct = labelToPct(String(feature.properties?.LABEL ?? ""));
+  if (pct === null) return SIG_STYLE;
+  const tier = PROB_COLORS.find(p => p.match(pct));
   const fc = tier?.color ?? "#888";
-  return { fillColor: fc, fillOpacity: val >= 10 ? 0.7 : 0.5, color: fc, weight: 0.5, opacity: 0.6 };
+  return { fillColor: fc, fillOpacity: pct >= 10 ? 0.7 : 0.5, color: fc, weight: 0.5, opacity: 0.6 };
 }
 
 interface GeoJSONData { type: string; features: GeoJSON.Feature[] }
@@ -121,7 +138,7 @@ export function SPCLeafletMap({ product, height = 320 }: Props) {
   // Build legend
   const legendItems = isCategorical(product)
     ? Object.entries(CAT_COLORS).filter(([k]) => k !== "TSTM").map(([, v]) => ({ color: v.color, label: v.label }))
-    : PROB_COLORS.map(p => ({ color: p.color, label: p.label }));
+    : [...PROB_COLORS.map(p => ({ color: p.color, label: p.label })), { color: "#000000", label: "Significant (hatched)" }];
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-border">

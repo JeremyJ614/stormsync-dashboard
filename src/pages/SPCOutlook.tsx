@@ -21,7 +21,8 @@ type TypeId = (typeof TYPES)[number]["id"];
 function buildProduct(day: number, type: TypeId): SPCProduct {
   if (type === "cat") return `day${day}otlk_cat` as SPCProduct;
   if (day === 3) return "day3otlk_cat";
-  return `day${day}probotlk_${type}` as SPCProduct;
+  // SPC names the hazard probability products dayNotlk_{torn,wind,hail}.
+  return `day${day}otlk_${type}` as SPCProduct;
 }
 
 export default function SPCOutlook({ location: _ }: Props) {

@@ -182,15 +182,32 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       live on the public signup form**, with answers stored to the member's profile
       (`custom_answers`). Tier question removed (admin-assigned). Richer styling/branding
       for the form builder can still grow in Phase 7.
-- [ ] Remove legacy `VITE_API_URL`/Render references entirely
+- [x] **Remove legacy `VITE_API_URL`/Render references entirely** (2026-06-13) —
+      `config.ts` now targets only the Supabase `weather` Edge Function; dropped the
+      `VITE_API_URL` env type, `.env.example` entry, and stale "Render" comments.
 
-### ☐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)*
-- [ ] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default)
-- [ ] Ingest SPC outlooks + severe params nationwide; write one nightly `daily_brief`
-- [ ] Schedule via Supabase cron *(L2)*
-- [ ] Wire consumers: Daily Briefing · Storm Chasing targets (U-16) · Forecast Game
-      answer key (U-20) · SSWXCon score (U-05) · Severe Weather History (U-19) ·
-      Pattern Analysis (U-17) · Forecast Discussion (U-03)
+### ◐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)* — IN PROGRESS (2026-06-13)
+- [x] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default
+      `claude-opus-4-8`, one-line `AI_MODEL` swap; adaptive thinking + structured-JSON
+      output). `verify_jwt=false` with internal auth: cron-secret header **or** admin JWT.
+- [x] Ingest SPC outlooks (Day 1-3 categorical + Day 1 tornado/wind/hail probabilities)
+      and today's storm-report counts; write one `daily_brief` row (schema migration
+      `phase2_storm_engine_schema`: `daily_brief` + `storm_engine_runs`, RLS read-for-
+      members, writes service-role-only). **Graceful no-key path:** until `ANTHROPIC_API_KEY`
+      is set the engine writes a deterministic SPC risk overview (status `skipped`) so the
+      UI is never dead; the AI narrative fills in automatically on the first keyed run.
+- [x] Schedule via Supabase cron *(L2)* — `pg_cron` + `pg_net`, job `storm-engine-nightly`
+      at 11:00 UTC; reads the secret from `app_config` and posts to the function.
+      **Verified end-to-end**: dry-run ingest (live SPC), no-key skip write, RLS read
+      scoping, cron→function secret-auth path (logged a `cron` run).
+- [x] First consumer wired: **Daily Briefing** card on Home (`DailyBriefing.tsx` +
+      `lib/dailyBrief.ts`) — renders the risk overview today, AI summary/chase targets
+      when status `ok`. **Verified in-browser.**
+- [ ] **NEEDS API KEY:** first real Claude run + tune (timeouts/prompt), then verify the
+      AI `summary`/`discussion_plain`/`pattern`/`chase_targets` output.
+- [ ] Remaining consumers (best built against a real AI brief): Storm Chasing targets
+      (U-16) · Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History
+      (U-19) · Pattern Analysis (U-17) · Forecast Discussion plain-language tab (U-03)
 
 ### ☐ Phase 3 — SPC Map Engine (reusable, custom colors + legends)
 - [ ] **U-07** Automated SPC Outlook days 1–6, Tornado/Wind/Hail subtabs, your colors + legend

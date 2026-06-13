@@ -1,9 +1,8 @@
-// Weather data proxy. Prefers the Supabase `weather` Edge Function (replaces the
-// retired Render backend); falls back to the legacy VITE_API_URL if Supabase isn't set.
+// Weather data proxy: the Supabase `weather` Edge Function (replaced the retired
+// Render backend). If the Supabase URL is unset the calls fail fast rather than
+// silently hitting a dead host — the app surfaces a clear module error.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
-export const BASE_API = SUPABASE_URL
-  ? `${SUPABASE_URL}/functions/v1/weather`
-  : `${import.meta.env.VITE_API_URL ?? ""}/api`;
+export const BASE_API = `${SUPABASE_URL ?? ""}/functions/v1/weather`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

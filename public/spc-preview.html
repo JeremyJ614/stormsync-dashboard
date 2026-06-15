@@ -1,0 +1,145 @@
+<!doctype html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>SSWX Severe Weather Outlook — Preview</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  :root { --bg:#0a0e1a; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:#07060d; color:#fff; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; }
+  .wrap { max-width:1040px; margin:0 auto; padding:14px; }
+  .titlebar { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:8px; flex-wrap:wrap; }
+  .titlebar h1 { font-size:16px; letter-spacing:.18em; text-transform:uppercase; margin:0; font-weight:800; }
+  .titlebar .sub { font-size:11px; color:#9aa4c0; }
+  .tabs { display:flex; gap:6px; margin-bottom:8px; }
+  .tabs button { flex:1; padding:9px; border-radius:9px; border:1px solid #23304d; background:#10172b; color:#9fb0d6; font-weight:600; font-size:13px; cursor:pointer; }
+  .tabs button.on { background:rgba(124,143,217,.18); color:#cdd7ff; border-color:rgba(124,143,217,.5); }
+  .mapcard { position:relative; border:1px solid #1b2440; border-radius:14px; overflow:hidden; }
+  #map { height:460px; background:var(--bg); }
+  .readout { position:absolute; top:10px; right:10px; z-index:1000; background:rgba(0,0,0,.78); border-radius:10px; padding:7px 10px; pointer-events:none; }
+  .readout .k { font-size:9px; letter-spacing:.25em; text-transform:uppercase; color:rgba(255,255,255,.6); }
+  .readout .v { font-size:13px; font-weight:800; }
+  .legend { position:absolute; bottom:10px; right:10px; z-index:1000; background:rgba(0,0,0,.82); border-radius:10px; padding:9px 11px; pointer-events:none; }
+  .legend .t { font-size:9px; letter-spacing:.2em; text-transform:uppercase; color:rgba(255,255,255,.55); margin-bottom:5px; }
+  .legend .row { display:flex; align-items:center; gap:8px; margin:3px 0; }
+  .legend .sw { width:13px; height:13px; border-radius:3px; flex:none; }
+  .legend .lb { font-size:10.5px; font-weight:600; }
+  /* Apex orbiting objects (Level 5): small jet-black diamonds, spinning + pulsing, orbiting the border. */
+  .orb { fill:#0C0A00; stroke:#CFC9DA; stroke-width:1; filter:drop-shadow(0 0 3px #9896A4) drop-shadow(0 0 6px #9896A4);
+         transform-box:fill-box; transform-origin:center; animation:orbSpin 2.4s linear infinite, orbPulse 1.25s ease-in-out infinite; }
+  @keyframes orbSpin { to { transform:rotate(360deg); } }
+  @keyframes orbPulse { 0%,100% { opacity:1; } 50% { opacity:.35; } }
+  .foot { font-size:10px; color:#6b7596; margin-top:8px; text-align:center; }
+</style></head>
+<body><div class="wrap">
+  <div class="titlebar">
+    <div><h1>SSWX Severe Weather Outlook</h1><div class="sub">Preview · custom legend & colors · demo data</div></div>
+    <div class="readout"><div class="k">Highest Risk</div><div class="v" id="hr">—</div></div>
+  </div>
+  <div class="tabs">
+    <button data-day="0" class="on">Day 1</button>
+    <button data-day="1">Day 2</button>
+    <button data-day="2">Day 3</button>
+  </div>
+  <div class="mapcard">
+    <div id="map"></div>
+    <div class="legend"><div class="t">Threat Level</div><div id="leg"></div></div>
+  </div>
+  <div class="foot">Demo data for styling preview only — not a live forecast.</div>
+</div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+const SVGNS="http://www.w3.org/2000/svg";
+const LEVELS=[
+  {color:"#D9D9D9",label:"Lvl. 0 Minor Convection"},
+  {color:"#8FAEC0",label:"Lvl. 1 Unorganized"},
+  {color:"#253559",label:"Lvl. 2 Escalating Baseline"},
+  {color:"#CBA135",label:"Lvl. 3 Intensified Multi-Hazard"},
+  {color:"#FA003F",label:"Lvl. 4 Destructive Apex Threat"},
+  {color:"#9896A4",label:"Lvl. 5 Lethal Historic Catastrophe"}  // Lilac Gray + jet-black border + orbs
+];
+const CAT={TSTM:0,MRGL:1,SLGT:2,ENH:3,MDT:4,HIGH:5};
+function blob(cx,cy,rx,ry,seed){const p=[],N=72;for(let i=0;i<=N;i++){const a=i/N*Math.PI*2;
+  const k=1+0.18*Math.sin(a*3+seed)+0.10*Math.sin(a*5-seed)+0.06*Math.sin(a*2+seed*2);
+  p.push([cx+Math.cos(a)*rx*k,cy+Math.sin(a)*ry*k]);}return p;}
+const poly=(c,l)=>({type:"Feature",properties:{LABEL:l},geometry:{type:"Polygon",coordinates:[c]}});
+const DAYS=[
+  // Day 1 — Levels 1-3 over the Plains
+  {type:"FeatureCollection",features:[
+    poly(blob(-97,38,8.5,5.6,1.1),"MRGL"),
+    poly(blob(-96.5,38.2,5.2,3.6,2.3),"SLGT"),
+    poly(blob(-96,38.4,2.6,2.0,3.6),"ENH")]},
+  // Day 2 — Level 4/5 over the central Plains
+  {type:"FeatureCollection",features:[
+    poly(blob(-97.5,37.5,7.8,5.4,1.4),"ENH"),
+    poly(blob(-97,37.7,4.6,3.3,2.7),"MDT"),
+    poly(blob(-96.8,37.9,2.2,1.7,4.1),"HIGH")]},
+  // Day 3 — Level 4/5 shifted to the Mid-South/Dixie
+  {type:"FeatureCollection",features:[
+    poly(blob(-88,33.5,7.0,4.8,2.0),"ENH"),
+    poly(blob(-87.6,33.7,4.0,2.9,3.3),"MDT"),
+    poly(blob(-87.4,33.9,2.0,1.5,5.0),"HIGH")]}
+];
+function lvlOf(f){return CAT[(f.properties.LABEL||"").toUpperCase()];}
+function styleFor(f){
+  const lv=lvlOf(f),L=LEVELS[lv];
+  if(lv===5) return {fillColor:L.color,fillOpacity:.8,color:"#000000",weight:4,opacity:1};         // lilac gray + jet-black border
+  const dark=lv===2||lv===0;
+  return {fillColor:L.color,fillOpacity:lv===0?.32:dark?.72:.62,color:L.color,weight:1,opacity:.95};
+}
+const map=L.map("map",{center:[38,-95],zoom:4,zoomControl:true,attributionControl:false,scrollWheelZoom:false,dragging:false});
+L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png",{maxZoom:10}).addTo(map);
+// Overlay SVG for the orbiting apex objects.
+const orbit=L.svg().addTo(map); // ensures an overlay pane svg exists
+let orbitSvg=document.createElementNS(SVGNS,"svg");
+orbitSvg.style.cssText="position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:650;overflow:visible";
+document.getElementById("map").appendChild(orbitSvg);
+let layer=null,curDay=0;
+function drawOrbits(fc){
+  orbitSvg.innerHTML="";
+  let idx=0;
+  fc.features.forEach(f=>{
+    if(lvlOf(f)!==5)return;
+    const ring=f.geometry.coordinates[0];
+    let d="";ring.forEach((c,i)=>{const pt=map.latLngToContainerPoint([c[1],c[0]]);d+=(i?"L":"M")+pt.x.toFixed(1)+" "+pt.y.toFixed(1)+" ";});
+    d+="Z";
+    const pid="ap"+(idx++);
+    const path=document.createElementNS(SVGNS,"path");
+    path.setAttribute("id",pid);path.setAttribute("d",d);path.setAttribute("fill","none");path.setAttribute("stroke","none");
+    orbitSvg.appendChild(path);
+    const N=11;
+    for(let k=0;k<N;k++){
+      const g=document.createElementNS(SVGNS,"g");
+      const r=document.createElementNS(SVGNS,"rect");
+      r.setAttribute("class","orb");r.setAttribute("x","-4");r.setAttribute("y","-4");r.setAttribute("width","8");r.setAttribute("height","8");r.setAttribute("rx","1.5");
+      r.style.animationDelay=(-(1.25*k/N))+"s";
+      g.appendChild(r);
+      const am=document.createElementNS(SVGNS,"animateMotion");
+      am.setAttribute("dur","9s");am.setAttribute("repeatCount","indefinite");am.setAttribute("begin",(-(9*k/N))+"s");
+      const mp=document.createElementNS(SVGNS,"mpath");
+      mp.setAttributeNS("http://www.w3.org/1999/xlink","href","#"+pid);mp.setAttribute("href","#"+pid);
+      am.appendChild(mp);g.appendChild(am);
+      orbitSvg.appendChild(g);
+    }
+  });
+}
+function render(day){
+  curDay=day;
+  const fc=DAYS[day];
+  if(layer)map.removeLayer(layer);
+  layer=L.geoJSON(fc,{style:styleFor}).addTo(map);
+  let mx=0;fc.features.forEach(f=>{const l=lvlOf(f);if(l>mx)mx=l;});
+  const top=LEVELS[mx];
+  document.getElementById("hr").textContent=top.label;
+  document.getElementById("hr").style.color = top.color==="#000000"?"#fff":top.color;
+  // legend
+  document.getElementById("leg").innerHTML=LEVELS.map((v,i)=>
+    `<div class="row"><div class="sw" style="background:${v.color};${i===5?'border:2px solid #000;box-shadow:0 0 5px #9896A4':''}"></div><div class="lb">${v.label}</div></div>`).join("");
+  drawOrbits(fc);
+}
+map.on("zoomend moveend resize",()=>drawOrbits(DAYS[curDay]));
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll(".tabs button").forEach(x=>x.classList.remove("on"));
+  b.classList.add("on");render(+b.dataset.day);
+});
+render(0);
+</script></body></html>

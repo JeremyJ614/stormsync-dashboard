@@ -209,12 +209,24 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       (U-16) · Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History
       (U-19) · Pattern Analysis (U-17) · Forecast Discussion plain-language tab (U-03)
 
-### ☐ Phase 3 — SPC Map Engine (reusable, custom colors + legends)
-- [ ] **U-07** Automated SPC Outlook days 1–6, Tornado/Wind/Hail subtabs, your colors + legend
-- [ ] **U-11** Thunderstorm Probability map (SPC-style, custom legend = t-storm probability)
-- [ ] **U-15** Star/Stargazing Night Sky outlook (cloud cover, moonlight, transparency,
-      precip, wind) **+ Aurora view lines from NOAA SWPC Kp** (à la Ryan Hall)
-- [ ] Engine reused by Forecast Game overlays (U-20)
+### ◐ Phase 3 — SPC Map Engine (reusable, custom colors + legends) — DONE 2026-06-13/15
+- [x] **U-07** SPC Outlook **Days 1-6** with SSWX custom colors + legend words — reusable
+      `SPCLeafletMap` engine. Days 1-2: Overview + Tornado/Wind/Hail; Day 3: categorical;
+      Days 4-6: combined "any severe" (`weather` proxy extended to the SPC day4-8 product;
+      distinct "Predictability Too Low" state). Levels 0-5 = Platinum→Carbon-Black (your
+      hexes + words); significant = neon border; **Level 5 = near-black `#1E1B29` with a
+      slow-pulsing lilac-gray border** (per your iterations). Verified in-browser.
+- [x] **U-11** Thunderstorm Probability — was fetching dead `dayNprobotlk_*` URLs; pointed
+      it at the working `dayNotlk_{torn,wind,hail}` so it renders through the engine with
+      the SSWX styling. Verified.
+- [◐] **U-15** **Aurora view lines from NOAA SWPC Kp (à la Ryan Hall) — DONE.** New
+      `AuroraViewMap`: peak-3-day + current Kp "view line" latitudes on a North-America map
+      with an "aurora possible" band and a your-location marker. Fixed two real SWPC bugs:
+      current Kp read a non-existent field (`kp_frac`/`kp`="1M" → NaN; now `estimated_kp`),
+      and the Kp forecast chart parsed the wrong JSON shape (array-of-objects, not arrays)
+      so it was empty. *(Star/Stargazing cloud/moon page pre-exists; aurora was the new ask.)*
+- [ ] Engine reuse by Forecast Game overlays (U-20) — **deferred to Phase 4** (the Forecast
+      Game itself is a Phase 4 module).
 
 ### ☐ Phase 4 — Interactive AI Modules (built on Storm Engine)
 - [ ] **U-16** Storm Chasing Dash rebuilt: map + nightly AI nationwide param scan →

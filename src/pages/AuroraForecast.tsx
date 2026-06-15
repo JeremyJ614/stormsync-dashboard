@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "../hooks/useLocation";
 import { Sparkles, ExternalLink, RefreshCw, Info } from "lucide-react";
 import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format } from "date-fns";
+import { AuroraViewMap } from "../components/AuroraViewMap";
 
 interface Props { location: Location }
 
@@ -26,7 +26,8 @@ function useSwpc() {
       const res = await fetch("https://services.swpc.noaa.gov/json/planetary_k_index_1m.json");
       if (!res.ok) throw new Error("SWPC API error");
       const data = await res.json();
-      return data as Array<{ time_tag: string; kp: number; kp_frac: number }>;
+      // Real fields: estimated_kp (fractional), kp_index (integer); `kp` is a label like "1M".
+      return data as Array<{ time_tag: string; kp_index: number; estimated_kp: number; kp: string }>;
     },
     staleTime: 5 * 60 * 1000,
     retry: 2,
@@ -40,8 +41,9 @@ function useSwpcForecast() {
       const res = await fetch("https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json");
       if (!res.ok) throw new Error("SWPC forecast error");
       const data = await res.json();
-      return (data as Array<[string, string, string, string]>).slice(1).map(row => ({
-        time: row[0], kp: parseFloat(row[1]), observed: row[2], noaaScale: row[3],
+      // SWPC returns an array of objects: { time_tag, kp, observed, noaa_scale }.
+      return (data as Array<{ time_tag: string; kp: number; observed: string; noaa_scale: string | null }>).map(r => ({
+        time: r.time_tag, kp: Number(r.kp), observed: r.observed, noaaScale: r.noaa_scale ?? "",
       }));
     },
     staleTime: 15 * 60 * 1000,
@@ -64,48 +66,12 @@ function useSwpcSolarWind() {
   });
 }
 
-// SPC-outlook-style Aurora visibility map with real US state outlines
-function AuroraUSMap({ kp }: { kp: number; lat: number; lon: number }) {
-  const safeKp = Number.isFinite(kp) ? Math.max(0, kp) : 0;
-  const [ts, setTs] = useState(() => Date.now());
-  useEffect(() => {
-    const id = setInterval(() => setTs(Date.now()), 5 * 60 * 1000);
-    return () => clearInterval(id);
-  }, []);
-  const imgUrl = `https://services.swpc.noaa.gov/images/animations/ovation/north/latest.jpg?t=${ts}`;
-  return (
-    <div className="relative rounded-2xl overflow-hidden border border-purple-500/30 bg-[#05010f]"
-      style={{ boxShadow: "0 0 40px rgba(168,85,247,0.25), inset 0 0 60px rgba(34,211,238,0.08)" }}>
-      <div className="absolute inset-0 pointer-events-none z-10"
-        style={{ background: "radial-gradient(ellipse at top, rgba(168,85,247,0.18), transparent 60%), radial-gradient(ellipse at bottom, rgba(34,211,238,0.12), transparent 70%)" }} />
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-purple-500/20 bg-black/60 backdrop-blur-sm relative z-20">
-        <div className="flex items-center gap-2">
-          <Sparkles className="w-3.5 h-3.5 text-purple-300" />
-          <span className="text-[11px] font-bold tracking-[0.25em] text-purple-100 uppercase">NOAA OVATION · NORTH</span>
-        </div>
-        <span className="text-[10px] tracking-[0.18em] text-cyan-300/80 font-mono">KP {safeKp.toFixed(1)}</span>
-      </div>
-      <div className="relative">
-        <img src={imgUrl} alt="NOAA SWPC Aurora Forecast — Northern Hemisphere"
-          className="w-full block"
-          style={{ filter: "hue-rotate(-15deg) saturate(1.15) brightness(1.05) contrast(1.05)" }} />
-        <div className="absolute inset-0 pointer-events-none"
-          style={{ background: "radial-gradient(circle at center, transparent 55%, rgba(5,1,15,0.55) 100%)" }} />
-      </div>
-      <div className="flex items-center justify-between px-4 py-2 border-t border-purple-500/20 bg-black/60 text-[10px] tracking-[0.15em] text-purple-200/70 font-mono relative z-20">
-        <span>SWPC.NOAA.GOV/OVATION</span>
-        <span>UPDATES EVERY 5 MIN</span>
-      </div>
-    </div>
-  );
-}
-
 export default function AuroraForecast({ location }: Props) {
   const { data: kpHistory, isLoading: histLoading, refetch } = useSwpc();
   const { data: kpForecast, isLoading: fcLoading } = useSwpcForecast();
   const { data: solarWind } = useSwpcSolarWind();
 
-  const latestKp = Number(kpHistory?.at(-1)?.kp_frac ?? kpHistory?.at(-1)?.kp ?? 0);
+  const latestKp = Number(kpHistory?.at(-1)?.estimated_kp ?? kpHistory?.at(-1)?.kp_index ?? 0) || 0;
   const { text: kpText, color: kpColor, bgColor: kpBg, vis: kpVis } = kpLabel(latestKp);
 
   const canSeeAtLat = (kp: number, lat: number) => Math.abs(lat) >= (90 - kp * 5);
@@ -121,11 +87,16 @@ export default function AuroraForecast({ location }: Props) {
     .slice(-24)
     .map((d) => ({
       time: safeFormat(d.time_tag, "ha"),
-      kp: Number(d.kp_frac ?? d.kp ?? 0),
+      kp: Number(d.estimated_kp ?? d.kp_index ?? 0) || 0,
     }))
     .filter((d) => d.time !== "");
 
-  const forecastKp = (kpForecast ?? [])
+  // Only the predicted rows (the rest are already-observed history).
+  const futureForecast = (kpForecast ?? []).filter((d) => d.observed !== "observed");
+  // Peak includes the current value so the "peak" line is never weaker than "now".
+  const futureMax = futureForecast.length ? Math.max(...futureForecast.map((d) => Number(d.kp ?? 0))) : 0;
+  const peakKp = Math.max(latestKp, futureMax);
+  const forecastKp = futureForecast
     .slice(0, 24)
     .map((d) => ({
       time: safeFormat(d.time, "EEE ha"),
@@ -196,27 +167,27 @@ export default function AuroraForecast({ location }: Props) {
         ))}
       </div>
 
-      {/* SPC-style Aurora US Map */}
+      {/* Aurora View-Line Map (derived from the SWPC Kp forecast) */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-3 border-b border-border">
           <div className="flex items-center gap-2">
             <Sparkles className="w-4 h-4 text-primary" />
-            <span className="text-sm font-semibold">Aurora Visibility Map — CONUS</span>
+            <span className="text-sm font-semibold">Aurora View Line — North America</span>
           </div>
           <a href="https://www.swpc.noaa.gov/products/aurora-30-minute-forecast" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 text-xs text-primary hover:underline">
             <ExternalLink className="w-3 h-3" /> SWPC
           </a>
         </div>
-        {histLoading ? (
+        {(histLoading || fcLoading) ? (
           <div className="h-60 bg-muted/20 animate-pulse" />
         ) : (
           <div className="p-3">
-            <AuroraUSMap kp={latestKp} lat={location.lat} lon={location.lon} />
+            <AuroraViewMap peakKp={peakKp} currentKp={latestKp} userLat={location.lat} userLon={location.lon} userName={location.name} />
           </div>
         )}
         <div className="px-4 pb-3 text-xs text-muted-foreground">
-          Color intensity shows aurora visibility probability based on current Kp={latestKp.toFixed(1)}. Updates every ~5 minutes via NOAA SWPC.
+          The solid line is the southern extent where the aurora may appear low on the northern horizon at the peak forecast Kp ({peakKp.toFixed(1)}); the dashed line tracks the current Kp ({latestKp.toFixed(1)}). Derived from the NOAA SWPC planetary-Kp forecast — clear, dark skies still required.
         </div>
       </div>
 

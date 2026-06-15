@@ -7,7 +7,7 @@ import {
   BASE_API,
 } from "../config";
 
-// Routes NWS/SPC proxy calls through the Render backend
+// Routes NWS/SPC proxy calls through the Supabase `weather` Edge Function.
 const API = (path: string) => `${BASE_API}/${path.replace(/^api\//, "").replace(/^\//, "")}`;
 
 export interface LocationCoords {

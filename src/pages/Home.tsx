@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "wouter";
 import { newsStore, type NewsPost } from "../lib/adminStore";
 import { useAuth } from "../hooks/useAuth";
+import DailyBriefing from "../components/DailyBriefing";
 import { Newspaper, AlertCircle, Sparkles, ArrowRight, ExternalLink, Clock } from "lucide-react";
 const logoUrl = "/logo.png";
 
@@ -85,6 +86,9 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* Storm Engine — today's national severe-weather briefing */}
+      <DailyBriefing />
 
       {/* Tabs */}
       <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">

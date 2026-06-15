@@ -35,6 +35,16 @@ Applied so far (Phase 1A):
 5. **`phase1b_admin_delete_badge_rpc`** — `public.admin_delete_badge(badge_id)`:
    admin-guarded; deletes the `badge_defs` row and strips the id from every profile's
    `badges` array atomically (no dangling ids).
+6. **`phase2_storm_engine_schema`** (Phase 2 / L5) — `daily_brief` (one nightly row per
+   `brief_date`: status/model/headline/summary/`content` jsonb/`source_data` jsonb) +
+   `storm_engine_runs` (run log). RLS: members (`authenticated`) read `daily_brief`;
+   **no INSERT/UPDATE policy** — only the service role (the engine) writes. Run log is
+   admin-read.
+7. **`phase2_storm_engine_cron_secret`** — seeds `app_config.storm_engine_secret`
+   (private) shared between the cron job and the function.
+8. **`phase2_storm_engine_cron`** — enables `pg_cron` + `pg_net`; schedules
+   `storm-engine-nightly` at `0 11 * * *` (≈6 AM Central) to POST the function with the
+   secret header (read from `app_config` at run time).
 
 ### Helper functions
 - `private.is_admin()` — used by RLS policies; returns true for the row owner-admin or service role.
@@ -77,9 +87,22 @@ inserted via raw SQL must set GoTrue's token columns (`confirmation_token`,
 `recovery_token`, `email_change*`, `phone_change*`, `reauthentication_token`) to `''`,
 not `NULL`, or sign-in fails with `Database error querying schema` (see Fix Log F-05).
 
+### `storm-engine` (`supabase/functions/storm-engine/index.ts`)
+The SSWX Storm Engine (Phase 2 / L5). `verify_jwt = false`; authorized internally by
+the `x-engine-secret` header (cron path, matched against `app_config.storm_engine_secret`)
+**or** an admin Bearer JWT (manual path). Ingests SPC Day 1-3 outlooks + storm-report
+counts, builds a deterministic risk overview, then calls Claude (`AI_MODEL =
+claude-opus-4-8`, adaptive thinking, structured-JSON output) to synthesize the brief, and
+upserts `daily_brief`. POST body `{ "dryRun": true }` returns the ingested data without
+writing. **No-key mode:** without `ANTHROPIC_API_KEY` it writes the deterministic SPC
+overview (status `skipped`) so the UI is never dead. Provider-agnostic — swap `AI_MODEL`.
+
 ## Secrets to set (when reached)
 - **Phase 2 (Storm Engine):** `ANTHROPIC_API_KEY` — set via Supabase Edge Function
-  secrets. Never commit it.
+  secrets (`npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`,
+  or the dashboard). Never commit it. This is the **only** remaining blocker for the AI
+  brief — schema, ingest, cron, and the Daily Briefing consumer are built and verified;
+  the engine runs in deterministic no-key mode until it is set.
 
 ## Frontend env (Vercel + local `.env`)
 - `VITE_SUPABASE_URL=https://djonpetxdjuwcbgftqmt.supabase.co`

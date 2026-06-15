@@ -9,59 +9,71 @@ export type SPCProduct =
   | "day1otlk_hail" | "day2otlk_hail";
 
 // ─────────────────────────────────────────────────────────────────────────────
-//  SSWX SPC MAP STYLING — edit colors + legend wording here.
-//  (Max Velocity / Ryan Hall style: your own categorical colors + legend.)
+//  SSWX SPC MAP STYLING — your colors + legend words live here.
+//  Categorical "Severe Weather" uses levels 0-5; hazard Likelihood maps use 1-5.
 // ─────────────────────────────────────────────────────────────────────────────
-
-// Categorical risk colors + legend wording (TSTM = general thunder, then levels 1-5).
-const CAT_COLORS: Record<string, { color: string; label: string; level: number }> = {
-  TSTM:  { color: "#6b7280", label: "General Thunder",         level: 0 },
-  MRGL:  { color: "#fbbf24", label: "Level 1 · Marginal",     level: 1 },
-  SLGT:  { color: "#f97316", label: "Level 2 · Slight",       level: 2 },
-  ENH:   { color: "#ea580c", label: "Level 3 · Enhanced",     level: 3 },
-  MDT:   { color: "#dc2626", label: "Level 4 · Moderate",     level: 4 },
-  HIGH:  { color: "#c026d3", label: "Level 5 · High/Extreme", level: 5 },
-};
-
-// Probabilistic risk colors (% thresholds → color). SPC labels features as
-// fractions ("0.05" = 5%); we normalize to whole percent before matching.
-const PROB_COLORS: { label: string; color: string; match: (v: number) => boolean }[] = [
-  { label: "2%",      color: "#bbf7d0", match: (v) => v >= 2  && v < 5  },
-  { label: "5%",      color: "#fef08a", match: (v) => v >= 5  && v < 10 },
-  { label: "10%",     color: "#fbbf24", match: (v) => v >= 10 && v < 15 },
-  { label: "15%",     color: "#f97316", match: (v) => v >= 15 && v < 30 },
-  { label: "30%",     color: "#ef4444", match: (v) => v >= 30 && v < 45 },
-  { label: "45%",     color: "#b91c1c", match: (v) => v >= 45 && v < 60 },
-  { label: "60%+",    color: "#c026d3", match: (v) => v >= 60            },
+interface Level { color: string; label: string }
+const LEVELS: Level[] = [
+  { color: "#D9D9D9", label: "Lvl. 0 Minor Convection" },          // TSTM (categorical only)
+  { color: "#8FAEC0", label: "Lvl. 1 Unorganized" },              // Pewter Blue
+  { color: "#253559", label: "Lvl. 2 Escalating Baseline" },      // Winter Blue
+  { color: "#CBA135", label: "Lvl. 3 Intensified Multi-Hazard" }, // Satin Sheet Gold
+  { color: "#FA003F", label: "Lvl. 4 Destructive Apex Threat" },  // Rose Red
+  { color: "#0C0A00", label: "Lvl. 5 Lethal Historic Catastrophe" }, // Carbon Black
 ];
+// "Flashing periwinkle lines surging through the middle" of the most-intense level.
+const PERIWINKLE = "#A9B4FF";
 
-// Significant-severe ("hatched") areas come through as non-numeric labels
-// (e.g. "SIGN", "CIG1"). Outlined, no fill — drawn over the probability shading.
-const SIG_STYLE: L.PathOptions = { fillOpacity: 0, color: "#000000", weight: 1.5, opacity: 0.85, dashArray: "4 3" };
+const CAT_LEVEL: Record<string, number> = { TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5 };
 
 function isCategorical(product: SPCProduct) { return product.endsWith("_cat"); }
+function hazardOf(product: SPCProduct): "cat" | "torn" | "wind" | "hail" {
+  const m = product.match(/_(cat|torn|wind|hail)$/);
+  return (m?.[1] as "cat" | "torn" | "wind" | "hail") ?? "cat";
+}
 
-/** SPC probability labels are fractions ("0.05"); normalize to whole percent. */
+/** SPC probability labels are fractions ("0.05" = 5%); normalize to whole percent. */
 function labelToPct(label: string): number | null {
   const f = parseFloat(label);
   if (Number.isNaN(f)) return null;
   return f <= 1 ? Math.round(f * 100) : Math.round(f);
 }
 
-function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature): L.PathOptions {
-  if (isCategorical(product)) {
-    const label = (feature.properties?.LABEL ?? "").toUpperCase();
-    const cat = CAT_COLORS[label];
-    if (!cat) return { fillColor: "#888", fillOpacity: 0.3, weight: 0 };
-    const alpha = label === "TSTM" ? 0.25 : 0.65;
-    return { fillColor: cat.color, fillOpacity: alpha, color: cat.color, weight: 0.5, opacity: 0.6 };
+/** SPC probability band → SSWX 1-5 level (tornado bands differ from wind/hail). */
+function probToLevel(hazard: "torn" | "wind" | "hail", pct: number): number {
+  if (hazard === "torn") {
+    if (pct >= 30) return 5; if (pct >= 15) return 4; if (pct >= 10) return 3; if (pct >= 5) return 2; return 1;
   }
-  // Probabilistic — significant-severe hatched areas have non-numeric labels.
-  const pct = labelToPct(String(feature.properties?.LABEL ?? ""));
-  if (pct === null) return SIG_STYLE;
-  const tier = PROB_COLORS.find(p => p.match(pct));
-  const fc = tier?.color ?? "#888";
-  return { fillColor: fc, fillOpacity: pct >= 10 ? 0.7 : 0.5, color: fc, weight: 0.5, opacity: 0.6 };
+  if (pct >= 60) return 5; if (pct >= 45) return 4; if (pct >= 30) return 3; if (pct >= 15) return 2; return 1;
+}
+
+/** A feature's SSWX level, or "sig" for significant-severe (hatched) areas. */
+function featureLevel(product: SPCProduct, feature: GeoJSON.Feature): number | "sig" {
+  const label = String(feature.properties?.LABEL ?? "");
+  if (isCategorical(product)) return CAT_LEVEL[label.toUpperCase()] ?? 0;
+  const pct = labelToPct(label);
+  if (pct === null) return "sig"; // SIGN / CIG — significant hatched area
+  return probToLevel(hazardOf(product) as "torn" | "wind" | "hail", pct);
+}
+
+function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature, dominant: string): L.PathOptions {
+  const lvl = featureLevel(product, feature);
+  // Significant-severe → glowing neon border in the dominant categorical color.
+  if (lvl === "sig") {
+    return { fillColor: dominant, fillOpacity: 0, color: dominant, weight: 2.5, opacity: 1, className: "spc-neon" };
+  }
+  const L = LEVELS[lvl];
+  // Most intense level (5) → carbon-black core ringed by flashing, surging periwinkle.
+  if (lvl === 5) {
+    return { fillColor: L.color, fillOpacity: 0.82, color: PERIWINKLE, weight: 3, opacity: 1, dashArray: "12 9", className: "spc-apex" };
+  }
+  // Darker fills get more opacity so they read on the dark map; all get a soft matching edge.
+  const dark = lvl === 2 || lvl === 0;
+  return {
+    fillColor: L.color,
+    fillOpacity: lvl === 0 ? 0.32 : dark ? 0.72 : 0.6,
+    color: L.color, weight: 1, opacity: 0.95, className: "spc-soft",
+  };
 }
 
 interface GeoJSONData { type: string; features: GeoJSON.Feature[] }
@@ -71,17 +83,17 @@ interface Props {
   height?: number;
 }
 
-export function SPCLeafletMap({ product, height = 320 }: Props) {
+export function SPCLeafletMap({ product, height = 340 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.GeoJSON | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasData, setHasData] = useState(true);
+  const [topLevel, setTopLevel] = useState<number>(0);
 
   const loadData = async (L: typeof import("leaflet"), map: L.Map) => {
     setLoading(true); setError(null);
-    // Remove old layer
     if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
     try {
       const res = await fetch(`${BASE_API}/spc/outlook-geojson?product=${product}`);
@@ -90,12 +102,17 @@ export function SPCLeafletMap({ product, height = 320 }: Props) {
       const features = data.features ?? [];
       if (features.length === 0) { setHasData(false); setLoading(false); return; }
       setHasData(true);
+      // Dominant (highest) level present → drives the significant neon-border color + legend readout.
+      let maxLvl = 0;
+      for (const f of features) { const l = featureLevel(product, f); if (typeof l === "number" && l > maxLvl) maxLvl = l; }
+      setTopLevel(maxLvl);
+      const dominant = LEVELS[maxLvl].color;
       const layer = L.geoJSON(data as GeoJSON.GeoJsonObject, {
-        style: (f) => f ? styleForFeature(product, f) : {},
+        style: (f) => f ? styleForFeature(product, f, dominant) : {},
       });
       layer.addTo(map);
       layerRef.current = layer;
-    } catch (e) {
+    } catch {
       setError("Could not load SPC data");
     }
     setLoading(false);
@@ -104,45 +121,49 @@ export function SPCLeafletMap({ product, height = 320 }: Props) {
   useEffect(() => {
     if (!containerRef.current) return;
     let cancelled = false;
-
     import("leaflet").then((L) => {
       if (cancelled || !containerRef.current) return;
-      if (mapRef.current) {
-        loadData(L, mapRef.current);
-        return;
-      }
+      if (mapRef.current) { loadData(L, mapRef.current); return; }
       const map = L.map(containerRef.current!, {
         center: [39, -97], zoom: 4,
         zoomControl: true, attributionControl: false, scrollWheelZoom: false,
       });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-        maxZoom: 10,
-      }).addTo(map);
+      // Label-free dark basemap for a cleaner broadcast look.
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 10 }).addTo(map);
       mapRef.current = map;
       loadData(L, map);
     });
-
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Reload data when product changes
   useEffect(() => {
     if (!mapRef.current) return;
-    import("leaflet").then((L) => {
-      if (mapRef.current) loadData(L, mapRef.current);
-    });
+    import("leaflet").then((L) => { if (mapRef.current) loadData(L, mapRef.current); });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [product]);
 
-  // Build legend
-  const legendItems = isCategorical(product)
-    ? Object.entries(CAT_COLORS).filter(([k]) => k !== "TSTM").map(([, v]) => ({ color: v.color, label: v.label }))
-    : [...PROB_COLORS.map(p => ({ color: p.color, label: p.label })), { color: "#000000", label: "Significant (hatched)" }];
+  // Legend: categorical shows levels 0-5; hazard maps show 1-5 + the significant marker.
+  const cat = isCategorical(product);
+  const legendLevels = cat ? LEVELS.map((v, i) => ({ ...v, i })) : LEVELS.map((v, i) => ({ ...v, i })).slice(1);
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-border">
+      {/* Self-contained animations: neon significant border + flashing/surging periwinkle apex. */}
+      <style>{`
+        .spc-soft { filter: drop-shadow(0 0 2px rgba(255,255,255,.25)); }
+        .spc-neon { filter: drop-shadow(0 0 3px rgba(255,255,255,.55)) drop-shadow(0 0 6px rgba(255,255,255,.4)); }
+        .spc-apex {
+          filter: drop-shadow(0 0 4px ${PERIWINKLE}) drop-shadow(0 0 10px ${PERIWINKLE});
+          animation: spcApexFlash 1.1s ease-in-out infinite, spcApexSurge 1.05s linear infinite;
+        }
+        @keyframes spcApexFlash { 0%,100% { opacity: 1 } 50% { opacity: .55 } }
+        @keyframes spcApexSurge { to { stroke-dashoffset: -42 } }
+        @media (prefers-reduced-motion: reduce) { .spc-apex { animation: none } }
+      `}</style>
+
       <div ref={containerRef} style={{ height, background: "#0a0e1a" }} />
+
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none">
           <div className="flex items-center gap-2 text-sm text-primary">
@@ -164,15 +185,35 @@ export function SPCLeafletMap({ product, height = 320 }: Props) {
           <div className="text-sm text-red-400 bg-black/60 px-4 py-2 rounded">{error}</div>
         </div>
       )}
+
+      {/* Highest-risk readout (top-right, above Leaflet panes) */}
+      {!loading && hasData && (
+        <div className="absolute top-2 right-2 bg-black/75 rounded-lg px-2.5 py-1.5 pointer-events-none" style={{ zIndex: 1000 }}>
+          <div className="text-[9px] uppercase tracking-[0.25em] text-white/60">Highest Risk</div>
+          <div className="text-xs font-bold" style={{ color: LEVELS[topLevel].color === "#0C0A00" ? PERIWINKLE : LEVELS[topLevel].color }}>
+            {LEVELS[topLevel].label}
+          </div>
+        </div>
+      )}
+
       {/* Legend */}
       {!loading && hasData && (
-        <div className="absolute bottom-2 right-2 bg-black/75 rounded-lg px-3 py-2 space-y-1 pointer-events-none">
-          {legendItems.map(item => (
-            <div key={item.label} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color }} />
+        <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
+          <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">
+            {cat ? "Threat Level" : `${hazardOf(product) === "torn" ? "Tornado" : hazardOf(product) === "wind" ? "Wind" : "Hail"} Likelihood`}
+          </div>
+          {legendLevels.map(item => (
+            <div key={item.i} className="flex items-center gap-2">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color, boxShadow: item.i === 5 ? `0 0 5px ${PERIWINKLE}` : undefined, border: item.i === 5 ? `1px solid ${PERIWINKLE}` : undefined }} />
               <span className="text-[10px] text-white font-medium">{item.label}</span>
             </div>
           ))}
+          {!cat && (
+            <div className="flex items-center gap-2 pt-0.5 border-t border-white/10 mt-1">
+              <div className="w-3 h-3 rounded-sm flex-shrink-0 border-2" style={{ borderColor: "#fff", background: "transparent", boxShadow: "0 0 5px #fff" }} />
+              <span className="text-[10px] text-white font-medium">Significant (neon)</span>
+            </div>
+          )}
         </div>
       )}
     </div>

@@ -63,9 +63,9 @@ function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature, dominant
     return { fillColor: dominant, fillOpacity: 0, color: dominant, weight: 2.5, opacity: 1, className: "spc-neon" };
   }
   const L = LEVELS[lvl];
-  // Level 5 → one plain near-black fill, no border.
+  // Level 5 → plain near-black fill with a slowly pulsing lilac-gray border.
   if (lvl === 5) {
-    return { fillColor: L.color, fillOpacity: 0.9, color: L.color, weight: 0, opacity: 0 };
+    return { fillColor: L.color, fillOpacity: 0.9, color: "#9896A4", weight: 2.5, opacity: 1, className: "spc-apex5" };
   }
   const dark = lvl === 2 || lvl === 0;
   return {
@@ -142,6 +142,12 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
       <style>{`
         .spc-soft { filter: drop-shadow(0 0 2px rgba(255,255,255,.25)); }
         .spc-neon { filter: drop-shadow(0 0 3px rgba(255,255,255,.55)) drop-shadow(0 0 6px rgba(255,255,255,.4)); }
+        .spc-apex5 { animation: spcApex5Pulse 3.5s ease-in-out infinite; }
+        @keyframes spcApex5Pulse {
+          0%,100% { stroke-opacity: 1; filter: drop-shadow(0 0 1px #9896A4); }
+          50%     { stroke-opacity: .25; filter: drop-shadow(0 0 7px #9896A4); }
+        }
+        @media (prefers-reduced-motion: reduce) { .spc-apex5 { animation: none; } }
       `}</style>
 
       <div ref={containerRef} style={{ height, background: "#0a0e1a" }} />
@@ -184,7 +190,7 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
           </div>
           {legendLevels.map(item => (
             <div key={item.i} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color, outline: item.i === 5 ? "1px solid rgba(255,255,255,.25)" : undefined }} />
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color, outline: item.i === 5 ? "1px solid #9896A4" : undefined }} />
               <span className="text-[10px] text-white font-medium">{item.label}</span>
             </div>
           ))}

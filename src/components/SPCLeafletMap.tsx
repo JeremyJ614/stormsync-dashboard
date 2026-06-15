@@ -19,11 +19,12 @@ const LEVELS: Level[] = [
   { color: "#253559", label: "Lvl. 2 Escalating Baseline" },      // Winter Blue
   { color: "#CBA135", label: "Lvl. 3 Intensified Multi-Hazard" }, // Satin Sheet Gold
   { color: "#FA003F", label: "Lvl. 4 Destructive Apex Threat" },  // Rose Red
-  { color: "#9896A4", label: "Lvl. 5 Lethal Historic Catastrophe" }, // Lilac Gray (jet-black border + orbiting objects)
+  { color: "#1E1B29", label: "Lvl. 5 Lethal Historic Catastrophe" }, // Near-black (lifted so it reads on the dark map)
 ];
+// Level 5 is near-black; use a lighter tint for its text on dark UI chrome.
+const L5_TEXT = "#BBB7CC";
 
 const CAT_LEVEL: Record<string, number> = { TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5 };
-const SVGNS = "http://www.w3.org/2000/svg";
 
 function isCategorical(product: SPCProduct) { return product.endsWith("_cat"); }
 function hazardOf(product: SPCProduct): "cat" | "torn" | "wind" | "hail" {
@@ -62,9 +63,9 @@ function styleForFeature(product: SPCProduct, feature: GeoJSON.Feature, dominant
     return { fillColor: dominant, fillOpacity: 0, color: dominant, weight: 2.5, opacity: 1, className: "spc-neon" };
   }
   const L = LEVELS[lvl];
-  // Level 5 → Lilac Gray fill + JET BLACK border (objects orbit the border via an overlay).
+  // Level 5 → one plain near-black fill, no border.
   if (lvl === 5) {
-    return { fillColor: L.color, fillOpacity: 0.8, color: "#000000", weight: 4, opacity: 1, className: "spc-apex5" };
+    return { fillColor: L.color, fillOpacity: 0.9, color: L.color, weight: 0, opacity: 0 };
   }
   const dark = lvl === 2 || lvl === 0;
   return {
@@ -79,72 +80,25 @@ interface Props { product: SPCProduct; height?: number }
 
 export function SPCLeafletMap({ product, height = 340 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const orbitRef = useRef<SVGSVGElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.GeoJSON | null>(null);
-  const apexRingsRef = useRef<[number, number][][]>([]); // outer rings (lng,lat) of Level-5 features
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [hasData, setHasData] = useState(true);
   const [topLevel, setTopLevel] = useState<number>(0);
 
-  // Draw the small jet-black objects that spin + pulse while orbiting each Level-5 border.
-  const drawOrbits = () => {
-    const svg = orbitRef.current, map = mapRef.current;
-    if (!svg || !map) return;
-    while (svg.firstChild) svg.removeChild(svg.firstChild);
-    apexRingsRef.current.forEach((ring, idx) => {
-      let d = "";
-      ring.forEach((c, i) => {
-        const pt = map.latLngToContainerPoint([c[1], c[0]]);
-        d += (i ? "L" : "M") + pt.x.toFixed(1) + " " + pt.y.toFixed(1) + " ";
-      });
-      d += "Z";
-      const pid = `spc-apex-path-${idx}`;
-      const path = document.createElementNS(SVGNS, "path");
-      path.setAttribute("id", pid); path.setAttribute("d", d);
-      path.setAttribute("fill", "none"); path.setAttribute("stroke", "none");
-      svg.appendChild(path);
-      const N = 11;
-      for (let k = 0; k < N; k++) {
-        const g = document.createElementNS(SVGNS, "g");
-        const r = document.createElementNS(SVGNS, "rect");
-        r.setAttribute("class", "spc-orb");
-        r.setAttribute("x", "-4"); r.setAttribute("y", "-4");
-        r.setAttribute("width", "8"); r.setAttribute("height", "8"); r.setAttribute("rx", "1.5");
-        (r as SVGElement).style.animationDelay = `${-(1.25 * k / N)}s`;
-        g.appendChild(r);
-        const am = document.createElementNS(SVGNS, "animateMotion");
-        am.setAttribute("dur", "9s"); am.setAttribute("repeatCount", "indefinite");
-        am.setAttribute("begin", `${-(9 * k / N)}s`);
-        const mp = document.createElementNS(SVGNS, "mpath");
-        mp.setAttributeNS("http://www.w3.org/1999/xlink", "href", `#${pid}`);
-        mp.setAttribute("href", `#${pid}`);
-        am.appendChild(mp); g.appendChild(am);
-        svg.appendChild(g);
-      }
-    });
-  };
-
   const loadData = async (L: typeof import("leaflet"), map: L.Map) => {
     setLoading(true); setError(null);
     if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
-    apexRingsRef.current = [];
     try {
       const res = await fetch(`${BASE_API}/spc/outlook-geojson?product=${product}`);
       if (!res.ok) throw new Error(`${res.status}`);
       const data: GeoJSONData = await res.json();
       const features = data.features ?? [];
-      if (features.length === 0) { setHasData(false); setLoading(false); drawOrbits(); return; }
+      if (features.length === 0) { setHasData(false); setLoading(false); return; }
       setHasData(true);
       let maxLvl = 0;
-      const rings: [number, number][][] = [];
-      for (const f of features) {
-        const l = featureLevel(product, f);
-        if (typeof l === "number" && l > maxLvl) maxLvl = l;
-        if (l === 5 && f.geometry?.type === "Polygon") rings.push((f.geometry.coordinates as number[][][])[0] as [number, number][]);
-      }
-      apexRingsRef.current = rings;
+      for (const f of features) { const l = featureLevel(product, f); if (typeof l === "number" && l > maxLvl) maxLvl = l; }
       setTopLevel(maxLvl);
       const dominant = LEVELS[maxLvl].color;
       const layer = L.geoJSON(data as GeoJSON.GeoJsonObject, { style: (f) => f ? styleForFeature(product, f, dominant) : {} });
@@ -154,7 +108,6 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
       setError("Could not load SPC data");
     }
     setLoading(false);
-    drawOrbits();
   };
 
   useEffect(() => {
@@ -167,7 +120,6 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
         center: [39, -97], zoom: 4, zoomControl: true, attributionControl: false, scrollWheelZoom: false,
       });
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 10 }).addTo(map);
-      map.on("moveend zoomend resize", drawOrbits);
       mapRef.current = map;
       loadData(L, map);
     });
@@ -183,28 +135,16 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
 
   const cat = isCategorical(product);
   const legendLevels = cat ? LEVELS.map((v, i) => ({ ...v, i })) : LEVELS.map((v, i) => ({ ...v, i })).slice(1);
+  const readoutColor = topLevel === 5 ? L5_TEXT : LEVELS[topLevel].color;
 
   return (
     <div className="relative rounded-xl overflow-hidden border border-border">
-      {/* Self-contained animations: neon significant border + spinning/pulsing Level-5 orbs. */}
       <style>{`
         .spc-soft { filter: drop-shadow(0 0 2px rgba(255,255,255,.25)); }
         .spc-neon { filter: drop-shadow(0 0 3px rgba(255,255,255,.55)) drop-shadow(0 0 6px rgba(255,255,255,.4)); }
-        .spc-apex5 { filter: drop-shadow(0 0 5px rgba(0,0,0,.9)); }
-        .spc-orb {
-          fill: #0C0A00; stroke: #CFC9DA; stroke-width: 1;
-          filter: drop-shadow(0 0 3px #9896A4) drop-shadow(0 0 6px #9896A4);
-          transform-box: fill-box; transform-origin: center;
-          animation: spcOrbSpin 2.4s linear infinite, spcOrbPulse 1.25s ease-in-out infinite;
-        }
-        @keyframes spcOrbSpin { to { transform: rotate(360deg); } }
-        @keyframes spcOrbPulse { 0%,100% { opacity: 1 } 50% { opacity: .35 } }
-        @media (prefers-reduced-motion: reduce) { .spc-orb { animation: none } }
       `}</style>
 
       <div ref={containerRef} style={{ height, background: "#0a0e1a" }} />
-      {/* Orbit overlay (above tiles/polygons, below the readout/legend) */}
-      <svg ref={orbitRef} style={{ position: "absolute", top: 0, left: 0, width: "100%", height, pointerEvents: "none", overflow: "visible", zIndex: 650 }} />
 
       {loading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50 pointer-events-none" style={{ zIndex: 1000 }}>
@@ -232,7 +172,7 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
       {!loading && hasData && (
         <div className="absolute top-2 right-2 bg-black/75 rounded-lg px-2.5 py-1.5 pointer-events-none" style={{ zIndex: 1000 }}>
           <div className="text-[9px] uppercase tracking-[0.25em] text-white/60">Highest Risk</div>
-          <div className="text-xs font-bold" style={{ color: LEVELS[topLevel].color }}>{LEVELS[topLevel].label}</div>
+          <div className="text-xs font-bold" style={{ color: readoutColor }}>{LEVELS[topLevel].label}</div>
         </div>
       )}
 
@@ -244,7 +184,7 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
           </div>
           {legendLevels.map(item => (
             <div key={item.i} className="flex items-center gap-2">
-              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color, border: item.i === 5 ? "2px solid #000" : undefined, boxShadow: item.i === 5 ? "0 0 5px #9896A4" : undefined }} />
+              <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: item.color, outline: item.i === 5 ? "1px solid rgba(255,255,255,.25)" : undefined }} />
               <span className="text-[10px] text-white font-medium">{item.label}</span>
             </div>
           ))}

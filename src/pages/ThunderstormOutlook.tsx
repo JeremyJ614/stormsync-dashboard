@@ -24,7 +24,7 @@ export default function ThunderstormOutlook() {
   const [hazard, setHazard] = useState<HazardId>("torn");
   const [key, setKey] = useState(0);
 
-  const product: SPCProduct = `day${day}probotlk_${hazard}` as SPCProduct;
+  const product: SPCProduct = `day${day}otlk_${hazard}` as SPCProduct;
   const hazardLabel = HAZARDS.find(h => h.id === hazard)?.label ?? "Probability";
 
   return (

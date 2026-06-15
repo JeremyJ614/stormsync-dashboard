@@ -9,6 +9,9 @@ const DAYS = [
   { d: 1, label: "Day 1" },
   { d: 2, label: "Day 2" },
   { d: 3, label: "Day 3" },
+  { d: 4, label: "Day 4" },
+  { d: 5, label: "Day 5" },
+  { d: 6, label: "Day 6" },
 ];
 const TYPES = [
   { id: "cat",  label: "Overview" },
@@ -19,6 +22,7 @@ const TYPES = [
 type TypeId = (typeof TYPES)[number]["id"];
 
 function buildProduct(day: number, type: TypeId): SPCProduct {
+  if (day >= 4) return `day${day}prob` as SPCProduct;        // Day 4-8: combined "any severe" outlook
   if (type === "cat") return `day${day}otlk_cat` as SPCProduct;
   if (day === 3) return "day3otlk_cat";
   // SPC names the hazard probability products dayNotlk_{torn,wind,hail}.
@@ -31,7 +35,10 @@ export default function SPCOutlook({ location: _ }: Props) {
   const [key, setKey] = useState(0);
 
   const product = buildProduct(day, type);
-  const typeLabel = TYPES.find(t => t.id === type)?.label ?? "Overview";
+  const typeLabel = day >= 4 ? "Severe Probability" : (TYPES.find(t => t.id === type)?.label ?? "Overview");
+  const spcHref = day >= 4
+    ? "https://www.spc.noaa.gov/products/exper/day4-8/"
+    : `https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`;
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -56,23 +63,27 @@ export default function SPCOutlook({ location: _ }: Props) {
             </button>
           ))}
         </div>
-        <div className="flex flex-wrap gap-2">
-          {TYPES.map(t => {
-            const disabled = day === 3 && t.id !== "cat";
-            return (
-              <button key={t.id} onClick={() => !disabled && setType(t.id)} disabled={disabled}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${type === t.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"} ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}>
-                {t.label}
-              </button>
-            );
-          })}
-        </div>
+        {day <= 3 ? (
+          <div className="flex flex-wrap gap-2">
+            {TYPES.map(t => {
+              const disabled = day === 3 && t.id !== "cat";
+              return (
+                <button key={t.id} onClick={() => !disabled && setType(t.id)} disabled={disabled}
+                  className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${type === t.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"} ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}>
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="text-[11px] text-muted-foreground">Days 4-6 show the combined probability of any severe weather (SPC issues a single outlook — no hazard breakdown).</p>
+        )}
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="flex items-center justify-between px-4 py-2.5 border-b border-border bg-black/30">
           <h3 className="text-sm font-semibold">Day {day} — {typeLabel} Outlook</h3>
-          <a href={`https://www.spc.noaa.gov/products/outlook/day${day}otlk.html`}
+          <a href={spcHref}
             target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-1 text-xs text-primary hover:underline">
             <ExternalLink className="w-3 h-3" /> SPC

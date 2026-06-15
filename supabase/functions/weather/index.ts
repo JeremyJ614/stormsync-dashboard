@@ -123,18 +123,20 @@ Deno.serve(async (req) => {
       return json(out, 200, 600);
     }
 
-    // ---- SPC outlook GeoJSON ---------------------------------------------
+    // ---- SPC outlook GeoJSON (Day 1-3 detailed + Day 4-8 any-severe) -----
     if (route === "/spc/outlook-geojson") {
       const product = url.searchParams.get("product") ?? "";
-      if (!/^day[1-3](otlk|probotlk)_[a-z]+$/.test(product)) return json({ error: "invalid product" }, 400);
+      const isExt = /^day[4-8]prob$/.test(product); // Day 4-8 combined "any severe" outlook
+      if (!/^day[1-3](otlk|probotlk)_[a-z]+$/.test(product) && !isExt) return json({ error: "invalid product" }, 400);
       const key = `spc:geojson:${product}`;
       const cached = await cacheGet(key, 900);
       if (cached) return json(cached, 200, 900);
-      // SPC publishes outlooks as GeoJSON; try non-layered then layered.
-      const candidates = [
-        `${SPC}/products/outlook/${product}.nolyr.geojson`,
-        `${SPC}/products/outlook/${product}.lyr.geojson`,
-      ];
+      // Day 4-8 outlooks live under exper/day4-8 (layered has the probability features);
+      // Day 1-3 under products/outlook (non-layered preferred).
+      const base = isExt ? `${SPC}/products/exper/day4-8/${product}` : `${SPC}/products/outlook/${product}`;
+      const candidates = isExt
+        ? [`${base}.lyr.geojson`, `${base}.nolyr.geojson`]
+        : [`${base}.nolyr.geojson`, `${base}.lyr.geojson`];
       let geo: unknown | null = null;
       for (const c of candidates) {
         try { const r = await fetchJSON(c); geo = await r.json(); break; } catch { /* try next */ }

@@ -27,33 +27,39 @@ function computeComponents(alerts: AlertItem[], cape: number, srh: number, shear
   const winterStorm = events.filter(e => e.includes("winter storm") || e.includes("ice storm")).length;
   const fireredflag = events.filter(e => e.includes("red flag")).length;
 
-  const tornadoScore = parseFloat((tornadoWarnings * 2.5).toFixed(1));
-  const svrScore = parseFloat((svrThunderstorm * 2).toFixed(1));
-  const floodScore = parseFloat(Math.min(60, floodFlash * 15 + floodRiver * 8 + (floodFlash > 0 ? 10 : 0)).toFixed(1));
-  const tropicalScore = parseFloat((tropical * 30).toFixed(1));
-  const winterScore = parseFloat((winterBlizzard * 13 + winterStorm * 5).toFixed(1));
-  const fireScore = parseFloat((fireredflag * 15).toFixed(1));
+  const r1 = (v: number) => Math.round(v * 10) / 10;
+  // National-scale weights. These are counts across the WHOLE U.S., so every
+  // bucket is capped — routine background warnings (river flooding, red-flag,
+  // winter advisories) can't dominate, and the rare/dangerous convective and
+  // tropical warnings drive the score. A genuine outbreak is the only way to
+  // reach the top bands.
+  const tornadoScore  = r1(Math.min(120, tornadoWarnings * 4));          // dominant signal
+  const svrScore      = r1(Math.min(70,  svrThunderstorm * 1));
+  const floodScore    = r1(Math.min(40,  floodFlash * 1 + floodRiver * 0.25)); // flash >> river
+  const tropicalScore = r1(Math.min(90,  tropical * 6));
+  const winterScore   = r1(Math.min(40,  winterBlizzard * 4 + winterStorm * 0.5));
+  const fireScore     = r1(Math.min(15,  fireredflag * 0.5));
 
-  const atmoScore = parseFloat(Math.min(20,
-    (cape > 0 ? Math.min(5, cape / 800) : 0) +
-    (srh > 0 ? Math.min(5, srh / 120) : 0) +
-    (shear > 0 ? Math.min(5, shear / 20) : 0) +
-    (li < 0 ? Math.min(5, Math.abs(li) / 2) : 0)
-  ).toFixed(1));
+  const atmoScore = r1(Math.min(12,
+    (cape > 0 ? Math.min(3, cape / 1000) : 0) +
+    (srh > 0 ? Math.min(3, srh / 150) : 0) +
+    (shear > 0 ? Math.min(3, shear / 25) : 0) +
+    (li < 0 ? Math.min(3, Math.abs(li) / 3) : 0)
+  ));
 
-  const total = parseFloat((tornadoScore + svrScore + floodScore + tropicalScore + winterScore + fireScore + atmoScore).toFixed(1));
+  const total = r1(tornadoScore + svrScore + floodScore + tropicalScore + winterScore + fireScore + atmoScore);
 
   return {
     tornadoWarnings, svrThunderstorm, floodFlash, floodRiver, tropical,
     winterBlizzard, winterStorm, fireredflag,
     components: [
-      { label: "TORNADO WARNINGS", score: tornadoScore, multiplier: "+2.5", desc: `${tornadoWarnings} warnings · 0 watches` },
-      { label: "SEVERE THUNDERSTORM", score: svrScore, multiplier: "+2", desc: `${svrThunderstorm} warnings · 0 watches` },
-      { label: "FLOOD THREAT", score: floodScore, multiplier: "+15", desc: `${floodFlash} flash · ${floodRiver} river` },
-      { label: "TROPICAL SYSTEMS", score: tropicalScore, multiplier: "+0", desc: `${tropical} storm${tropical !== 1 ? "s" : ""}` },
-      { label: "WINTER WEATHER", score: winterScore, multiplier: "+13", desc: `${winterBlizzard} blizzard · ${winterStorm} storm` },
-      { label: "FIRE WEATHER", score: fireScore, multiplier: "+15", desc: `${fireredflag} red flag warnings` },
-      { label: "LOCAL INSTABILITY", score: atmoScore, multiplier: "+20", desc: "Your area: CAPE / SRH / Shear / LI" },
+      { label: "TORNADO WARNINGS", score: tornadoScore, multiplier: "×4", desc: `${tornadoWarnings} active nationwide` },
+      { label: "SEVERE THUNDERSTORM", score: svrScore, multiplier: "×1", desc: `${svrThunderstorm} active nationwide` },
+      { label: "FLOOD THREAT", score: floodScore, multiplier: "flash×1", desc: `${floodFlash} flash · ${floodRiver} river` },
+      { label: "TROPICAL SYSTEMS", score: tropicalScore, multiplier: "×6", desc: `${tropical} tropical/hurricane` },
+      { label: "WINTER WEATHER", score: winterScore, multiplier: "blz×4", desc: `${winterBlizzard} blizzard · ${winterStorm} storm` },
+      { label: "FIRE WEATHER", score: fireScore, multiplier: "×0.5", desc: `${fireredflag} red flag warnings` },
+      { label: "LOCAL INSTABILITY", score: atmoScore, multiplier: "max 12", desc: "Your area: CAPE / SRH / Shear / LI" },
     ],
     total,
   };

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { Link } from "wouter";
-import { useAuth, ALL_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
+import { useAuth, ALL_MODULES, HIDDEN_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
 import {
   listUsers, adminCreateUser, adminDeleteUser, adminSetPin,
   setUserTier, setUserModules, setUserBadges, setUserReferrals,
@@ -299,7 +299,7 @@ function ModulesTab() {
           <p className="text-[11px] text-muted-foreground">Toggle to enable/disable each page. Always-on modules cannot be disabled.</p>
         </div>
         <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[500px] overflow-y-auto">
-          {selected && ALL_MODULES.map(m => {
+          {selected && ALL_MODULES.filter(m => !HIDDEN_MODULES.has(m.id)).map(m => {
             const on = selected.enabledModules.includes(m.id);
             return (
               <button key={m.id} disabled={m.alwaysOn} onClick={() => toggle(m.id)}

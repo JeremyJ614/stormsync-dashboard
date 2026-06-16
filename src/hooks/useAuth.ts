@@ -73,6 +73,12 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/contact", label: "Contact", alwaysOn: true },
 ];
 
+// Modules that are built but intentionally hidden before launch. Delete the id
+// from this set to re-enable it everywhere at once — sidebar, admin module
+// toggles, FAQ guide, and routing all consult it. (AI Forecast Duel / U-18 is
+// parked here until we settle its cost model post-launch.)
+export const HIDDEN_MODULES = new Set<string>(["/duel"]);
+
 // Core questions are rendered natively by the signup form; tier is intentionally
 // absent — tiers are admin-assigned (§7.4 / D-01), never self-selected.
 export const DEFAULT_QUESTIONS: SignupQuestion[] = [
@@ -246,6 +252,7 @@ export function useAuth() {
 }
 
 export function hasModuleAccess(user: User | null, path: string): boolean {
+  if (HIDDEN_MODULES.has(path)) return false; // parked pre-launch (see HIDDEN_MODULES)
   const mod = ALL_MODULES.find((m) => m.id === path);
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";

@@ -237,7 +237,7 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] Engine reuse by Forecast Game overlays (U-20) — **deferred to Phase 4** (the Forecast
       Game itself is a Phase 4 module).
 
-### ◐ Phase 4 — Interactive AI Modules (built on Storm Engine) — IN PROGRESS (2026-06-16)
+### ◑ Phase 4 — Interactive AI Modules (built on Storm Engine) — DONE 2026-06-16 (U-18 parked)
 - [x] **Shared consumer hook** `useDailyBrief` (React Query, 1-hr cache) — every AI module
       reads the ONE nightly brief instead of making its own AI call (keeps the free tier).
 - [x] **U-16** Storm Chasing targets wired to `brief.chase_targets` (area/hazards/reason
@@ -246,21 +246,32 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       gives regions, not coords; a future engine pass can add geocoded params.)*
 - [x] **U-17** Weather Pattern AI wired to `brief.pattern` + `summary` + a deterministic
       national severe-activity gauge from the SPC `risk_overview` (no per-request AI).
-- [ ] **U-20** Forecast Game: interactive map w/ easy toggleable overlays (SPC categories,
-      fronts/dryline/low, simplified CAPE/shear) → drop pin on worst-weather/tornado spot;
-      closest wins, next 3 score; **leaderboard subtab**, **monthly-winners subtab** (points
-      reset monthly), yearly winner = big prize
-- [ ] **U-19** Severe Weather History: AI summaries for last month / last week / current
-      week / last year
-- [ ] **U-17** AI Weather Pattern Analysis fixed
-- [ ] **U-18** AI Knowledge Battle fixed
+- [x] **U-03** Forecast Discussion: Plain-Language tab reads `brief.discussion_plain`
+      (Technical tab keeps the local NWS AFD).
+- [x] **U-05** SSWXCon: live alert-based score retained; added a national-picture banner
+      from the nightly brief headline + SPC Day-1 category.
+- [x] **U-19** Severe Weather History: new nightly engine job maintains a `daily_report_counts`
+      ledger (today live + 45-day SPC backfill) and publishes AI-summarized `severe_history`
+      rows for week / last-month / this-month / year-to-date (real counts, honest
+      "tracking since" labeling, most-active-days from the ledger). Page reads Supabase.
+- [x] **U-20** Forecast Game: guesses persist to `game_guesses` (one/day), nightly engine
+      scores them by distance to SPC storm reports (tornado bonus) and auto-crowns the
+      monthly winner; leaderboard + monthly-winners read Supabase. US map now uses a
+      bundled Albers states asset (dead `api/us-states` retired).
+- [~] **U-18** AI Knowledge Battle / Forecast Duel — **parked pre-launch** behind
+      `HIDDEN_MODULES` (code + route intact; cost model TBD post-launch).
 
-### ☐ Phase 5 — Reported Bug-Fix Sweep (non-AI)
-- [ ] **U-08** Maps render over the sidebar (Leaflet stacking-context vs. z-40 sidebar)
-- [ ] **U-29** Regular weather news broken + page-stretch/overflow bug
-- [ ] **U-13** MRMS subtabs not working + provide list of available MRMS products to add
-- [ ] **U-12** Model Runs: add ~10–15 more parameters
-- [ ] **U-14** Tornado Climatology: clean embed (no full webpage chrome)
+### ◑ Phase 5 — Reported Bug-Fix Sweep (non-AI) — DONE 2026-06-16
+- [x] **U-08** Leaflet z-index capped below the fixed sidebar (global `index.css` rule) —
+      maps no longer render over the navigation.
+- [x] **U-29** Weather news restored: new `/news/weather` route on the `weather` Edge
+      Function (Google News RSS parsed server-side). Layout already overflow-safe.
+- [x] **U-13** MRMS/radar tabs rebuilt on verified IEM USCOMP composites (reflectivity,
+      legacy reflectivity, 1-hr & storm-total precip); old `4326/mrms/*` URLs were 404.
+      Live rotation tracks linked out to NSSL's MRMS viewer.
+- [x] **U-12** Model Runs: 6 → 20 parameters; `wind_speed_unit=ms` so mph is correct.
+- [x] **U-14** Tornado Climatology: full-page SPC iframes replaced with clean per-tool
+      launcher cards; native climatology charts / EF scale / outbreaks retained.
 
 ### ☐ Phase 6 — Member & Account Features
 - [ ] **U-02** Dashboard → interchangeable, customizable basic-forecast area, tier-gated

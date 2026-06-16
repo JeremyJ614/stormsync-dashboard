@@ -442,8 +442,41 @@ function scoreGuess(lat: number, lon: number, pts: ReportPt[]): number {
   if (best <= 50 && bestKind === "torn") pts0 += 500; // tornado bullseye bonus
   return pts0;
 }
+// Loyalty point values for game placements (admin-configurable in app_config).
+async function loyaltyGameAwards(): Promise<number[]> {
+  const { data } = await admin.from("app_config").select("value").eq("key", "loyalty_rules").maybeSingle();
+  const v = (data?.value ?? {}) as Record<string, number>;
+  return [v.game_win_1st ?? 35, v.game_win_2nd ?? 25, v.game_win_3rd ?? 15, v.game_win_4th ?? 10];
+}
+const PLACE = ["1st", "2nd", "3rd", "4th"];
+// Settle the previous month once (idempotent — skips if the winner row exists):
+// crown the winner and credit the top-4 their game-win loyalty points.
+async function rollupMonth(today: Date): Promise<void> {
+  if (today.getUTCDate() !== 1) return;
+  const pm = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
+  const month = `${pm.getUTCFullYear()}-${String(pm.getUTCMonth() + 1).padStart(2, "0")}`;
+  const { data: existing } = await admin.from("game_winners").select("month").eq("month", month).maybeSingle();
+  if (existing) return; // already settled — don't double-award
+  const start = isoDate(pm), end = isoDate(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0)));
+  const { data: rows } = await admin.from("game_guesses").select("user_id,user_name,points").gte("guess_date", start).lte("guess_date", end).not("points", "is", null);
+  const tally = new Map<string, { name: string; points: number }>();
+  for (const r of (rows ?? []) as { user_id: string; user_name: string; points: number }[]) {
+    const cur = tally.get(r.user_id) ?? { name: r.user_name, points: 0 };
+    cur.points += r.points ?? 0; tally.set(r.user_id, cur);
+  }
+  const ranked = [...tally.entries()].map(([user_id, v]) => ({ user_id, ...v })).sort((a, b) => b.points - a.points);
+  if (ranked.length === 0) return;
+  await admin.from("game_winners").upsert({ month, user_id: ranked[0].user_id, user_name: ranked[0].name, points: ranked[0].points }, { onConflict: "month" });
+  const awards = await loyaltyGameAwards();
+  for (let i = 0; i < Math.min(4, ranked.length); i++) {
+    if (awards[i] > 0) {
+      await admin.from("loyalty_events").insert({ user_id: ranked[i].user_id, kind: "game_win", points: awards[i], note: `Forecast Game ${PLACE[i]} place — ${month}` });
+    }
+  }
+}
 async function scoreGame(): Promise<{ scored: number }> {
   const today = new Date();
+  await rollupMonth(today); // runs even on a day with no new guesses
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
   const dateStr = isoDate(yest);
   const { data: guesses } = await admin.from("game_guesses").select("id,lat,lon,points").eq("guess_date", dateStr).is("points", null);
@@ -452,21 +485,6 @@ async function scoreGame(): Promise<{ scored: number }> {
   for (const g of guesses as { id: string; lat: number; lon: number }[]) {
     const score = scoreGuess(g.lat, g.lon, pts);
     await admin.from("game_guesses").update({ points: score }).eq("id", g.id);
-  }
-  // Roll up the previous month's winner once we're into a new month.
-  if (today.getUTCDate() === 1) {
-    const pm = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
-    const month = `${pm.getUTCFullYear()}-${String(pm.getUTCMonth() + 1).padStart(2, "0")}`;
-    const start = isoDate(pm), end = isoDate(new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 0)));
-    const { data: rows } = await admin.from("game_guesses").select("user_id,user_name,points").gte("guess_date", start).lte("guess_date", end).not("points", "is", null);
-    const tally = new Map<string, { name: string; points: number }>();
-    for (const r of (rows ?? []) as { user_id: string; user_name: string; points: number }[]) {
-      const cur = tally.get(r.user_id) ?? { name: r.user_name, points: 0 };
-      cur.points += r.points ?? 0; tally.set(r.user_id, cur);
-    }
-    let winner: { user_id: string; name: string; points: number } | null = null;
-    for (const [user_id, v] of tally) if (!winner || v.points > winner.points) winner = { user_id, ...v };
-    if (winner) await admin.from("game_winners").upsert({ month, user_id: winner.user_id, user_name: winner.name, points: winner.points }, { onConflict: "month" });
   }
   return { scored: guesses.length };
 }

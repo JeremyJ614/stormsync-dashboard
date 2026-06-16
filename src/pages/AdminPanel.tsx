@@ -7,6 +7,7 @@ import {
   getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
 } from "../lib/userAdmin";
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
+import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, type LoyaltyRules } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { newsStore, broadcastStore, contactStore, type NewsPost, type Broadcast, type ContactSubmission } from "../lib/adminStore";
 import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown } from "lucide-react";
@@ -312,7 +313,69 @@ function ModulesTab() {
             );
           })}
         </div>
+        {selected && <AwardPointsCard userId={selected.id} userName={selected.name} />}
       </div>
+    </div>
+  );
+}
+
+function AwardPointsCard({ userId, userName }: { userId: string; userName: string }) {
+  const [rules, setRules] = useState<LoyaltyRules | null>(null);
+  const [total, setTotal] = useState<number | null>(null);
+  const [kind, setKind] = useState("referral");
+  const [points, setPoints] = useState(100);
+  const [note, setNote] = useState("");
+  const [saved, setSaved] = useState(false);
+
+  const reloadTotal = useCallback(() => { getUserLoyaltyTotal(userId).then(setTotal); }, [userId]);
+  useEffect(() => { getLoyaltyRules().then(setRules); }, []);
+  useEffect(() => { reloadTotal(); }, [reloadTotal]);
+
+  // Default the point value from the rules whenever the award kind changes.
+  useEffect(() => {
+    if (!rules) return;
+    if (kind === "referral") setPoints(rules.referral_converted);
+    else if (kind === "renewal") setPoints(rules.membership_renewal);
+  }, [kind, rules]);
+
+  async function award() {
+    const r = await awardLoyaltyPoints(userId, kind, points, note.trim() || undefined);
+    if (!r.ok) { alert(r.error ?? "Failed to award points"); return; }
+    setNote(""); setSaved(true); setTimeout(() => setSaved(false), 1500); reloadTotal();
+  }
+
+  return (
+    <div className="border-t border-border p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Loyalty Points — {userName}</h4>
+        <span className="text-sm font-bold text-yellow-300 tabular-nums">{total === null ? "…" : total.toLocaleString()} pts</span>
+      </div>
+      <div className="flex flex-wrap items-end gap-2">
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Reason</span>
+          <select value={kind} onChange={e => setKind(e.target.value)}
+            className="bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40">
+            <option value="referral">Referral converted</option>
+            <option value="renewal">Membership renewal</option>
+            <option value="bonus">Bonus</option>
+            <option value="adjustment">Adjustment</option>
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Points</span>
+          <input type="number" value={points} onChange={e => setPoints(parseInt(e.target.value) || 0)}
+            className="w-24 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+        </label>
+        <label className="flex flex-col gap-1 flex-1 min-w-[140px]">
+          <span className="text-[10px] text-muted-foreground uppercase tracking-wide">Note (optional)</span>
+          <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. referred Jane"
+            className="bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+        </label>
+        <button onClick={award} className="px-4 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30">
+          {saved ? "Awarded ✓" : "Award"}
+        </button>
+      </div>
+      <p className="text-[10px] text-muted-foreground">Negative points allowed for corrections. Game-win points post automatically.</p>
     </div>
   );
 }
@@ -700,9 +763,75 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <LoyaltyRulesCard />
       <div className="bg-card border border-border rounded-xl p-4">
         <p className="text-xs text-muted-foreground">Signup form questions moved to the <strong className="text-foreground">Signups</strong> tab.</p>
       </div>
+    </div>
+  );
+}
+
+function LoyaltyRulesCard() {
+  const [rules, setRules] = useState<LoyaltyRules | null>(null);
+  const [saved, setSaved] = useState(false);
+  useEffect(() => { getLoyaltyRules().then(setRules); }, []);
+  if (!rules) return null;
+
+  const num = (k: keyof LoyaltyRules) => (
+    <input type="number" value={rules[k] as number}
+      onChange={e => setRules({ ...rules, [k]: parseInt(e.target.value) || 0 })}
+      className="w-20 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+  );
+  const setPrize = (i: number, patch: Partial<{ points: number; prize: string }>) =>
+    setRules({ ...rules, prizes: rules.prizes.map((p, j) => j === i ? { ...p, ...patch } : p) });
+
+  async function save() {
+    const sorted = { ...rules!, prizes: [...rules!.prizes].sort((a, b) => a.points - b.points) };
+    const r = await saveLoyaltyRules(sorted);
+    if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
+    setRules(sorted); setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+      <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> Loyalty Program</h3>
+
+      <div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Point Values</div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <label className="flex items-center justify-between gap-2 text-sm">Referral {num("referral_converted")}</label>
+          <label className="flex items-center justify-between gap-2 text-sm">Renewal {num("membership_renewal")}</label>
+          <label className="flex items-center justify-between gap-2 text-sm">Game 1st {num("game_win_1st")}</label>
+          <label className="flex items-center justify-between gap-2 text-sm">Game 2nd {num("game_win_2nd")}</label>
+          <label className="flex items-center justify-between gap-2 text-sm">Game 3rd {num("game_win_3rd")}</label>
+          <label className="flex items-center justify-between gap-2 text-sm">Game 4th {num("game_win_4th")}</label>
+        </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Prizes</span>
+          <button onClick={() => setRules({ ...rules, prizes: [...rules.prizes, { points: 0, prize: "" }] })}
+            className="text-xs text-primary hover:underline flex items-center gap-1"><Plus className="w-3 h-3" /> Add prize</button>
+        </div>
+        <div className="space-y-2">
+          {rules.prizes.map((p, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input type="number" value={p.points} onChange={e => setPrize(i, { points: parseInt(e.target.value) || 0 })}
+                className="w-24 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+              <span className="text-xs text-muted-foreground">pts →</span>
+              <input value={p.prize} onChange={e => setPrize(i, { prize: e.target.value })} placeholder="Prize description"
+                className="flex-1 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+              <button onClick={() => setRules({ ...rules, prizes: rules.prizes.filter((_, j) => j !== i) })}
+                className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <button onClick={save} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30">
+        {saved ? "Saved ✓" : "Save loyalty rules"}
+      </button>
     </div>
   );
 }

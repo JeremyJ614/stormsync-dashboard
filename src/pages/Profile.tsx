@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useAuth, type BadgeDef } from "../hooks/useAuth";
 import { listBadgeDefs } from "../lib/badges";
 import { listSavedLocations } from "../lib/savedLocations";
+import { getMyLoyalty } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
@@ -19,7 +20,7 @@ function monthsLabel(n: number): string {
 }
 
 export default function Profile() {
-  const { user, loyaltyPoints, monthsActive, logout } = useAuth();
+  const { user, monthsActive, logout } = useAuth();
   const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
   useEffect(() => { listBadgeDefs().then(setBadgeDefs).catch(() => {}); }, []);
 
@@ -29,6 +30,13 @@ export default function Profile() {
     enabled: !!user,
     staleTime: 5 * 60 * 1000,
   });
+  const { data: loyalty } = useQuery({
+    queryKey: ["my-loyalty", user?.id],
+    queryFn: getMyLoyalty,
+    enabled: !!user,
+    staleTime: 60 * 1000,
+  });
+  const loyaltyPoints = loyalty?.points ?? 0;
 
   if (!user) {
     return (

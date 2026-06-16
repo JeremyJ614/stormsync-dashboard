@@ -279,8 +279,12 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **L1** "My Locations" — save/switch multiple places. Backed by `saved_locations`
       (RLS own-rows); `lib/savedLocations.ts` + `SavedLocations` header control (bookmark
       menu: switch, set-primary ⭐, remove, save-current). Visible to signed-in members.
-- [ ] **U-21** Loyalty Dashboard: admin-configurable; points for referrals *(L1)*, renewals,
-      game wins; prizes = discounts/coupons; fair-but-not-easy point system (proposed below)
+- [x] **U-21** Loyalty Dashboard: points are now a real `loyalty_events` ledger (balance =
+      sum of rows). Member page shows balance, how-to-earn (from config), prize ladder with
+      progress, and points history. **Admin-configurable** via the admin Settings tab (edit
+      point values + prize ladder in `app_config.loyalty_rules`) and an "award points" form
+      per user (referral/renewal/bonus/adjustment). Game wins auto-credit the top-4 at the
+      monthly rollup (engine v7). Profile loyalty stat reads the same ledger.
 - [x] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
       color picker** — **DONE EARLY in Phase 1B follow-up (2026-06-11)**; SVG icons
       deferred post-Beta

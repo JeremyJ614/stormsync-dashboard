@@ -17,13 +17,32 @@ const MODELS = [
   { id: "gem_seamless", label: "GEM", color: "#4ade80" },
 ];
 
+const r0 = (v: number) => Math.round(v);
+const r1 = (v: number) => Math.round(v * 10) / 10;
 const PARAMS = [
+  // Surface
   { id: "temperature_2m", label: "Temperature (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
-  { id: "precipitation_probability", label: "Precip Probability (%)", unit: "%", convert: (v: number) => Math.round(v) },
-  { id: "wind_speed_10m", label: "Wind Speed (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
-  { id: "cape", label: "CAPE (J/kg)", unit: "J/kg", convert: (v: number) => Math.round(v) },
-  { id: "relative_humidity_2m", label: "Relative Humidity (%)", unit: "%", convert: (v: number) => Math.round(v) },
+  { id: "apparent_temperature", label: "Feels Like (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
   { id: "dew_point_2m", label: "Dew Point (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
+  { id: "relative_humidity_2m", label: "Relative Humidity (%)", unit: "%", convert: r0 },
+  { id: "precipitation_probability", label: "Precip Probability (%)", unit: "%", convert: r0 },
+  { id: "precipitation", label: "Precipitation (mm)", unit: "mm", convert: r1 },
+  { id: "cloud_cover", label: "Cloud Cover (%)", unit: "%", convert: r0 },
+  { id: "visibility", label: "Visibility (mi)", unit: "mi", convert: (v: number) => Math.round((v / 1609.34) * 10) / 10 },
+  { id: "surface_pressure", label: "Surface Pressure (hPa)", unit: "hPa", convert: r0 },
+  { id: "pressure_msl", label: "Mean Sea-Level Pressure (hPa)", unit: "hPa", convert: r0 },
+  // Wind
+  { id: "wind_speed_10m", label: "Wind Speed (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
+  { id: "wind_gusts_10m", label: "Wind Gusts (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
+  { id: "wind_speed_850hPa", label: "850mb Wind (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
+  { id: "wind_speed_500hPa", label: "500mb Wind (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
+  // Severe / upper air
+  { id: "cape", label: "CAPE (J/kg)", unit: "J/kg", convert: r0 },
+  { id: "lifted_index", label: "Lifted Index", unit: "", convert: r1 },
+  { id: "convective_inhibition", label: "CIN (J/kg)", unit: "J/kg", convert: r0 },
+  { id: "freezing_level_height", label: "Freezing Level (ft)", unit: "ft", convert: (v: number) => Math.round((v * 3.281) / 10) * 10 },
+  { id: "temperature_850hPa", label: "850mb Temp (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
+  { id: "geopotential_height_500hPa", label: "500mb Height (m)", unit: "m", convert: r0 },
 ];
 
 function useForecastModel(location: Location, modelId: string, paramId: string) {
@@ -36,6 +55,7 @@ function useForecastModel(location: Location, modelId: string, paramId: string) 
       url.searchParams.set("hourly", paramId);
       url.searchParams.set("models", modelId);
       url.searchParams.set("timezone", "auto");
+      url.searchParams.set("wind_speed_unit", "ms"); // so msToMph conversions are correct
       url.searchParams.set("forecast_days", "7");
       const res = await fetch(url.toString());
       if (!res.ok) throw new Error("API error");

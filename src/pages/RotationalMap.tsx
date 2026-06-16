@@ -5,30 +5,33 @@ import "leaflet/dist/leaflet.css";
 
 interface Props { location: Location }
 
+// Verified-working IEM national composites (the previous MRMS `4326/mrms/*`
+// paths were 404). The NSSL MRMS rotation viewer is linked out separately.
+const IEM_IMG = "https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP";
 const PRODUCTS = [
   {
     id: "n0q", label: "Base Reflectivity", short: "Reflectivity",
-    url: "https://mesonet.agron.iastate.edu/data/gis/images/4326/USCOMP/n0q_0.png",
-    desc: "NEXRAD national base reflectivity composite. Updates ~5 min. Shows precipitation, storm cells, squall lines.",
+    url: `${IEM_IMG}/n0q_0.png`,
+    desc: "NEXRAD national base reflectivity composite. Updates ~5 min. Shows precipitation, storm cells and squall lines.",
     external: "https://mesonet.agron.iastate.edu/GIS/ridge.phtml",
   },
   {
-    id: "a2m", label: "Rotation Tracks (Az Shear)", short: "Rotation Tracks",
-    url: "https://mesonet.agron.iastate.edu/data/gis/images/4326/mrms/a2m_0.png",
-    desc: "MRMS low-level azimuthal shear — highlights mesocyclone and tornado rotation tracks. Brightest areas = strongest rotation.",
-    external: "https://mrms.nssl.noaa.gov/qvs/product_viewer/",
+    id: "n0r", label: "Reflectivity (Legacy 16-level)", short: "Reflectivity 2",
+    url: `${IEM_IMG}/n0r_0.png`,
+    desc: "Legacy 16-level NEXRAD base reflectivity composite — a coarser, higher-contrast look at the national radar mosaic.",
+    external: "https://mesonet.agron.iastate.edu/GIS/ridge.phtml",
   },
   {
-    id: "lcref", label: "Low-Level Reflectivity", short: "Low-Level Refl.",
-    url: "https://mesonet.agron.iastate.edu/data/gis/images/4326/mrms/lcref_0.png",
-    desc: "MRMS lowest-angle reflectivity — captures precipitation near the surface including low-topped convection.",
-    external: "https://mrms.nssl.noaa.gov/",
+    id: "n1p", label: "1-Hour Precipitation", short: "1hr Precip",
+    url: `${IEM_IMG}/n1p_0.png`,
+    desc: "NEXRAD one-hour precipitation estimate — rainfall accumulation over the past hour across the CONUS mosaic.",
+    external: "https://mesonet.agron.iastate.edu/GIS/ridge.phtml",
   },
   {
-    id: "p24h", label: "24-Hour QPE", short: "24hr Precip",
-    url: "https://mesonet.agron.iastate.edu/data/gis/images/4326/mrms/p24h_0.png",
-    desc: "MRMS quantitative precipitation estimate — total accumulated rainfall over the past 24 hours.",
-    external: "https://mrms.nssl.noaa.gov/",
+    id: "ntp", label: "Storm-Total Precipitation", short: "Storm Total",
+    url: `${IEM_IMG}/ntp_0.png`,
+    desc: "NEXRAD storm-total precipitation estimate — accumulated rainfall since the current precipitation episode began.",
+    external: "https://mesonet.agron.iastate.edu/GIS/ridge.phtml",
   },
 ] as const;
 type ProductId = (typeof PRODUCTS)[number]["id"];
@@ -117,6 +120,16 @@ export default function RotationalMap({ location: _ }: Props) {
       <div className="bg-card border border-border rounded-xl p-4 flex items-start gap-2">
         <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
         <p className="text-xs text-muted-foreground leading-relaxed">{current.desc}</p>
+      </div>
+
+      <div className="bg-muted/20 border border-border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-xs text-muted-foreground leading-relaxed">
+          Looking for live <strong className="text-foreground">MRMS rotation tracks / azimuthal shear</strong>? Those mesocyclone products stream from NSSL's interactive viewer.
+        </p>
+        <a href="https://mrms.nssl.noaa.gov/qvs/product_viewer/" target="_blank" rel="noopener noreferrer"
+          className="flex items-center gap-1 text-xs text-primary hover:underline shrink-0">
+          <ExternalLink className="w-3 h-3" /> Open NSSL MRMS Viewer
+        </a>
       </div>
     </div>
   );

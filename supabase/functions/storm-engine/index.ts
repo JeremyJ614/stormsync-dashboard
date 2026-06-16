@@ -12,24 +12,34 @@
 // carries the `x-engine-secret` header matching `app_config.storm_engine_secret`
 // (the cron path) OR a Bearer JWT belonging to an admin (the manual path).
 //
-// AI KEY: the Claude call needs the `ANTHROPIC_API_KEY` Edge Function secret.
-// Until it is set, the engine still runs and writes a deterministic, non-AI SPC
-// risk overview (status `skipped`) so the Daily Briefing is never dead — the AI
-// fields fill in automatically on the first run after the key is added.
+// AI KEY: the brief needs ONE AI provider key as an Edge Function secret. The
+// engine supports two, checked in this order:
+//   1. GEMINI_API_KEY    — Google Gemini Flash, FREE tier (get one at
+//                          https://aistudio.google.com/apikey, no card needed).
+//   2. ANTHROPIC_API_KEY — Claude (paid). Used only if GEMINI_API_KEY is unset.
+// Until at least one is set, the engine still runs and writes a deterministic,
+// non-AI SPC risk overview (status `skipped`) so the Daily Briefing is never
+// dead — the AI fields fill in automatically on the first run after a key is set.
 //
-// Provider-agnostic: swap `AI_MODEL` (and, if needed, the request shape in
-// `generateBrief`) to change models. Redeploy via the Supabase MCP
-// `deploy_edge_function` or `supabase functions deploy storm-engine`.
+// Provider-agnostic: swap the `*_MODEL` constants (and, if needed, the request
+// shape in `callGemini`/`callAnthropic`) to change models. Redeploy via the
+// Supabase MCP `deploy_edge_function` or `supabase functions deploy storm-engine`.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY") ?? "";
+const AI_KEY_SET = Boolean(GEMINI_API_KEY || ANTHROPIC_API_KEY);
 
 // One-line model swap (the plan's provider-agnostic wrapper).
-const AI_MODEL = "claude-opus-4-8";
+const ANTHROPIC_MODEL = "claude-opus-4-8";
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+// Gemini 2.5 Flash is on the free tier (generous daily quota, no billing).
+const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_URL = (model: string, key: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
 const SPC = "https://www.spc.noaa.gov";
 const UA = "StormSyncVIP/1.0 (contact: admin@stormsync.media)";
@@ -146,17 +156,14 @@ type AIResult =
   | { ok: false; reason: "no_key" }
   | { ok: false; error: string };
 
-async function generateBrief(src: SourceData): Promise<AIResult> {
-  if (!ANTHROPIC_API_KEY) return { ok: false, reason: "no_key" };
-
-  const system =
-    "You are the lead severe-weather forecaster for StormSync VIP (SSWX), a premium forecasting service. " +
-    "You write a single nightly national brief from SPC convective-outlook data. Be accurate, vivid but not " +
-    "alarmist, and grounded strictly in the data provided — never invent specific towns or numbers that aren't " +
-    "supported. If there is no severe risk, say so plainly. Always defer to official NWS/SPC products for " +
-    "life-safety decisions.";
-  const user =
-    "Today's SPC convective outlook data (JSON):\n" + JSON.stringify(src, null, 2) +
+const SYSTEM_PROMPT =
+  "You are the lead severe-weather forecaster for StormSync VIP (SSWX), a premium forecasting service. " +
+  "You write a single nightly national brief from SPC convective-outlook data. Be accurate, vivid but not " +
+  "alarmist, and grounded strictly in the data provided — never invent specific towns or numbers that aren't " +
+  "supported. If there is no severe risk, say so plainly. Always defer to official NWS/SPC products for " +
+  "life-safety decisions.";
+function userPrompt(src: SourceData): string {
+  return "Today's SPC convective outlook data (JSON):\n" + JSON.stringify(src, null, 2) +
     "\n\nWrite the SSWX daily severe-weather brief as JSON with these fields:\n" +
     "- headline: one punchy line summarizing today's national severe threat.\n" +
     "- summary: 2-4 sentence daily briefing for the dashboard.\n" +
@@ -165,6 +172,83 @@ async function generateBrief(src: SourceData): Promise<AIResult> {
     "- chase_targets: 0-2 best storm-chase target areas (empty array if no real risk), each with area, reason, hazards.\n" +
     "- history_recap: 1-2 sentences recapping today's storm reports so far (tornado/hail/wind counts).\n" +
     "- confidence: one of low, moderate, high.";
+}
+
+function parseBrief(text: string): Brief | null {
+  try { return JSON.parse(text) as Brief; } catch { /* fall through */ }
+  // Some models wrap JSON in ```json fences or add prose — extract the object.
+  const m = text.match(/\{[\s\S]*\}/);
+  if (m) { try { return JSON.parse(m[0]) as Brief; } catch { /* give up */ } }
+  return null;
+}
+
+// Provider dispatch: Gemini (free) first, then Anthropic (paid), else no_key.
+async function generateBrief(src: SourceData): Promise<AIResult> {
+  if (GEMINI_API_KEY) return callGemini(src);
+  if (ANTHROPIC_API_KEY) return callAnthropic(src);
+  return { ok: false, reason: "no_key" };
+}
+
+// ── Google Gemini (free tier) ─────────────────────────────────────────────────────
+async function callGemini(src: SourceData): Promise<AIResult> {
+  // Gemini structured output uses an OpenAPI-subset schema (UPPERCASE types).
+  const schema = {
+    type: "OBJECT",
+    required: ["headline", "summary", "discussion_plain", "pattern", "chase_targets", "history_recap", "confidence"],
+    properties: {
+      headline: { type: "STRING" },
+      summary: { type: "STRING" },
+      discussion_plain: { type: "STRING" },
+      pattern: { type: "STRING" },
+      chase_targets: {
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          required: ["area", "reason", "hazards"],
+          properties: { area: { type: "STRING" }, reason: { type: "STRING" }, hazards: { type: "STRING" } },
+        },
+      },
+      history_recap: { type: "STRING" },
+      confidence: { type: "STRING", enum: ["low", "moderate", "high"] },
+    },
+  };
+  try {
+    const r = await fetch(GEMINI_URL(GEMINI_MODEL, GEMINI_API_KEY), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: SYSTEM_PROMPT }] },
+        contents: [{ role: "user", parts: [{ text: userPrompt(src) }] }],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: schema,
+          temperature: 0.7,
+          maxOutputTokens: 4096,
+        },
+      }),
+    });
+    if (!r.ok) return { ok: false, error: `gemini ${r.status}: ${(await r.text()).slice(0, 300)}` };
+    const data = await r.json() as {
+      promptFeedback?: { blockReason?: string };
+      candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];
+    };
+    if (data.promptFeedback?.blockReason) return { ok: false, error: `gemini blocked: ${data.promptFeedback.blockReason}` };
+    const cand = data.candidates?.[0];
+    if (cand?.finishReason && cand.finishReason !== "STOP" && cand.finishReason !== "MAX_TOKENS") {
+      return { ok: false, error: `gemini finishReason ${cand.finishReason}` };
+    }
+    const text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    if (!text) return { ok: false, error: "no text in gemini response" };
+    const brief = parseBrief(text);
+    if (!brief) return { ok: false, error: "gemini returned invalid JSON" };
+    return { ok: true, brief, model: GEMINI_MODEL };
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e) };
+  }
+}
+
+// ── Anthropic Claude (paid fallback) ──────────────────────────────────────────────
+async function callAnthropic(src: SourceData): Promise<AIResult> {
   const schema = {
     type: "object", additionalProperties: false,
     required: ["headline", "summary", "discussion_plain", "pattern", "chase_targets", "history_recap", "confidence"],
@@ -185,18 +269,17 @@ async function generateBrief(src: SourceData): Promise<AIResult> {
       confidence: { type: "string", enum: ["low", "moderate", "high"] },
     },
   };
-
   try {
     const r = await fetch(ANTHROPIC_URL, {
       method: "POST",
       headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
       body: JSON.stringify({
-        model: AI_MODEL,
+        model: ANTHROPIC_MODEL,
         max_tokens: 16000,
         thinking: { type: "adaptive" },
         output_config: { effort: "high", format: { type: "json_schema", schema } },
-        system,
-        messages: [{ role: "user", content: user }],
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: userPrompt(src) }],
       }),
     });
     if (!r.ok) return { ok: false, error: `anthropic ${r.status}: ${(await r.text()).slice(0, 300)}` };
@@ -204,9 +287,9 @@ async function generateBrief(src: SourceData): Promise<AIResult> {
     if (data.stop_reason === "refusal") return { ok: false, error: "model declined (refusal)" };
     const text = (data.content ?? []).find((b) => b.type === "text")?.text;
     if (!text) return { ok: false, error: "no text block in model response" };
-    let brief: Brief;
-    try { brief = JSON.parse(text); } catch { return { ok: false, error: "model returned invalid JSON" }; }
-    return { ok: true, brief, model: data.model ?? AI_MODEL };
+    const brief = parseBrief(text);
+    if (!brief) return { ok: false, error: "model returned invalid JSON" };
+    return { ok: true, brief, model: data.model ?? ANTHROPIC_MODEL };
   } catch (e) {
     return { ok: false, error: String(e instanceof Error ? e.message : e) };
   }
@@ -262,7 +345,11 @@ Deno.serve(async (req: Request) => {
 
     if (dryRun) {
       await logRun({ brief_date: briefDate, status: "dry-run", trigger: auth.trigger, duration_ms: Date.now() - started, detail: "dry run — no write" });
-      return json({ ok: true, dryRun: true, source_data: src, risk_overview: overview, ai_key_configured: Boolean(ANTHROPIC_API_KEY) });
+      return json({
+        ok: true, dryRun: true, source_data: src, risk_overview: overview,
+        ai_key_configured: AI_KEY_SET,
+        ai_provider: GEMINI_API_KEY ? "gemini" : ANTHROPIC_API_KEY ? "anthropic" : null,
+      });
     }
 
     const ai = await generateBrief(src);
@@ -286,7 +373,7 @@ Deno.serve(async (req: Request) => {
         summary: "Automated SPC risk overview. The AI daily brief activates once the Storm Engine API key is configured.",
         content: { risk_overview: overview }, source_data: src, error: null, generated_at: null,
       });
-      await logRun({ brief_date: briefDate, status: "skipped", trigger: auth.trigger, duration_ms: Date.now() - started, detail: "ANTHROPIC_API_KEY not set" });
+      await logRun({ brief_date: briefDate, status: "skipped", trigger: auth.trigger, duration_ms: Date.now() - started, detail: "no AI key set (GEMINI_API_KEY or ANTHROPIC_API_KEY)" });
       return json({ ok: true, status: "skipped", reason: "no_key", risk_overview: overview });
     }
 

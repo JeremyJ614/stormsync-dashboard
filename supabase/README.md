@@ -91,18 +91,24 @@ not `NULL`, or sign-in fails with `Database error querying schema` (see Fix Log 
 The SSWX Storm Engine (Phase 2 / L5). `verify_jwt = false`; authorized internally by
 the `x-engine-secret` header (cron path, matched against `app_config.storm_engine_secret`)
 **or** an admin Bearer JWT (manual path). Ingests SPC Day 1-3 outlooks + storm-report
-counts, builds a deterministic risk overview, then calls Claude (`AI_MODEL =
-claude-opus-4-8`, adaptive thinking, structured-JSON output) to synthesize the brief, and
-upserts `daily_brief`. POST body `{ "dryRun": true }` returns the ingested data without
-writing. **No-key mode:** without `ANTHROPIC_API_KEY` it writes the deterministic SPC
-overview (status `skipped`) so the UI is never dead. Provider-agnostic — swap `AI_MODEL`.
+counts, builds a deterministic risk overview, then calls an AI provider (structured-JSON
+output) to synthesize the brief, and upserts `daily_brief`. POST body `{ "dryRun": true }`
+returns the ingested data without writing (and reports `ai_key_configured` / `ai_provider`).
+**Two providers, checked in order:** `GEMINI_API_KEY` (Google Gemini Flash, **free tier**,
+`GEMINI_MODEL = gemini-2.5-flash`) first, else `ANTHROPIC_API_KEY` (Claude,
+`ANTHROPIC_MODEL = claude-opus-4-8`, adaptive thinking) as a paid fallback.
+**No-key mode:** without either key it writes the deterministic SPC overview
+(status `skipped`) so the UI is never dead. Provider-agnostic — swap the `*_MODEL` consts.
 
 ## Secrets to set (when reached)
-- **Phase 2 (Storm Engine):** `ANTHROPIC_API_KEY` — set via Supabase Edge Function
-  secrets (`npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`,
-  or the dashboard). Never commit it. This is the **only** remaining blocker for the AI
-  brief — schema, ingest, cron, and the Daily Briefing consumer are built and verified;
-  the engine runs in deterministic no-key mode until it is set.
+- **Phase 2 (Storm Engine):** set **one** AI provider key as a Supabase Edge Function
+  secret. This is the **only** remaining blocker for the AI brief — schema, ingest, cron,
+  and the Daily Briefing consumer are built and verified; the engine runs in deterministic
+  no-key mode until a key is set.
+  - **Free (recommended):** `GEMINI_API_KEY` — create one at https://aistudio.google.com/apikey
+    (no credit card). `npx supabase secrets set GEMINI_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
+  - **Paid fallback:** `ANTHROPIC_API_KEY` — `npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
+  - Set via the CLI or the Supabase dashboard (Edge Functions → Secrets). Never commit a key.
 
 ## Frontend env (Vercel + local `.env`)
 - `VITE_SUPABASE_URL=https://djonpetxdjuwcbgftqmt.supabase.co`

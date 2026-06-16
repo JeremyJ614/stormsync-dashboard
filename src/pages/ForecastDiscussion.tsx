@@ -1,10 +1,10 @@
 import { useState } from "react";
 import { useNWSPoints, useNWSDiscussion } from "../hooks/useWeatherQuery";
+import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { CardSkeleton } from "../components/WeatherSkeleton";
-import { MessageSquare, Wand2 } from "lucide-react";
+import { MessageSquare, Sparkles } from "lucide-react";
 import { format, parseISO } from "date-fns";
-import { BASE_API } from "../config";
 
 interface Props { location: Location }
 
@@ -12,34 +12,10 @@ export default function ForecastDiscussion({ location }: Props) {
   const { data: nwsPoints } = useNWSPoints(location);
   const office = nwsPoints?.properties?.cwa;
   const { data: discussion, isLoading } = useNWSDiscussion(office);
+  const { data: brief, isLoading: briefLoading } = useDailyBrief();
   const [tab, setTab] = useState<"raw" | "friendly">("raw");
-  const [friendly, setFriendly] = useState<string | null>(null);
-  const [interpreting, setInterpreting] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
 
-  const handleInterpret = async () => {
-    if (!discussion?.productText) return;
-    setInterpreting(true);
-    setAiError(null);
-    try {
-      const res = await fetch(`${BASE_API}/ai/discuss`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          discussionText: discussion.productText,
-          office,
-        }),
-      });
-      if (!res.ok) throw new Error("AI service unavailable");
-      const data = await res.json() as { interpretation: string };
-      setFriendly(data.interpretation);
-      setTab("friendly");
-    } catch (e) {
-      setAiError(e instanceof Error ? e.message : "AI interpretation failed");
-    } finally {
-      setInterpreting(false);
-    }
-  };
+  const plain = brief?.content.discussion_plain?.trim();
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -59,43 +35,24 @@ export default function ForecastDiscussion({ location }: Props) {
 
       {!isLoading && discussion && (
         <>
-          <div className="flex items-center justify-between">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setTab("raw")}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === "raw" ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:border-primary/40"}`}
-              >
-                Technical
-              </button>
-              <button
-                onClick={() => setTab("friendly")}
-                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === "friendly" ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:border-primary/40"}`}
-              >
-                Plain Language
-              </button>
-            </div>
-
-            {tab === "friendly" && !friendly && (
-              <button
-                onClick={handleInterpret}
-                disabled={interpreting}
-                className="flex items-center gap-2 px-4 py-1.5 bg-primary/15 border border-primary/30 text-primary rounded-lg text-sm hover:bg-primary/25 transition-colors disabled:opacity-50"
-              >
-                <Wand2 className="w-3.5 h-3.5" />
-                {interpreting ? "Interpreting…" : "Generate Plain Language"}
-              </button>
-            )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => setTab("raw")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === "raw" ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:border-primary/40"}`}
+            >
+              Technical · Local
+            </button>
+            <button
+              onClick={() => setTab("friendly")}
+              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${tab === "friendly" ? "bg-primary text-primary-foreground" : "bg-card border border-border hover:border-primary/40"}`}
+            >
+              Plain Language
+            </button>
           </div>
 
-          {discussion.issuanceTime && (
+          {tab === "raw" && discussion.issuanceTime && (
             <div className="text-xs text-muted-foreground">
               Issued: {(() => { try { return format(parseISO(discussion.issuanceTime), "MMM d, yyyy h:mm a"); } catch { return discussion.issuanceTime; } })()}
-            </div>
-          )}
-
-          {aiError && (
-            <div className="bg-destructive/10 border border-destructive rounded-xl p-3 text-sm text-destructive">
-              {aiError}
             </div>
           )}
 
@@ -107,33 +64,39 @@ export default function ForecastDiscussion({ location }: Props) {
             </div>
           )}
 
-          {tab === "friendly" && !friendly && (
-            <div className="bg-card border border-border rounded-xl p-6 text-center">
-              <Wand2 className="w-8 h-8 mx-auto mb-3 text-primary opacity-50" />
-              <p className="text-sm text-muted-foreground">
-                Click "Generate Plain Language" to get an AI-powered plain English interpretation of the technical forecast discussion.
-              </p>
-              {interpreting && (
-                <div className="mt-4 flex justify-center">
-                  <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          {/* Plain-language tab: the nightly SSWX Storm Engine national discussion
+              (one shared AI artifact — no per-request call). */}
+          {tab === "friendly" && (
+            <>
+              {briefLoading && <CardSkeleton rows={5} />}
+
+              {!briefLoading && plain && (
+                <div className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-semibold text-primary">SSWX Plain-Language Discussion</h3>
+                    {brief?.generatedAt && (
+                      <span className="text-[10px] text-muted-foreground ml-auto">
+                        {(() => { try { return format(parseISO(brief.generatedAt!), "MMM d · h:mm a"); } catch { return ""; } })()}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-sm leading-relaxed whitespace-pre-wrap">{plain}</div>
+                  <div className="mt-4 text-xs text-muted-foreground">
+                    SSWX nightly national discussion · Generated by AI · Not official NWS guidance · For your local technical detail, see the Technical tab.
+                  </div>
                 </div>
               )}
-            </div>
-          )}
 
-          {tab === "friendly" && friendly && (
-            <div className="bg-card border border-border rounded-xl p-4 prose prose-sm prose-invert max-w-none">
-              <div className="text-sm leading-relaxed whitespace-pre-wrap">{friendly}</div>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Generated by AI · Not official NWS guidance</span>
-                <button
-                  onClick={() => setFriendly(null)}
-                  className="text-xs text-primary hover:underline"
-                >
-                  Regenerate
-                </button>
-              </div>
-            </div>
+              {!briefLoading && !plain && (
+                <div className="bg-card border border-border rounded-xl p-6 text-center">
+                  <Sparkles className="w-8 h-8 mx-auto mb-3 text-primary opacity-50" />
+                  <p className="text-sm text-muted-foreground">
+                    The plain-language discussion is written by the nightly SSWX Storm Engine and refreshes each morning. Check back shortly — today's edition isn't ready yet.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </>
       )}

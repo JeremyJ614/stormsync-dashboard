@@ -73,7 +73,7 @@ project, with the AI consolidated into one nightly "Storm Engine."
 | Database | Supabase Postgres — **RLS on every table + indexes from day 1** |
 | Auth | Supabase Auth (replacing localStorage) |
 | Data proxy | Supabase **Edge Functions** w/ server-side caching, rate-limit + retry |
-| AI / Storm Engine | **Anthropic Claude**, behind a provider-agnostic wrapper (1-line model swap) |
+| AI / Storm Engine | **Google Gemini Flash (free)**, with **Anthropic Claude** as paid fallback, behind a provider-agnostic wrapper (1-line model swap) |
 | Maps | **Leaflet**, consolidated into ONE shared, reusable map component |
 | SPC-style maps | One reusable "SPC Map Engine" (custom colors + legends) powering #7/#11/#15/#20 |
 | Notifications | Web Push (VAPID) — free |
@@ -86,8 +86,9 @@ project, with the AI consolidated into one nightly "Storm Engine."
 `stormsync-app-center` (live applications site), `SSWX Team Portal` (paused),
 `stormsync-archive`, `stormsync-academy`.
 
-**Cost:** Infrastructure = **$0** (Supabase free tier + Web Push + Vercel). Only cost
-is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
+**Cost:** Infrastructure = **$0** (Supabase free tier + Web Push + Vercel). The
+once-nightly Storm Engine AI can run on **Google Gemini Flash's free tier = $0** (one
+request/night is far under the free quota); the paid Claude path is ≈ **a few cents–$1/month**.
 
 ---
 
@@ -187,15 +188,19 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
       `VITE_API_URL` env type, `.env.example` entry, and stale "Render" comments.
 
 ### ◐ Phase 2 — The SSWX Storm Engine (Claude, nightly) *(L5)* — IN PROGRESS (2026-06-13)
-- [x] `storm-engine` Edge Function + provider-agnostic AI wrapper (Claude default
-      `claude-opus-4-8`, one-line `AI_MODEL` swap; adaptive thinking + structured-JSON
-      output). `verify_jwt=false` with internal auth: cron-secret header **or** admin JWT.
+- [x] `storm-engine` Edge Function + provider-agnostic AI wrapper. **Two providers,
+      checked in order:** `GEMINI_API_KEY` (Google Gemini Flash, **free tier**,
+      `gemini-2.5-flash`) first, else `ANTHROPIC_API_KEY` (Claude `claude-opus-4-8`,
+      adaptive thinking) as paid fallback — both via one-line `*_MODEL` swap and
+      structured-JSON output. `verify_jwt=false` with internal auth: cron-secret header
+      **or** admin JWT. *(Gemini path added & deployed 2026-06-15.)*
 - [x] Ingest SPC outlooks (Day 1-3 categorical + Day 1 tornado/wind/hail probabilities)
       and today's storm-report counts; write one `daily_brief` row (schema migration
       `phase2_storm_engine_schema`: `daily_brief` + `storm_engine_runs`, RLS read-for-
-      members, writes service-role-only). **Graceful no-key path:** until `ANTHROPIC_API_KEY`
-      is set the engine writes a deterministic SPC risk overview (status `skipped`) so the
-      UI is never dead; the AI narrative fills in automatically on the first keyed run.
+      members, writes service-role-only). **Graceful no-key path:** until an AI key
+      (`GEMINI_API_KEY` or `ANTHROPIC_API_KEY`) is set the engine writes a deterministic
+      SPC risk overview (status `skipped`) so the UI is never dead; the AI narrative fills
+      in automatically on the first keyed run.
 - [x] Schedule via Supabase cron *(L2)* — `pg_cron` + `pg_net`, job `storm-engine-nightly`
       at 11:00 UTC; reads the secret from `app_config` and posts to the function.
       **Verified end-to-end**: dry-run ingest (live SPC), no-key skip write, RLS read
@@ -203,11 +208,15 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [x] First consumer wired: **Daily Briefing** card on Home (`DailyBriefing.tsx` +
       `lib/dailyBrief.ts`) — renders the risk overview today, AI summary/chase targets
       when status `ok`. **Verified in-browser.**
-- [ ] **NEEDS API KEY:** first real Claude run + tune (timeouts/prompt), then verify the
-      AI `summary`/`discussion_plain`/`pattern`/`chase_targets` output.
-- [ ] Remaining consumers (best built against a real AI brief): Storm Chasing targets
-      (U-16) · Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History
-      (U-19) · Pattern Analysis (U-17) · Forecast Discussion plain-language tab (U-03)
+- [x] **API KEY SET — first real run verified (2026-06-16):** `GEMINI_API_KEY` (free tier)
+      live; engine ran end-to-end on `gemini-2.5-flash`, status `ok`, wrote today's brief
+      (grounded headline/summary/discussion/pattern + correctly-empty chase_targets on a
+      Marginal day). `ANTHROPIC_API_KEY` remains the paid fallback.
+- [◐] Remaining consumers (now building against the live AI brief via shared
+      `useDailyBrief` hook): **DONE 2026-06-16** — Forecast Discussion plain-language tab
+      (U-03), Weather Pattern AI (U-17), Storm Chasing targets (U-16). **Still open:**
+      Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History (U-19,
+      needs a new nightly engine job for week/month/year recaps).
 
 ### ◐ Phase 3 — SPC Map Engine (reusable, custom colors + legends) — DONE 2026-06-13/15
 - [x] **U-07** SPC Outlook **Days 1-6** with SSWX custom colors + legend words — reusable
@@ -228,9 +237,15 @@ is Claude API for the once-nightly Storm Engine ≈ **a few cents–$1/month**.
 - [ ] Engine reuse by Forecast Game overlays (U-20) — **deferred to Phase 4** (the Forecast
       Game itself is a Phase 4 module).
 
-### ☐ Phase 4 — Interactive AI Modules (built on Storm Engine)
-- [ ] **U-16** Storm Chasing Dash rebuilt: map + nightly AI nationwide param scan →
-      2 best chase targets + reasons summary + supporting params + "today's overview" subtab
+### ◐ Phase 4 — Interactive AI Modules (built on Storm Engine) — IN PROGRESS (2026-06-16)
+- [x] **Shared consumer hook** `useDailyBrief` (React Query, 1-hr cache) — every AI module
+      reads the ONE nightly brief instead of making its own AI call (keeps the free tier).
+- [x] **U-16** Storm Chasing targets wired to `brief.chase_targets` (area/hazards/reason
+      cards + national SSWX briefing); the live **local SWTI gauge + Local Outlook timeline**
+      (Open-Meteo, no AI) are retained. *(Per-target CAPE/SRH map pins dropped — the brief
+      gives regions, not coords; a future engine pass can add geocoded params.)*
+- [x] **U-17** Weather Pattern AI wired to `brief.pattern` + `summary` + a deterministic
+      national severe-activity gauge from the SPC `risk_overview` (no per-request AI).
 - [ ] **U-20** Forecast Game: interactive map w/ easy toggleable overlays (SPC categories,
       fronts/dryline/low, simplified CAPE/shear) → drop pin on worst-weather/tornado spot;
       closest wins, next 3 score; **leaderboard subtab**, **monthly-winners subtab** (points
@@ -312,8 +327,10 @@ Fair but not easy. All values editable from the admin panel.
    (free) for sure; SMS via **carrier email-to-SMS gateway** (e.g. `number@vtext.com`,
    `@tmomail.net`) which is **free** because the recipient is the admin (we know the
    carrier). No Twilio / paid SMS needed for Beta.
-3. **Anthropic API key** — ✅ **Provision it.** Store in Supabase Edge Function secrets
-   (never in the repo or client). Done at Phase 2.
+3. **AI provider key** — ✅ **Free path chosen (2026-06-15):** use **Google Gemini Flash's
+   free tier** (`GEMINI_API_KEY`, from https://aistudio.google.com/apikey, no card) to keep
+   Beta cost at $0; the engine also supports `ANTHROPIC_API_KEY` (Claude) as a paid fallback.
+   Store whichever key in Supabase Edge Function secrets (never in the repo or client).
 4. **Payments/tiers** — ✅ **Manual for Beta.** Members sign up via a **third-party app**,
    then an **admin handles payment during a setup meeting**. So **no payment-processor
    integration is needed for Beta**; tiers are **assigned/managed by an admin** in the
@@ -382,6 +399,10 @@ features tracked in the Phase Checklist; they move into this log if a regression
 - **2026-06-10** — **No payment processor for Beta**; signup via third-party app, admin
   handles payment at setup meeting and assigns tiers in the admin panel.
 - **2026-06-10** — Anthropic API key to be provisioned; stored in Edge Function secrets.
+- **2026-06-15** — **AI provider = Google Gemini Flash free tier** (`GEMINI_API_KEY`) to
+  hold Beta at $0; Claude (`ANTHROPIC_API_KEY`) kept as a paid fallback. Engine checks
+  Gemini first, then Anthropic, else deterministic no-key mode. *(supersedes the 06-09
+  "AI = Anthropic Claude" default; the provider-agnostic wrapper made it a config swap.)*
 - **2026-06-10** — Forecast Game points set to 35/25/15/10.
 - **2026-06-10 (Phase 1)** — `weather` Edge Function deployed with `verify_jwt = false`:
   it proxies only PUBLIC NOAA/NWS/SPC data and writes solely to a service-role cache, so

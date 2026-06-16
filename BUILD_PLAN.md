@@ -284,7 +284,9 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
       color picker** — **DONE EARLY in Phase 1B follow-up (2026-06-11)**; SVG icons
       deferred post-Beta
-- [ ] **U-28** Richer, less-boring user profiles
+- [x] **U-28** Richer user profiles: gradient hero (avatar/tier/admin/join date), stats
+      (loyalty/referrals/member-for/badges), badge showcase, an "About You" section from
+      the member's custom signup answers, a saved-locations strip, and quick actions.
 - [ ] **U-23** Emergency Storm Contact → "SSWX Emergency Storm Contact — Direct
       Administrative Line"; remove personal phone from description; correct PIN opens a
       **direct line to admin** via **email relay + free carrier email-to-SMS gateway**

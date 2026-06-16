@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { HelpCircle, ChevronDown, Mail, Phone, Crown } from "lucide-react";
 import { Link } from "wouter";
+import { HIDDEN_MODULES } from "../hooks/useAuth";
 
 interface FAQItem { q: string; a: string }
 interface ModuleDoc { id: string; label: string; tier: 1 | 2 | 3 | 4; desc: string; what: string; how: string; tips?: string }
@@ -56,7 +57,8 @@ export default function FAQ() {
   const [open, setOpen] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState<"all" | 1 | 2 | 3 | 4>("all");
 
-  const filteredModules = moduleFilter === "all" ? MODULES : MODULES.filter(m => m.tier === moduleFilter);
+  const visibleModules = MODULES.filter(m => !HIDDEN_MODULES.has(m.id));
+  const filteredModules = moduleFilter === "all" ? visibleModules : visibleModules.filter(m => m.tier === moduleFilter);
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">

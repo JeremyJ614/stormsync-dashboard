@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { useNWSAlerts, useOpenMeteo } from "../hooks/useWeatherQuery";
+import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
-import { Activity, Info, RefreshCw } from "lucide-react";
+import { Activity, Info, RefreshCw, Sparkles } from "lucide-react";
 import { computeSRHFromProfile, compute06kmShear, computeSWTI } from "../utils/weatherCalc";
 import { format } from "date-fns";
 
@@ -313,6 +314,7 @@ type TabType = "components" | "breakdown" | "scale";
 export default function SSWXCon({ location }: Props) {
   const { data: weather, isLoading: wxLoading, refetch: refetchWx } = useOpenMeteo(location);
   const { data: alerts = [], isLoading: alertsLoading, refetch: refetchAlerts } = useNWSAlerts(location);
+  const { data: brief } = useDailyBrief();
   const [activeTab, setActiveTab] = useState<TabType>("components");
   const [lastUpdated, setLastUpdated] = useState(new Date());
 
@@ -373,6 +375,19 @@ export default function SSWXCon({ location }: Props) {
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
       </div>
+
+      {brief?.headline && (
+        <div className="flex items-start gap-2 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2">
+          <Sparkles className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />
+          <div className="text-xs">
+            <span className="font-semibold text-primary">National picture: </span>
+            <span className="text-foreground/90">{brief.headline}</span>
+            {brief.content.risk_overview?.day1_category_name && (
+              <span className="text-muted-foreground"> · SPC Day 1: {brief.content.risk_overview.day1_category_name}</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-start gap-2 bg-muted/20 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
         <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />

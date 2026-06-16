@@ -1,31 +1,14 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { History, RefreshCw, Calendar, AlertTriangle, MapPin, Tag } from "lucide-react";
+import { getSevereHistory, type HistoryPeriod, type PeriodHistory } from "../lib/severeHistory";
 
-interface HistEvent {
-  date: string;
-  title: string;
-  location: string;
-  category: string;
-  impact: string;
-}
-interface PeriodData {
-  period_label: string;
-  headline: string;
-  summary: string;
-  events: HistEvent[];
-  stats: { tornadoes: number | null; hail_reports: number | null; wind_reports: number | null; deaths: number | null };
-}
-
-type Period = "week" | "lastmonth" | "thismonth" | "thisyear";
-
-const PERIODS: { id: Period; label: string; sub: string }[] = [
+const PERIODS: { id: HistoryPeriod; label: string; sub: string }[] = [
   { id: "week", label: "Last Week", sub: "Past 7 days" },
   { id: "lastmonth", label: "Last Month", sub: "Previous calendar month" },
   { id: "thismonth", label: "This Month", sub: "So far this month" },
   { id: "thisyear", label: "This Year", sub: "Year-to-date" },
 ];
-
-const BASE = import.meta.env.BASE_URL;
 
 const CAT_COLORS: Record<string, string> = {
   Tornado: "#ef4444",
@@ -39,24 +22,15 @@ const CAT_COLORS: Record<string, string> = {
 };
 
 export default function SevereWeatherHistory() {
-  const [active, setActive] = useState<Period>("week");
-  const [data, setData] = useState<Record<Period, PeriodData | null>>({ week: null, lastmonth: null, thismonth: null, thisyear: null });
-  const [loading, setLoading] = useState<Record<Period, boolean>>({ week: false, lastmonth: false, thismonth: false, thisyear: false });
-  const [error, setError] = useState<Record<Period, string>>({ week: "", lastmonth: "", thismonth: "", thisyear: "" });
+  const [active, setActive] = useState<HistoryPeriod>("week");
+  const { data: history, isLoading, isError, refetch, isFetching } = useQuery({
+    queryKey: ["severe-history"],
+    queryFn: getSevereHistory,
+    staleTime: 60 * 60 * 1000,
+    refetchOnWindowFocus: false,
+  });
 
-  function load(period: Period) {
-    setLoading(s => ({ ...s, [period]: true })); setError(s => ({ ...s, [period]: "" }));
-    fetch(`${BASE}api/history/period?period=${period}`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
-      .then((d: PeriodData) => { setData(s => ({ ...s, [period]: d })); setLoading(s => ({ ...s, [period]: false })); })
-      .catch(e => { setError(s => ({ ...s, [period]: String(e) })); setLoading(s => ({ ...s, [period]: false })); });
-  }
-
-  useEffect(() => { if (!data[active]) load(active); /* eslint-disable-next-line */ }, [active]);
-
-  const cur = data[active];
-  const isLoading = loading[active];
-  const err = error[active];
+  const cur: PeriodHistory | undefined = history?.[active];
 
   return (
     <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
@@ -66,10 +40,10 @@ export default function SevereWeatherHistory() {
             <History className="w-5 h-5 text-primary" />
             <h1 className="text-2xl font-bold tracking-wide uppercase">Recent Severe Weather History</h1>
           </div>
-          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> AI-generated summaries for each period</p>
+          <p className="text-sm text-muted-foreground mt-1 flex items-center gap-1"><Calendar className="w-3 h-3" /> AI-summarized national severe-report totals, refreshed nightly</p>
         </div>
-        <button onClick={() => load(active)} disabled={isLoading} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40 disabled:opacity-50">
-          <RefreshCw className={`w-3 h-3 ${isLoading ? "animate-spin" : ""}`} /> Refresh
+        <button onClick={() => refetch()} disabled={isFetching} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40 disabled:opacity-50">
+          <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} /> Refresh
         </button>
       </div>
 
@@ -87,19 +61,24 @@ export default function SevereWeatherHistory() {
       {isLoading && (
         <div className="bg-card border border-border rounded-2xl p-12 text-center">
           <div className="text-3xl mb-2 animate-pulse">📜</div>
-          <p className="text-sm text-muted-foreground">Generating AI summary for {PERIODS.find(p => p.id === active)?.label}…</p>
+          <p className="text-sm text-muted-foreground">Loading severe weather history…</p>
         </div>
       )}
-      {err && !isLoading && (
+      {isError && !isLoading && (
         <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-4 text-sm text-red-300">
-          Could not load summary. Try again shortly.
+          Could not load history. Try again shortly.
+        </div>
+      )}
+      {!isLoading && !isError && !cur && (
+        <div className="bg-card border border-border rounded-2xl p-10 text-center text-sm text-muted-foreground">
+          This period's summary isn't ready yet — the Storm Engine publishes it each morning.
         </div>
       )}
       {!isLoading && cur && (
         <>
           <div className="bg-gradient-to-br from-card to-primary/5 border border-border rounded-2xl p-5 space-y-3">
-            <h2 className="text-lg font-bold leading-snug">{cur.headline}</h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">{cur.summary}</p>
+            <h2 className="text-lg font-bold leading-snug">{cur.headline ?? cur.periodLabel}</h2>
+            {cur.summary && <p className="text-sm text-muted-foreground leading-relaxed">{cur.summary}</p>}
           </div>
 
           {/* Stats */}
@@ -120,10 +99,10 @@ export default function SevereWeatherHistory() {
             ))}
           </div>
 
-          {/* Events */}
+          {/* Most-active days (real, from the report ledger) */}
           <div className="bg-card border border-border rounded-2xl p-5 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Notable Events</h3>
-            {cur.events.length === 0 && <p className="text-sm text-muted-foreground">No major events listed for this period.</p>}
+            <h3 className="text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-primary" /> Most Active Days</h3>
+            {cur.events.length === 0 && <p className="text-sm text-muted-foreground">No significant report days logged for this period.</p>}
             <div className="space-y-2">
               {cur.events.map((e, i) => {
                 const c = CAT_COLORS[e.category] || "#7B8FD9";
@@ -145,7 +124,9 @@ export default function SevereWeatherHistory() {
       )}
 
       <div className="bg-muted/20 border border-border rounded-xl p-3 text-[11px] text-muted-foreground leading-relaxed">
-        AI-generated summary using Claude. Cross-reference with the NWS Storm Events Database or SPC archives for authoritative numbers.
+        Counts are aggregated from preliminary SPC storm reports and summarized by AI.
+        {cur?.trackingSince && <> SSWX has tracked daily totals since {cur.trackingSince}, so longer periods fill in over time.</>}
+        {" "}Cross-reference the NWS Storm Events Database for authoritative, finalized numbers.
       </div>
     </div>
   );

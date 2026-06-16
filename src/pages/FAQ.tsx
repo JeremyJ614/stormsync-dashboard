@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { HelpCircle, ChevronDown, Mail, Phone, Crown } from "lucide-react";
+import { HelpCircle, ChevronDown, Mail, Phone } from "lucide-react";
 import { Link } from "wouter";
 import { HIDDEN_MODULES } from "../hooks/useAuth";
 
@@ -55,10 +55,10 @@ const MODULES: ModuleDoc[] = [
 export default function FAQ() {
   const [tab, setTab] = useState<"general" | "modules">("general");
   const [open, setOpen] = useState<string | null>(null);
-  const [moduleFilter, setModuleFilter] = useState<"all" | 1 | 2 | 3 | 4>("all");
 
+  // U-22: the Module Guide explains what each module/add-on does — it is NOT a
+  // tier sales sheet, so no tier filter or T1–T4 badges here.
   const visibleModules = MODULES.filter(m => !HIDDEN_MODULES.has(m.id));
-  const filteredModules = moduleFilter === "all" ? visibleModules : visibleModules.filter(m => m.tier === moduleFilter);
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
@@ -92,27 +92,15 @@ export default function FAQ() {
 
       {tab === "modules" && (
         <div className="space-y-3">
-          <div className="flex flex-wrap gap-2 items-center">
-            <span className="text-xs uppercase tracking-widest text-muted-foreground">Tier:</span>
-            {(["all", 1, 2, 3, 4] as const).map(t => (
-              <button key={String(t)} onClick={() => setModuleFilter(t)}
-                className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${moduleFilter === t ? "bg-primary/20 border-primary/40 text-primary" : "bg-muted/20 border-border text-muted-foreground hover:border-primary/30"}`}>
-                {t === "all" ? "All" : `Tier ${t}`}
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-muted-foreground">Every module and add-on explained. What you can access depends on your plan — ask an admin to enable any you'd like.</p>
           <div className="space-y-2">
-            {filteredModules.map(m => {
+            {visibleModules.map(m => {
               const key = `m-${m.id}`;
               const isOpen = open === key;
-              const tierColor = m.tier === 4 ? "#fde047" : m.tier === 3 ? "#a855f7" : m.tier === 2 ? "#22d3ee" : "#94a3b8";
               return (
                 <div key={key} className="bg-card border border-border rounded-xl overflow-hidden">
                   <button onClick={() => setOpen(isOpen ? null : key)} className="w-full text-left px-4 py-3 flex items-center justify-between gap-3 hover:bg-muted/20 transition-colors">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
-                      <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest border" style={{ borderColor: tierColor + "60", color: tierColor, background: tierColor + "15" }}>
-                        {m.tier === 4 && <Crown className="w-2.5 h-2.5 inline mr-0.5" />}T{m.tier}
-                      </span>
                       <span className="text-sm font-semibold">{m.label}</span>
                       <span className="text-xs text-muted-foreground hidden md:inline truncate">{m.desc.slice(0, 70)}…</span>
                     </div>

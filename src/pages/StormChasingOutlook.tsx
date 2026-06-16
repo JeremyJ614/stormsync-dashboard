@@ -1,47 +1,24 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useNWSAlerts, useOpenMeteo } from "../hooks/useWeatherQuery";
+import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
-import { Car, ExternalLink, Zap, Wind, Thermometer, RefreshCw, Crosshair, Brain } from "lucide-react";
-import { BASE_API } from "../config";
+import { Car, ExternalLink, Zap, Wind, Thermometer, Crosshair, Brain } from "lucide-react";
 import { computeSRHFromProfile, compute06kmShear, computeSWTI, cToF, msToMph } from "../utils/weatherCalc";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { format, parseISO } from "date-fns";
-import { ChaseTargetMap } from "../components/ChaseTargetMap";
 
 interface Props { location: Location }
 
 const TOOLTIP_STYLE = { background: "hsl(232 20% 10%)", border: "1px solid hsl(232 18% 16%)", borderRadius: 8, fontSize: 12 };
 
-interface ChaseTarget {
-  name: string;
-  lat: number;
-  lon: number;
-  cape: number;
-  srh: number;
-  shear: number;
-  dewF: number;
-  windMph: number;
-  liftedIndex: number;
-  swti: number;
-  risk: "none" | "low" | "moderate" | "high" | "extreme";
-  reasons: string[];
-}
-
-interface ChaseTargetsResponse {
-  targets: ChaseTarget[];
-  allCandidates: { name: string; swti: number }[];
-  explanation: string;
-  generatedAt: string;
-}
-
-const RISK_COLORS: Record<ChaseTarget["risk"], string> = {
+const RISK_COLORS = {
   extreme:  "#d946ef",
   high:     "#ef4444",
   moderate: "#f97316",
   low:      "#fde047",
   none:     "#4ade80",
-};
-const TARGET_COLORS = ["#d946ef", "#f97316"];
+} as const;
+const TARGET_COLORS = ["#d946ef", "#f97316", "#22d3ee"];
 
 function chasingLabel(swtiScore: number): { text: string; color: string; desc: string } {
   if (swtiScore >= 80) return { text: "PRIME CHASE DAY", color: "#d946ef", desc: "Exceptional parameters. Go chase!" };
@@ -71,22 +48,13 @@ const CHASE_TIPS = [
   { icon: "🚗", tip: "The vehicle is your safety. Never try to outrun a tornado on a perpendicular path." },
 ];
 
-function buildMapQuery(targets: ChaseTarget[]): string {
-  if (targets.length === 0) return "";
-  const t = targets.map(x => `${x.lat.toFixed(3)},${x.lon.toFixed(3)},${encodeURIComponent(x.name)}`).join(";");
-  const s = targets.map(x => x.swti).join(",");
-  return `targets=${t}&swti=${s}`;
-}
-
 export default function StormChasingOutlook({ location }: Props) {
   const { data: weather, isLoading } = useOpenMeteo(location);
   const { data: alerts = [] } = useNWSAlerts(location);
+  const { data: brief, isLoading: briefLoading } = useDailyBrief();
   const [activeTab, setActiveTab] = useState<"outlook" | "targets" | "resources">("targets");
 
-  const [aiData, setAiData] = useState<ChaseTargetsResponse | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState<string | null>(null);
-  const [mapReloadKey, setMapReloadKey] = useState(0);
+  const chaseTargets = brief?.content.chase_targets ?? [];
 
   const hourly = weather?.hourly;
   const cape  = hourly?.cape?.[0] ?? 0;
@@ -134,28 +102,13 @@ export default function StormChasingOutlook({ location }: Props) {
     return ev.includes("tornado") || ev.includes("severe thunderstorm");
   });
 
-  // Fetch backend AI chase targets on mount + when user clicks Refresh
-  useEffect(() => {
-    let cancelled = false;
-    setAiLoading(true);
-    setAiError(null);
-    fetch(`${BASE_API}/chase-targets`)
-      .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json() as Promise<ChaseTargetsResponse>; })
-      .then(d => { if (!cancelled) setAiData(d); })
-      .catch(err => { if (!cancelled) setAiError(err instanceof Error ? err.message : "Could not load AI targets"); })
-      .finally(() => { if (!cancelled) setAiLoading(false); });
-    return () => { cancelled = true; };
-  }, [mapReloadKey]);
-
-  const targets = aiData?.targets ?? [];
-
   return (
     <div className="p-4 md:p-6 space-y-5">
       <div className="flex items-center gap-2">
         <Car className="w-5 h-5 text-primary" />
         <h2 className="text-xl font-bold tracking-wide">Storm Chasing Outlook</h2>
       </div>
-      <p className="text-sm text-muted-foreground">{location.name} · AI-selected chase targets · Updated every 30 min</p>
+      <p className="text-sm text-muted-foreground">{location.name} · local SWTI live · national chase targets from the nightly SSWX brief</p>
 
       {severeAlerts.length > 0 && (
         <div className="bg-red-500/10 border border-red-500/40 rounded-xl p-3 flex items-start gap-2">
@@ -191,130 +144,71 @@ export default function StormChasingOutlook({ location }: Props) {
       {/* ============================ TARGETS TAB ============================ */}
       {activeTab === "targets" && (
         <div className="space-y-4">
-          {/* Map card */}
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            <div className="p-3 border-b border-border flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Crosshair className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold">AI-Selected Target Areas — CONUS</h3>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setMapReloadKey(k => k + 1)}
-                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-                  aria-label="Refresh AI targets"
-                  disabled={aiLoading}
-                >
-                  <RefreshCw className={`w-3 h-3 ${aiLoading ? "animate-spin" : ""}`} /> Refresh
-                </button>
-              </div>
+          {/* National briefing from the nightly SSWX Storm Engine brief */}
+          <div className="bg-card border border-primary/30 rounded-xl overflow-hidden">
+            <div className="px-4 py-3 border-b border-border bg-primary/10 flex items-center gap-2">
+              <Brain className="w-4 h-4 text-primary" />
+              <h3 className="text-sm font-semibold text-primary">SSWX Chase Briefing — National</h3>
+              {brief?.generatedAt && (
+                <span className="text-[10px] text-muted-foreground ml-auto">
+                  {(() => { try { return format(parseISO(brief.generatedAt!), "MMM d · h:mm a"); } catch { return ""; } })()}
+                </span>
+              )}
             </div>
-
-            <ChaseTargetMap targets={targets} loading={aiLoading && !aiData} />
-
-            {aiError && (
-              <div className="px-4 py-3 bg-destructive/10 border-t border-destructive/30 text-xs text-destructive">
-                {aiError}
+            {briefLoading ? (
+              <div className="p-6 flex justify-center">
+                <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : (
+              <div className="p-4 text-sm leading-relaxed text-foreground/90">
+                {brief?.headline && <div className="font-semibold mb-1.5">{brief.headline}</div>}
+                <p className="whitespace-pre-wrap text-muted-foreground">
+                  {brief?.summary ?? "Today's national chase briefing isn't ready yet — the SSWX Storm Engine refreshes it each morning."}
+                </p>
               </div>
             )}
+            <div className="px-4 py-2 border-t border-border text-[10px] text-muted-foreground">
+              Generated by AI · Not official NWS guidance · Always cross-check with SPC outlooks
+            </div>
           </div>
 
-          {/* Target detail cards */}
-          {targets.length > 0 && (
+          {/* Chase target cards (area / hazards / reason) */}
+          {chaseTargets.length > 0 && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {targets.map((t, i) => {
+              {chaseTargets.map((t, i) => {
                 const color = TARGET_COLORS[i] ?? "#d946ef";
                 return (
-                  <div key={`${t.name}-${i}`} className="bg-card border rounded-xl overflow-hidden" style={{ borderColor: color + "60" }}>
-                    <div className="px-4 py-3 border-b border-border flex items-center justify-between" style={{ backgroundColor: color + "10" }}>
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full" style={{ backgroundColor: color, boxShadow: `0 0 8px ${color}` }} />
-                        <h4 className="text-sm font-bold" style={{ color }}>Target {i + 1} — {t.name}</h4>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-lg font-bold" style={{ color }}>{t.swti}<span className="text-xs text-muted-foreground">/100</span></div>
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{t.risk}</div>
-                      </div>
+                  <div key={`${t.area}-${i}`} className="bg-card border rounded-xl overflow-hidden" style={{ borderColor: color + "60" }}>
+                    <div className="px-4 py-3 border-b border-border flex items-center gap-2" style={{ backgroundColor: color + "10" }}>
+                      <Crosshair className="w-4 h-4 shrink-0" style={{ color }} />
+                      <h4 className="text-sm font-bold" style={{ color }}>Target {i + 1} — {t.area}</h4>
                     </div>
-                    <div className="grid grid-cols-2 gap-2 p-3">
-                      {[
-                        { label: "CAPE",          value: `${t.cape}`, unit: "J/kg",   color: "#f97316" },
-                        { label: "0-3 km SRH",    value: `${t.srh}`,  unit: "m²/s²",  color: "#a78bfa" },
-                        { label: "0-6 km Shear",  value: `${t.shear}`,unit: "kt",     color: "#22d3ee" },
-                        { label: "Dew Point",     value: `${t.dewF}`, unit: "°F",     color: "#06b6d4" },
-                        { label: "Lifted Index",  value: `${t.liftedIndex}`, unit: "", color: "#fde047" },
-                        { label: "Sfc Wind",      value: `${t.windMph}`, unit: "mph", color: "#7B8FD9" },
-                      ].map(m => (
-                        <div key={m.label} className="bg-muted/20 rounded-lg p-2 text-center">
-                          <div className="text-base font-bold" style={{ color: m.color }}>{m.value}<span className="text-[10px] text-muted-foreground ml-0.5">{m.unit}</span></div>
-                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide mt-0.5">{m.label}</div>
+                    <div className="p-4 space-y-3">
+                      {t.hazards && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Primary Hazards</div>
+                          <div className="text-sm font-medium text-foreground/90">{t.hazards}</div>
                         </div>
-                      ))}
+                      )}
+                      {t.reason && (
+                        <div>
+                          <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1">Why Here</div>
+                          <p className="text-xs text-foreground/80 leading-relaxed">{t.reason}</p>
+                        </div>
+                      )}
                     </div>
-                    {t.reasons.length > 0 && (
-                      <div className="px-4 pb-3">
-                        <div className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1.5">Defining Parameters</div>
-                        <ul className="space-y-1">
-                          {t.reasons.map((r, ri) => (
-                            <li key={ri} className="text-xs text-foreground/90 flex items-start gap-1.5">
-                              <span style={{ color }} className="mt-0.5">▸</span>
-                              <span>{r}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
                   </div>
                 );
               })}
             </div>
           )}
 
-          {/* AI briefing */}
-          {aiData && (
-            <div className="bg-card border border-primary/30 rounded-xl overflow-hidden">
-              <div className="px-4 py-3 border-b border-border bg-primary/10 flex items-center gap-2">
-                <Brain className="w-4 h-4 text-primary" />
-                <h3 className="text-sm font-semibold text-primary">AI Chase Briefing</h3>
-                <span className="text-[10px] text-muted-foreground ml-auto">
-                  Generated {format(parseISO(aiData.generatedAt), "MMM d · h:mm a")}
-                </span>
-              </div>
-              <div className="p-4 text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
-                {aiData.explanation}
-              </div>
-              <div className="px-4 py-2 border-t border-border text-[10px] text-muted-foreground">
-                Generated by AI · Not official NWS guidance · Always cross-check with SPC outlooks
-              </div>
-            </div>
-          )}
-
-          {!aiLoading && aiData && targets.length === 0 && (
+          {!briefLoading && brief && chaseTargets.length === 0 && (
             <div className="bg-card border border-border rounded-xl p-6 text-center">
               <div className="text-3xl mb-2">😴</div>
               <p className="text-sm font-semibold text-muted-foreground">No viable chase targets today</p>
-              <p className="text-xs text-muted-foreground mt-1">Severe parameters across all 25 candidate cities are below chase threshold.</p>
+              <p className="text-xs text-muted-foreground mt-1">The SSWX Storm Engine found no area worth chasing nationwide. Check the Local Outlook tab for your own conditions.</p>
             </div>
-          )}
-
-          {/* Candidate ranking */}
-          {aiData && aiData.allCandidates.length > 0 && (
-            <details className="bg-card border border-border rounded-xl overflow-hidden">
-              <summary className="px-4 py-3 cursor-pointer text-xs font-semibold text-muted-foreground hover:text-primary transition-colors">
-                See all {aiData.allCandidates.length} candidate cities ranked by SWTI
-              </summary>
-              <div className="px-4 pb-3 grid grid-cols-2 md:grid-cols-3 gap-1.5 text-xs">
-                {aiData.allCandidates.map((c, i) => (
-                  <div key={c.name} className="flex items-center justify-between bg-muted/20 rounded px-2 py-1.5">
-                    <span className="text-foreground/80 truncate">
-                      <span className="text-muted-foreground mr-1.5">#{i + 1}</span>
-                      {c.name.split(",")[0]}
-                    </span>
-                    <span className="font-bold tabular-nums" style={{ color: chasingLabel(c.swti).color }}>{c.swti}</span>
-                  </div>
-                ))}
-              </div>
-            </details>
           )}
         </div>
       )}

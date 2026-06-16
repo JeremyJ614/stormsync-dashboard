@@ -208,13 +208,15 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] First consumer wired: **Daily Briefing** card on Home (`DailyBriefing.tsx` +
       `lib/dailyBrief.ts`) — renders the risk overview today, AI summary/chase targets
       when status `ok`. **Verified in-browser.**
-- [ ] **NEEDS API KEY (free option available):** set `GEMINI_API_KEY` (free, from
-      https://aistudio.google.com/apikey) **or** `ANTHROPIC_API_KEY` as a Supabase Edge
-      Function secret, then do the first real run + tune (timeouts/prompt) and verify the
-      AI `summary`/`discussion_plain`/`pattern`/`chase_targets` output.
-- [ ] Remaining consumers (best built against a real AI brief): Storm Chasing targets
-      (U-16) · Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History
-      (U-19) · Pattern Analysis (U-17) · Forecast Discussion plain-language tab (U-03)
+- [x] **API KEY SET — first real run verified (2026-06-16):** `GEMINI_API_KEY` (free tier)
+      live; engine ran end-to-end on `gemini-2.5-flash`, status `ok`, wrote today's brief
+      (grounded headline/summary/discussion/pattern + correctly-empty chase_targets on a
+      Marginal day). `ANTHROPIC_API_KEY` remains the paid fallback.
+- [◐] Remaining consumers (now building against the live AI brief via shared
+      `useDailyBrief` hook): **DONE 2026-06-16** — Forecast Discussion plain-language tab
+      (U-03), Weather Pattern AI (U-17), Storm Chasing targets (U-16). **Still open:**
+      Forecast Game answer key (U-20) · SSWXCon (U-05) · Severe Weather History (U-19,
+      needs a new nightly engine job for week/month/year recaps).
 
 ### ◐ Phase 3 — SPC Map Engine (reusable, custom colors + legends) — DONE 2026-06-13/15
 - [x] **U-07** SPC Outlook **Days 1-6** with SSWX custom colors + legend words — reusable
@@ -235,9 +237,15 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] Engine reuse by Forecast Game overlays (U-20) — **deferred to Phase 4** (the Forecast
       Game itself is a Phase 4 module).
 
-### ☐ Phase 4 — Interactive AI Modules (built on Storm Engine)
-- [ ] **U-16** Storm Chasing Dash rebuilt: map + nightly AI nationwide param scan →
-      2 best chase targets + reasons summary + supporting params + "today's overview" subtab
+### ◐ Phase 4 — Interactive AI Modules (built on Storm Engine) — IN PROGRESS (2026-06-16)
+- [x] **Shared consumer hook** `useDailyBrief` (React Query, 1-hr cache) — every AI module
+      reads the ONE nightly brief instead of making its own AI call (keeps the free tier).
+- [x] **U-16** Storm Chasing targets wired to `brief.chase_targets` (area/hazards/reason
+      cards + national SSWX briefing); the live **local SWTI gauge + Local Outlook timeline**
+      (Open-Meteo, no AI) are retained. *(Per-target CAPE/SRH map pins dropped — the brief
+      gives regions, not coords; a future engine pass can add geocoded params.)*
+- [x] **U-17** Weather Pattern AI wired to `brief.pattern` + `summary` + a deterministic
+      national severe-activity gauge from the SPC `risk_overview` (no per-request AI).
 - [ ] **U-20** Forecast Game: interactive map w/ easy toggleable overlays (SPC categories,
       fronts/dryline/low, simplified CAPE/shear) → drop pin on worst-weather/tornado spot;
       closest wins, next 3 score; **leaderboard subtab**, **monthly-winners subtab** (points

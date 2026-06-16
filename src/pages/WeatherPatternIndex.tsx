@@ -1,19 +1,29 @@
-import { useState } from "react";
-import { useOpenMeteo, useNWSAlerts } from "../hooks/useWeatherQuery";
+import { useDailyBrief } from "../hooks/useDailyBrief";
+import type { RiskOverview } from "../lib/dailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { PageSkeleton } from "../components/WeatherSkeleton";
-import { Brain, Sparkles, AlertTriangle, RefreshCw } from "lucide-react";
-import { BASE_API } from "../config";
-import { cToF, msToMph } from "../utils/weatherCalc";
+import { Brain, AlertTriangle } from "lucide-react";
+import { format, parseISO } from "date-fns";
 
 interface Props { location: Location }
 
-interface WPIResult {
-  wpiScore: number;
-  summary: string;
-  hazards: string[];
-  outlook: string;
-  synopticFeatures: string;
+// Deterministic national severe-activity index from the SPC risk overview the
+// Storm Engine ingests nightly (no AI / no per-request cost): the Day-1 category
+// sets the baseline, the peak hazard probability nudges it within the band.
+const CAT_BASE: Record<string, number> = { TSTM: 15, MRGL: 30, SLGT: 52, ENH: 70, MDT: 86, HIGH: 97 };
+function patternScore(o?: RiskOverview): number {
+  if (!o) return 0;
+  const base = o.day1_category ? (CAT_BASE[o.day1_category] ?? 10) : 5;
+  const maxProb = Math.max(o.tornado_prob_max, o.wind_prob_max, o.hail_prob_max);
+  return Math.min(100, Math.round(base + Math.min(maxProb, 15) * 0.4));
+}
+function hazardList(o?: RiskOverview): string[] {
+  if (!o) return [];
+  const h: string[] = [];
+  if (o.tornado_prob_max > 0) h.push(`Tornadoes — peak ${o.tornado_prob_max}% probability`);
+  if (o.wind_prob_max > 0) h.push(`Damaging wind — peak ${o.wind_prob_max}% probability`);
+  if (o.hail_prob_max > 0) h.push(`Large hail — peak ${o.hail_prob_max}% probability`);
+  return h;
 }
 
 function WPIGauge({ score }: { score: number }) {
@@ -23,8 +33,6 @@ function WPIGauge({ score }: { score: number }) {
     : score >= 40 ? "#f97316"
     : score >= 20 ? "#fde047"
     : "#4ade80";
-
-  const pct = (score / 100) * 100;
   const label =
     score >= 80 ? "Extreme"
     : score >= 60 ? "High"
@@ -44,7 +52,7 @@ function WPIGauge({ score }: { score: number }) {
             strokeLinecap="round"
           />
         </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center rotate-0">
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
           <span className="text-3xl font-bold" style={{ color }}>{score}</span>
           <span className="text-xs text-muted-foreground">/ 100</span>
         </div>
@@ -54,61 +62,12 @@ function WPIGauge({ score }: { score: number }) {
   );
 }
 
-export default function WeatherPatternIndex({ location }: Props) {
-  const { data: weather, isLoading: weatherLoading } = useOpenMeteo(location);
-  const { data: alerts } = useNWSAlerts(location);
-  const [result, setResult] = useState<WPIResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const handleAnalyze = async () => {
-    if (!weather) return;
-    setLoading(true);
-    setError(null);
-
-    const cur = weather.current;
-    const hourly = weather.hourly;
-
-    const weatherData = {
-      location: location.name,
-      current: {
-        temperature: cur ? Math.round(cToF(cur.temperature_2m)) : null,
-        windSpeed: cur ? Math.round(msToMph(cur.wind_speed_10m)) : null,
-        humidity: cur?.relative_humidity_2m,
-        pressure: cur?.surface_pressure,
-        weatherCode: cur?.weather_code,
-      },
-      instability: {
-        cape0: hourly?.cape?.[0] ?? null,
-        cape6h: hourly?.cape?.[6] ?? null,
-        cape12h: hourly?.cape?.[12] ?? null,
-        liftedIndex: hourly?.lifted_index?.[0] ?? null,
-      },
-      alerts: alerts?.map(a => ({ event: a.properties.event, severity: a.properties.severity })) ?? [],
-      nextHours: hourly?.time?.slice(0, 12).map((t: string, i: number) => ({
-        time: t,
-        temp: hourly.temperature_2m ? Math.round(cToF(hourly.temperature_2m[i])) : 0,
-        wind: hourly.wind_speed_10m ? Math.round(msToMph(hourly.wind_speed_10m[i])) : 0,
-        precipProb: hourly.precipitation_probability?.[i] ?? 0,
-        cape: Math.round(hourly.cape?.[i] ?? 0),
-      })),
-    };
-
-    try {
-      const res = await fetch(`${BASE_API}/ai/wpi`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ weatherData, location: location.name }),
-      });
-      if (!res.ok) throw new Error("AI analysis failed");
-      const data = await res.json() as WPIResult;
-      setResult(data);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Analysis failed");
-    } finally {
-      setLoading(false);
-    }
-  };
+export default function WeatherPatternIndex(_: Props) {
+  const { data: brief, isLoading } = useDailyBrief();
+  const overview = brief?.content.risk_overview;
+  const pattern = brief?.content.pattern?.trim();
+  const score = patternScore(overview);
+  const hazards = hazardList(overview);
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -116,99 +75,87 @@ export default function WeatherPatternIndex({ location }: Props) {
         <Brain className="w-5 h-5 text-primary" />
         <h2 className="text-xl font-bold">Weather Pattern AI</h2>
       </div>
-      <p className="text-sm text-muted-foreground">{location.name}</p>
+      <p className="text-sm text-muted-foreground">Nationwide · SSWX nightly pattern analysis</p>
 
-      {weatherLoading && <PageSkeleton />}
+      {isLoading && <PageSkeleton />}
 
-      {!weatherLoading && (
-        <>
-          {!result && (
-            <div className="bg-card border border-border rounded-xl p-8 text-center">
-              <Brain className="w-12 h-12 mx-auto mb-4 text-primary opacity-60" />
-              <h3 className="font-semibold text-lg mb-2">AI Weather Pattern Analysis</h3>
-              <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto">
-                Get an AI-powered analysis of the current atmospheric pattern, synoptic features, and risk assessment for {location.name}.
+      {!isLoading && !brief && (
+        <div className="bg-card border border-border rounded-xl p-8 text-center">
+          <Brain className="w-12 h-12 mx-auto mb-4 text-primary opacity-60" />
+          <h3 className="font-semibold text-lg mb-2">Pattern analysis not ready yet</h3>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            The SSWX Storm Engine writes one national pattern analysis each morning. Check back shortly.
+          </p>
+        </div>
+      )}
+
+      {!isLoading && brief && (
+        <div className="space-y-4">
+          <div className="bg-card border border-border rounded-xl p-6 flex flex-col md:flex-row items-center gap-6">
+            <WPIGauge score={score} />
+            <div className="flex-1">
+              <h4 className="font-semibold mb-2">{brief.headline ?? "Pattern Summary"}</h4>
+              <p className="text-sm text-muted-foreground leading-relaxed">
+                {brief.summary ?? "National severe-weather pattern overview."}
               </p>
-              <button
-                onClick={handleAnalyze}
-                disabled={loading}
-                className="flex items-center gap-2 mx-auto px-6 py-2.5 bg-primary text-primary-foreground rounded-lg font-medium hover:opacity-90 transition-opacity disabled:opacity-50"
-              >
-                <Sparkles className="w-4 h-4" />
-                {loading ? "Analyzing…" : "Analyze Current Pattern"}
-              </button>
-              {loading && (
-                <div className="mt-4 flex justify-center">
-                  <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              {brief.content.confidence && (
+                <div className="mt-3 inline-flex items-center gap-1.5 text-xs">
+                  <span className="text-muted-foreground uppercase tracking-wider">Confidence</span>
+                  <span className="font-semibold text-primary capitalize">{brief.content.confidence}</span>
                 </div>
               )}
             </div>
-          )}
+          </div>
 
-          {error && (
-            <div className="bg-destructive/10 border border-destructive rounded-xl p-4 flex items-center gap-2 text-sm text-destructive">
-              <AlertTriangle className="w-4 h-4 shrink-0" />
-              {error}
+          {hazards.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 text-yellow-400" />
+                Key Hazards Today
+              </h4>
+              <ul className="space-y-1">
+                {hazards.map((h, i) => (
+                  <li key={i} className="text-sm flex items-start gap-2">
+                    <span className="text-yellow-400 mt-0.5">⚠</span>
+                    {h}
+                  </li>
+                ))}
+              </ul>
             </div>
           )}
 
-          {result && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="font-semibold">Analysis Results</h3>
-                <button
-                  onClick={handleAnalyze}
-                  disabled={loading}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-primary/15 text-primary border border-primary/30 rounded-lg hover:bg-primary/25 transition-colors disabled:opacity-50"
-                >
-                  <RefreshCw className="w-3 h-3" />
-                  {loading ? "Refreshing…" : "Refresh"}
-                </button>
+          {pattern && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h4 className="font-semibold text-sm mb-2">Pattern & Day 2-3 Trend</h4>
+              <p className="text-sm text-muted-foreground leading-relaxed whitespace-pre-wrap">{pattern}</p>
+            </div>
+          )}
+
+          {overview && (
+            <div className="bg-card border border-border rounded-xl p-4">
+              <h4 className="font-semibold text-sm mb-3">SPC Outlook Trend</h4>
+              <div className="grid grid-cols-3 gap-2 text-center">
+                {[
+                  { d: "Today", c: overview.day1_category_name },
+                  { d: "Day 2", c: overview.day2_category ?? "—" },
+                  { d: "Day 3", c: overview.day3_category ?? "—" },
+                ].map(x => (
+                  <div key={x.d} className="bg-muted/20 rounded-lg p-2.5">
+                    <div className="text-[10px] uppercase tracking-wider text-muted-foreground">{x.d}</div>
+                    <div className="text-sm font-semibold mt-0.5">{x.c}</div>
+                  </div>
+                ))}
               </div>
-
-              <div className="bg-card border border-border rounded-xl p-6 flex flex-col md:flex-row items-center gap-6">
-                <WPIGauge score={typeof result.wpiScore === "number" ? result.wpiScore : 0} />
-                <div className="flex-1">
-                  <h4 className="font-semibold mb-2">Pattern Summary</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{result.summary}</p>
-                </div>
-              </div>
-
-              {result.hazards?.length > 0 && (
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <h4 className="font-semibold text-sm mb-3 flex items-center gap-2">
-                    <AlertTriangle className="w-4 h-4 text-yellow-400" />
-                    Key Hazards
-                  </h4>
-                  <ul className="space-y-1">
-                    {result.hazards.map((h, i) => (
-                      <li key={i} className="text-sm flex items-start gap-2">
-                        <span className="text-yellow-400 mt-0.5">⚠</span>
-                        {h}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {result.outlook && (
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <h4 className="font-semibold text-sm mb-2">24-48 Hour Outlook</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{result.outlook}</p>
-                </div>
-              )}
-
-              {result.synopticFeatures && (
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <h4 className="font-semibold text-sm mb-2">Synoptic Features</h4>
-                  <p className="text-sm text-muted-foreground leading-relaxed">{result.synopticFeatures}</p>
-                </div>
-              )}
-
-              <p className="text-xs text-muted-foreground text-center">AI analysis · Not official NWS guidance</p>
             </div>
           )}
-        </>
+
+          <p className="text-xs text-muted-foreground text-center">
+            {brief.generatedAt
+              ? (() => { try { return `Generated ${format(parseISO(brief.generatedAt), "MMM d · h:mm a")} · `; } catch { return ""; } })()
+              : ""}
+            AI analysis · Not official NWS guidance
+          </p>
+        </div>
       )}
     </div>
   );

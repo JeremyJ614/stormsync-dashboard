@@ -14,6 +14,7 @@ import {
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
 import { useAuth, hasModuleAccess } from "../hooks/useAuth";
+import { SavedLocations } from "./SavedLocations";
 const logoUrl = "/logo.png";
 
 // ─── Navigation structure ────────────────────────────────────────────────────
@@ -439,6 +440,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
 
             <div className="flex items-center gap-2">
               <LocationSearch onSetLocation={onSetLocation} />
+              <SavedLocations location={location} onSetLocation={onSetLocation} />
               <button
                 onClick={onDetectLocation}
                 disabled={isGeolocating}

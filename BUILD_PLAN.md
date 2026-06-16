@@ -273,10 +273,12 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **U-14** Tornado Climatology: full-page SPC iframes replaced with clean per-tool
       launcher cards; native climatology charts / EF scale / outbreaks retained.
 
-### ☐ Phase 6 — Member & Account Features
+### ◐ Phase 6 — Member & Account Features — IN PROGRESS (2026-06-16)
 - [ ] **U-02** Dashboard → interchangeable, customizable basic-forecast area, tier-gated
       *(L4 drag-drop layouts, L1 tier-gated teasers)*
-- [ ] **L1** "My Locations" — save/switch multiple places everywhere
+- [x] **L1** "My Locations" — save/switch multiple places. Backed by `saved_locations`
+      (RLS own-rows); `lib/savedLocations.ts` + `SavedLocations` header control (bookmark
+      menu: switch, set-primary ⭐, remove, save-current). Visible to signed-in members.
 - [ ] **U-21** Loyalty Dashboard: admin-configurable; points for referrals *(L1)*, renewals,
       game wins; prizes = discounts/coupons; fair-but-not-easy point system (proposed below)
 - [x] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
@@ -286,7 +288,8 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] **U-23** Emergency Storm Contact → "SSWX Emergency Storm Contact — Direct
       Administrative Line"; remove personal phone from description; correct PIN opens a
       **direct line to admin** via **email relay + free carrier email-to-SMS gateway**
-- [ ] **U-22** FAQ / Module Guide: remove tier correlation; explain modules + add-ons only
+- [x] **U-22** FAQ / Module Guide: removed the tier filter + T1–T4 badges; the guide now
+      just explains what each module/add-on does (access is admin-enabled, not a tier sheet).
 
 ### ☐ Phase 7 — Admin & Content Tools
 - [◐] **U-24** Admin: signup-form builder (custom questions/fields, its own section, richer)

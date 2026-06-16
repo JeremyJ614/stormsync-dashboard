@@ -1,14 +1,16 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useAuth } from "../hooks/useAuth";
-import { gameStore } from "../lib/adminStore";
+import { getMyGuess, lockGuess, monthlyLeaderboard, getWinners, type GameGuess, type LeaderRow, type WinnerRow } from "../lib/gameDb";
 import { geocodeLocation } from "../utils/weatherApi";
+import usStatesAlbers from "../data/usStatesAlbers.json";
 import { Gamepad2, Search, MapPin, Trophy, Calendar, Crown, Target, Info, ExternalLink, AlertTriangle } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 type Tab = "play" | "leaderboard";
 
 const BASE = import.meta.env.BASE_URL;
+const US_STATES = (usStatesAlbers as { states: { name: string; d: string }[] }).states;
 
 // us-atlas albers-USA projection size (matches api-server /api/us-states)
 const MAP_W = 975;
@@ -99,19 +101,15 @@ export default function ForecastGame() {
   const [cityQuery, setCityQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [searchErr, setSearchErr] = useState("");
-  const [states, setStates] = useState<{ name: string; d: string }[]>([]);
+  const [locked, setLocked] = useState(false);
+  const [myResult, setMyResult] = useState<GameGuess | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderRow[]>([]);
+  const [winners, setWinners] = useState<WinnerRow[]>([]);
+  const states = US_STATES;
   const [outlook, setOutlook] = useState<SPCOutlookInfo | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const today = new Date().toISOString().slice(0, 10);
   const yyyymm = today.slice(0, 7);
-
-  // Load real US state outlines from API
-  useEffect(() => {
-    fetch(`${BASE}api/us-states`)
-      .then(r => r.ok ? r.json() : Promise.reject(new Error(String(r.status))))
-      .then((d: { states: { name: string; d: string }[] }) => setStates(d.states))
-      .catch(() => setStates([]));
-  }, []);
 
   // Pull today's SPC categorical outlook to show inline
   useEffect(() => {
@@ -135,14 +133,23 @@ export default function ForecastGame() {
     }).catch(() => setOutlook({ day: 1, issued: null, riskAreas: [] }));
   }, []);
 
+  // Load my locked guess for today + the leaderboard/winners from Supabase.
   useEffect(() => {
     if (!user) return;
-    const existing = gameStore.todayGuesses(today).find(g => g.userId === user.id);
-    if (existing) setTodayGuess({ lat: existing.lat, lon: existing.lon, label: existing.cityLabel });
-  }, [user, today]);
+    let cancelled = false;
+    (async () => {
+      const mine = await getMyGuess(user.id, today);
+      if (cancelled) return;
+      if (mine) { setTodayGuess({ lat: mine.lat, lon: mine.lon, label: mine.label }); setLocked(true); setMyResult(mine); }
+      const [lb, wn] = await Promise.all([monthlyLeaderboard(yyyymm), getWinners()]);
+      if (cancelled) return;
+      setLeaderboard(lb); setWinners(wn);
+    })();
+    return () => { cancelled = true; };
+  }, [user, today, yyyymm]);
 
   function handleMapClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (!svgRef.current) return;
+    if (!svgRef.current || locked) return;
     const rect = svgRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * MAP_W;
     const y = ((e.clientY - rect.top) / rect.height) * MAP_H;
@@ -163,20 +170,18 @@ export default function ForecastGame() {
     finally { setSearching(false); }
   }
 
-  function submit() {
-    if (!user || !todayGuess) return;
-    const existing = gameStore.todayGuesses(today).find(g => g.userId === user.id);
-    if (existing) { alert("You already locked in today's guess."); return; }
-    gameStore.addGuess({
-      userId: user.id, userName: user.name,
-      lat: todayGuess.lat, lon: todayGuess.lon, cityLabel: todayGuess.label, date: today,
-      points: 0,
-    });
-    alert("Guess locked in! Scoring runs after midnight UTC against today's NWS storm reports. Check the leaderboard tomorrow.");
+  async function submit() {
+    if (!user || !todayGuess || locked) return;
+    const res = await lockGuess({ userId: user.id, userName: user.name, lat: todayGuess.lat, lon: todayGuess.lon, label: todayGuess.label, date: today });
+    if (res.ok) {
+      setLocked(true);
+      setMyResult({ lat: todayGuess.lat, lon: todayGuess.lon, label: todayGuess.label, points: null });
+    } else {
+      setSearchErr(res.error);
+      if (res.error.includes("already")) setLocked(true);
+    }
   }
 
-  const leaderboard = useMemo(() => gameStore.monthlyLeaderboard(yyyymm), [yyyymm]);
-  const winners = useMemo(() => gameStore.winners(), []);
   const monthName = new Date().toLocaleString("en-US", { month: "long", year: "numeric" });
 
   if (!user) {
@@ -231,11 +236,18 @@ export default function ForecastGame() {
                 <Search className="w-4 h-4 text-muted-foreground" />
                 <input value={cityQuery} onChange={e => setCityQuery(e.target.value)} onKeyDown={e => { if (e.key === "Enter") searchCity(); }} placeholder="Type a city to drop a pin..." className="bg-transparent outline-none text-sm flex-1" />
               </div>
-              <button onClick={searchCity} disabled={searching} className="px-3 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{searching ? "..." : "Place Pin"}</button>
-              <button onClick={submit} disabled={!todayGuess} className="px-3 py-2 rounded-lg bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"><Target className="w-3 h-3" /> Lock In Guess</button>
+              <button onClick={searchCity} disabled={searching || locked} className="px-3 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{searching ? "..." : "Place Pin"}</button>
+              <button onClick={submit} disabled={!todayGuess || locked} className="px-3 py-2 rounded-lg bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5"><Target className="w-3 h-3" /> {locked ? "Locked In" : "Lock In Guess"}</button>
             </div>
             {searchErr && <div className="text-xs text-red-400">{searchErr}</div>}
             {todayGuess && <div className="text-xs text-primary flex items-center gap-1"><MapPin className="w-3 h-3" /> Pin at <span className="font-mono">{todayGuess.label}</span></div>}
+            {locked && (
+              <div className="text-xs rounded-lg px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 text-yellow-200">
+                {myResult && myResult.points !== null
+                  ? <>✅ Yesterday's guess scored <strong>{myResult.points.toLocaleString()} pts</strong>. Today's guess is locked — scoring runs tonight against SPC storm reports.</>
+                  : <>🔒 Today's guess is locked in. Scoring runs tonight (after 00 UTC) against the day's SPC storm reports — check the leaderboard tomorrow.</>}
+              </div>
+            )}
 
             <div className="relative bg-black rounded-xl overflow-hidden border border-border">
               <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={handleMapClick} className="w-full h-auto cursor-crosshair">
@@ -272,13 +284,15 @@ export default function ForecastGame() {
           <div className="bg-card border border-border rounded-xl p-4 space-y-2">
             <h3 className="text-sm font-semibold flex items-center gap-2"><Info className="w-4 h-4 text-primary" /> Scoring Rules</h3>
             <ul className="text-xs text-muted-foreground space-y-1 list-disc list-inside leading-relaxed">
-              <li><strong className="text-foreground">Bullseye (≤ 25 mi):</strong> 1000 points + 500 bonus if a tornado occurred there.</li>
-              <li><strong className="text-foreground">Close (≤ 75 mi):</strong> 500 points.</li>
-              <li><strong className="text-foreground">Near (≤ 150 mi):</strong> 200 points.</li>
-              <li><strong className="text-foreground">Way off (&gt; 150 mi):</strong> 0 points. Try again tomorrow.</li>
-              <li>Monthly winner gets a <strong className="text-yellow-300">5000 point bonus</strong>. Leaderboard resets first of each month.</li>
+              <li><strong className="text-foreground">Bullseye (≤ 25 mi):</strong> 1000 points.</li>
+              <li><strong className="text-foreground">Close (≤ 75 mi):</strong> 600 points.</li>
+              <li><strong className="text-foreground">Near (≤ 150 mi):</strong> 300 points.</li>
+              <li><strong className="text-foreground">Distant (≤ 300 mi):</strong> 100 points.</li>
+              <li><strong className="text-foreground">Way off (&gt; 300 mi) or a quiet day:</strong> 25 points.</li>
+              <li><strong className="text-yellow-300">Tornado bonus:</strong> +500 if your pin lands within 50 mi of a tornado report.</li>
+              <li>Leaderboard resets the first of each month; the monthly winner is crowned automatically.</li>
             </ul>
-            <p className="text-[10px] text-muted-foreground/70 mt-2">An AI model + SPC storm reports determines the "worst severe weather" centroid for each day. Scoring runs nightly.</p>
+            <p className="text-[10px] text-muted-foreground/70 mt-2">Your guess is scored against the nearest SPC storm report (tornado / hail / wind) for the day. Scoring runs nightly.</p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-3">

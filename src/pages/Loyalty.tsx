@@ -1,24 +1,15 @@
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
-import { Trophy, Star, Users, Gift, Calendar, Sparkles } from "lucide-react";
-
-const REWARD_TIERS = [
-  { points: 500, label: "Bronze", reward: "StormSync sticker pack", color: "#cd7f32" },
-  { points: 1000, label: "Silver", reward: "Exclusive radar overlay theme", color: "#c0c0c0" },
-  { points: 2500, label: "Gold", reward: "1 month free tier upgrade", color: "#ffd700" },
-  { points: 5000, label: "Platinum", reward: "StormSync t-shirt & beanie", color: "#e5e4e2" },
-  { points: 10000, label: "Diamond", reward: "Lifetime tier upgrade + chase ride-along", color: "#b9f2ff" },
-];
-
-const REFERRAL_TIERS = [
-  { refs: 3, reward: "+500 bonus points" },
-  { refs: 10, reward: "Tier upgrade for 1 month" },
-  { refs: 25, reward: "StormSync merch package" },
-  { refs: 50, reward: "Lifetime tier upgrade" },
-];
+import { getLoyaltyRules, getMyLoyalty, loyaltyKindLabel } from "../lib/loyalty";
+import { Trophy, Star, Users, Gift, History, Sparkles, TrendingUp } from "lucide-react";
+import { format, parseISO } from "date-fns";
 
 export default function Loyalty() {
-  const { user, loyaltyPoints, monthsActive } = useAuth();
+  const { user } = useAuth();
+
+  const { data: rules } = useQuery({ queryKey: ["loyalty-rules"], queryFn: getLoyaltyRules, staleTime: 10 * 60 * 1000 });
+  const { data: mine, isLoading } = useQuery({ queryKey: ["my-loyalty", user?.id], queryFn: getMyLoyalty, enabled: !!user, staleTime: 60 * 1000 });
 
   if (!user) {
     return (
@@ -30,8 +21,18 @@ export default function Loyalty() {
     );
   }
 
-  const nextTier = REWARD_TIERS.find(t => t.points > loyaltyPoints);
-  const progress = nextTier ? Math.min(100, (loyaltyPoints / nextTier.points) * 100) : 100;
+  const points = mine?.points ?? 0;
+  const events = mine?.events ?? [];
+  const prizes = rules?.prizes ?? [];
+  const nextPrize = prizes.find(p => p.points > points);
+  const progress = nextPrize ? Math.min(100, (points / nextPrize.points) * 100) : 100;
+
+  const earnRules = rules ? [
+    { label: "Referral converts", value: rules.referral_converted, icon: Users },
+    { label: "Membership renewal", value: rules.membership_renewal, icon: TrendingUp },
+    { label: "Forecast Game — 1st", value: rules.game_win_1st, icon: Trophy },
+    { label: "Forecast Game — 2nd / 3rd / 4th", value: `${rules.game_win_2nd}/${rules.game_win_3rd}/${rules.game_win_4th}`, icon: Star },
+  ] : [];
 
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
@@ -45,81 +46,92 @@ export default function Loyalty() {
         <div className="absolute -top-10 -right-10 w-48 h-48 rounded-full bg-yellow-400/20 blur-3xl pointer-events-none" />
         <div className="relative">
           <div className="text-[10px] text-yellow-400 uppercase tracking-[0.3em] mb-1">Your Loyalty Points</div>
-          <div className="text-5xl font-bold tabular-nums" style={{ color: "#fde047" }}>{loyaltyPoints.toLocaleString()}</div>
-          <div className="text-xs text-muted-foreground mt-1">
-            +100 / month active · +250 / referral · {monthsActive} months active · {user.referrals} referrals
-          </div>
+          <div className="text-5xl font-bold tabular-nums" style={{ color: "#fde047" }}>{points.toLocaleString()}</div>
+          <div className="text-xs text-muted-foreground mt-1">{user.referrals} referrals on record · earn points through referrals, renewals & game wins</div>
 
-          {nextTier && (
+          {nextPrize && (
             <div className="mt-4">
               <div className="flex justify-between text-xs mb-1">
-                <span className="text-muted-foreground">Progress to {nextTier.label}</span>
-                <span style={{ color: nextTier.color }} className="font-bold tabular-nums">{loyaltyPoints} / {nextTier.points}</span>
+                <span className="text-muted-foreground">Progress to “{nextPrize.prize}”</span>
+                <span className="font-bold tabular-nums text-yellow-300">{points.toLocaleString()} / {nextPrize.points.toLocaleString()}</span>
               </div>
               <div className="h-2 bg-muted/30 rounded-full overflow-hidden">
-                <div className="h-2 rounded-full transition-all" style={{ width: `${progress}%`, background: `linear-gradient(to right, #fde047, ${nextTier.color})` }} />
+                <div className="h-2 rounded-full transition-all" style={{ width: `${progress}%`, background: "linear-gradient(to right, #fde047, #f59e0b)" }} />
               </div>
             </div>
           )}
         </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Stat label="Months Active" value={monthsActive} icon={Calendar} color="#7B8FD9" />
-        <Stat label="Referrals" value={user.referrals} icon={Users} color="#fde047" />
-        <Stat label="Points" value={loyaltyPoints} icon={Star} color="#a855f7" />
+      {/* How to earn */}
+      <div className="bg-card border border-border rounded-xl p-5 space-y-3">
+        <h2 className="text-sm font-semibold flex items-center gap-2"><Sparkles className="w-4 h-4 text-primary" /> How to Earn Points</h2>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+          {earnRules.map(r => {
+            const Icon = r.icon;
+            return (
+              <div key={r.label} className="bg-muted/20 rounded-lg p-3 text-center">
+                <Icon className="w-4 h-4 mx-auto mb-1 text-primary" />
+                <div className="text-lg font-bold tabular-nums text-primary">+{r.value}</div>
+                <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">{r.label}</div>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground">Referrals & renewals are credited by an admin; game points post automatically when the monthly board is settled.</p>
       </div>
 
+      {/* Prize ladder */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-        <h2 className="text-sm font-semibold flex items-center gap-2"><Gift className="w-4 h-4 text-primary" /> Reward Tiers</h2>
-        <p className="text-xs text-muted-foreground">Specific rewards are subject to change. Vague by design — final program details coming soon.</p>
+        <h2 className="text-sm font-semibold flex items-center gap-2"><Gift className="w-4 h-4 text-primary" /> Prizes</h2>
         <div className="space-y-2">
-          {REWARD_TIERS.map(t => {
-            const unlocked = loyaltyPoints >= t.points;
+          {prizes.map(p => {
+            const unlocked = points >= p.points;
             return (
-              <div key={t.label} className={`flex items-center gap-3 p-3 rounded-lg border ${unlocked ? "bg-yellow-400/10 border-yellow-400/40" : "bg-muted/20 border-border"}`}>
-                <div className="w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs" style={{ background: t.color + "30", color: t.color, border: `2px solid ${t.color}60` }}>
-                  {t.label[0]}
+              <div key={p.points} className={`flex items-center gap-3 p-3 rounded-lg border ${unlocked ? "bg-yellow-400/10 border-yellow-400/40" : "bg-muted/20 border-border"}`}>
+                <div className={`w-9 h-9 rounded-full flex items-center justify-center ${unlocked ? "bg-yellow-400/20 text-yellow-300" : "bg-muted/40 text-muted-foreground"}`}>
+                  <Gift className="w-4 h-4" />
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold flex items-center gap-2">
-                    {t.label}
+                    {p.prize}
                     {unlocked && <span className="text-[9px] text-green-400 uppercase tracking-widest">unlocked</span>}
                   </div>
-                  <div className="text-xs text-muted-foreground">{t.reward}</div>
+                  <div className="text-xs text-muted-foreground">{p.points.toLocaleString()} points</div>
                 </div>
-                <div className="text-sm font-bold tabular-nums" style={{ color: t.color }}>{t.points.toLocaleString()} pts</div>
+                {!unlocked && <div className="text-xs text-muted-foreground tabular-nums shrink-0">{(p.points - points).toLocaleString()} to go</div>}
               </div>
             );
           })}
+          {prizes.length === 0 && <p className="text-xs text-muted-foreground">Prizes are being finalized — check back soon.</p>}
         </div>
+        <p className="text-[11px] text-muted-foreground">Redeem unlocked prizes with an admin. Specific rewards may change.</p>
       </div>
 
+      {/* Points history */}
       <div className="bg-card border border-border rounded-xl p-5 space-y-3">
-        <h2 className="text-sm font-semibold flex items-center gap-2"><Users className="w-4 h-4 text-primary" /> Referral Bonuses</h2>
-        <p className="text-xs text-muted-foreground">Refer friends to StormSync. When they sign up and mention your name, admins add a referral to your count.</p>
+        <h2 className="text-sm font-semibold flex items-center gap-2"><History className="w-4 h-4 text-primary" /> Points History</h2>
+        {isLoading && <p className="text-xs text-muted-foreground">Loading…</p>}
+        {!isLoading && events.length === 0 && (
+          <p className="text-xs text-muted-foreground">No points yet. Refer a friend or play the Forecast Game to get on the board.</p>
+        )}
         <div className="space-y-1.5">
-          {REFERRAL_TIERS.map(t => {
-            const unlocked = user.referrals >= t.refs;
-            return (
-              <div key={t.refs} className={`flex items-center justify-between p-2.5 rounded-lg ${unlocked ? "bg-primary/10" : "bg-muted/20"}`}>
-                <div className="text-sm">{t.refs} referrals → <span className="text-muted-foreground">{t.reward}</span></div>
-                {unlocked && <Sparkles className="w-4 h-4 text-yellow-400" />}
+          {events.map(e => (
+            <div key={e.id} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-muted/20">
+              <div className="min-w-0">
+                <div className="text-sm font-medium">{loyaltyKindLabel(e.kind)}</div>
+                <div className="text-[11px] text-muted-foreground truncate">
+                  {(() => { try { return format(parseISO(e.createdAt), "MMM d, yyyy"); } catch { return ""; } })()}
+                  {e.note ? ` · ${e.note}` : ""}
+                </div>
               </div>
-            );
-          })}
+              <div className={`text-sm font-bold tabular-nums shrink-0 ${e.points >= 0 ? "text-green-400" : "text-red-400"}`}>
+                {e.points >= 0 ? "+" : ""}{e.points.toLocaleString()}
+              </div>
+            </div>
+          ))}
         </div>
       </div>
-    </div>
-  );
-}
-
-function Stat({ label, value, icon: Icon, color }: { label: string; value: number; icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }) {
-  return (
-    <div className="bg-card border border-border rounded-xl p-4 text-center">
-      <Icon className="w-5 h-5 mx-auto mb-1" style={{ color }} />
-      <div className="text-2xl font-bold tabular-nums" style={{ color }}>{value.toLocaleString()}</div>
-      <div className="text-[10px] text-muted-foreground uppercase tracking-widest mt-1">{label}</div>
     </div>
   );
 }

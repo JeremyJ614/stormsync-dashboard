@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
-import { useNWSAlerts, useOpenMeteo } from "../hooks/useWeatherQuery";
+import { useQuery } from "@tanstack/react-query";
+import { useOpenMeteo } from "../hooks/useWeatherQuery";
+import { fetchAllUSAlerts } from "../utils/weatherApi";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { Activity, Info, RefreshCw, Sparkles } from "lucide-react";
@@ -51,7 +53,7 @@ function computeComponents(alerts: AlertItem[], cape: number, srh: number, shear
       { label: "TROPICAL SYSTEMS", score: tropicalScore, multiplier: "+0", desc: `${tropical} storm${tropical !== 1 ? "s" : ""}` },
       { label: "WINTER WEATHER", score: winterScore, multiplier: "+13", desc: `${winterBlizzard} blizzard · ${winterStorm} storm` },
       { label: "FIRE WEATHER", score: fireScore, multiplier: "+15", desc: `${fireredflag} red flag warnings` },
-      { label: "ATMOSPHERIC INDEX", score: atmoScore, multiplier: "+20", desc: "CAPE / SRH / Shear / LI" },
+      { label: "LOCAL INSTABILITY", score: atmoScore, multiplier: "+20", desc: "Your area: CAPE / SRH / Shear / LI" },
     ],
     total,
   };
@@ -313,7 +315,15 @@ type TabType = "components" | "breakdown" | "scale";
 
 export default function SSWXCon({ location }: Props) {
   const { data: weather, isLoading: wxLoading, refetch: refetchWx } = useOpenMeteo(location);
-  const { data: alerts = [], isLoading: alertsLoading, refetch: refetchAlerts } = useNWSAlerts(location);
+  // SSWXCon is a NATIONAL "DEFCON for storms" score — it must aggregate every
+  // active NWS warning across the U.S., not just the user's point (otherwise it
+  // reads ~0 whenever no warning is firing on their exact location).
+  const { data: alerts = [], isLoading: alertsLoading, refetch: refetchAlerts } = useQuery({
+    queryKey: ["all-us-alerts"],
+    queryFn: fetchAllUSAlerts,
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: 5 * 60 * 1000,
+  });
   const { data: brief } = useDailyBrief();
   const [activeTab, setActiveTab] = useState<TabType>("components");
   const [lastUpdated, setLastUpdated] = useState(new Date());
@@ -368,7 +378,7 @@ export default function SSWXCon({ location }: Props) {
             <Activity className="w-5 h-5 text-primary" />
             <h2 className="text-xl font-bold tracking-wide uppercase">SSWXCon Score</h2>
           </div>
-          <p className="text-xs text-muted-foreground mt-0.5">Real-time Severe & Significant Weather Conditions intensity score — {location.name}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">Real-time <span className="text-foreground/80 font-medium">nationwide</span> Severe & Significant Weather Conditions intensity score</p>
         </div>
         <button onClick={refresh}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40">

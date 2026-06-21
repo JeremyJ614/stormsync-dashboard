@@ -133,16 +133,18 @@ export default function SWTIPage({ location }: Props) {
         </div>
       )}
 
-      <div className="bg-card border rounded-xl p-6 flex flex-col items-center text-center" style={{ borderColor: swti.color + "60" }}>
-        <div className="text-xs tracking-widest uppercase text-muted-foreground mb-3">Current SWTI Score</div>
-        {isLoading
-          ? <div className="h-28 w-52 bg-muted/20 rounded animate-pulse mb-3" />
-          : <ScoreGauge score={swti.score} color={swti.color} />
-        }
-        <div className="text-2xl font-bold mt-2" style={{ color: swti.color, textShadow: `0 0 20px ${swti.color}40` }}>
-          {swti.label}
+      <div className="aurora-bg glass rounded-2xl p-6 flex flex-col items-center text-center" style={{ boxShadow: `0 0 44px -8px ${swti.color}55`, borderColor: swti.color + "55" }}>
+        <div className="relative flex flex-col items-center">
+          <div className="text-xs tracking-[0.3em] uppercase text-muted-foreground mb-3">Current SWTI Score</div>
+          {isLoading
+            ? <div className="h-28 w-52 bg-muted/20 rounded animate-pulse mb-3" />
+            : <ScoreGauge score={swti.score} color={swti.color} />
+          }
+          <div className="text-2xl font-bold mt-2" style={{ color: swti.color, textShadow: `0 0 24px ${swti.color}66` }}>
+            {swti.label}
+          </div>
+          <div className="text-sm text-muted-foreground mt-1">Tornado Threat Level</div>
         </div>
-        <div className="text-sm text-muted-foreground mt-1">Tornado Threat Level</div>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

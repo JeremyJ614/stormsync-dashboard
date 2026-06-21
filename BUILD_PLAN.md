@@ -334,9 +334,10 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       `.text-glow` / `.aurora-bg` utilities in `index.css` (reduced-motion aware).
 - [◐] **U-01** Splash: trimmed from 4.0s → 2.4s ("not too slow"); kept the awe-inspiring
       violet/animated look. (Full visual demolish deferred — current aesthetic already matches.)
-- [ ] **U-04** AQI Forecast redesign (cooler)
-- [ ] **U-09** Atmospheric Ingredients redesign (advanced look)
-- [ ] **U-10** Severe Weather Threat Index redesign (advanced look)
+- [x] **U-04** AQI Forecast redesign — hero on the new aurora-glass + glow treatment, gradient
+      pollutant tiles.
+- [x] **U-09** Atmospheric Ingredients redesign — peak-threat hero on aurora-glass + colored glow.
+- [x] **U-10** SWTI redesign — score hero on aurora-glass + glow.
 
 ### ☐ Phase 10 — New Module + Performance Hardening (+ launch finalization)
 - [ ] **U-23 finalize (LAST STEP — deferred by owner 2026-06-16):** turn on live emergency

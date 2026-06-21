@@ -127,15 +127,17 @@ export default function AQIForecast({ location }: Props) {
         </div>
       ) : (
         <>
-          <div className="bg-card border rounded-xl p-6 flex flex-col items-center text-center" style={{ borderColor: aqiColor + "50" }}>
-            <div className="text-xs tracking-widest uppercase text-muted-foreground mb-3">Current US AQI</div>
-            {isLoading
-              ? <div className="h-28 w-48 bg-muted/20 rounded animate-pulse mb-3" />
-              : <AQIGauge aqi={currentAQI} color={aqiColor} />
-            }
-            <div className="text-2xl mb-1">{aqiEmoji}</div>
-            <div className="text-2xl font-bold" style={{ color: aqiColor }}>{aqiLabel}</div>
-            <p className="text-sm text-muted-foreground mt-2 max-w-xs">{aqiDesc}</p>
+          <div className="aurora-bg glass rounded-2xl p-6 flex flex-col items-center text-center" style={{ boxShadow: `0 0 40px -8px ${aqiColor}55`, borderColor: aqiColor + "55" }}>
+            <div className="relative">
+              <div className="text-xs tracking-[0.3em] uppercase text-muted-foreground mb-3">Current US AQI</div>
+              {isLoading
+                ? <div className="h-28 w-48 bg-muted/20 rounded animate-pulse mb-3 mx-auto" />
+                : <AQIGauge aqi={currentAQI} color={aqiColor} />
+              }
+              <div className="text-2xl mb-1">{aqiEmoji}</div>
+              <div className="text-2xl font-bold" style={{ color: aqiColor, textShadow: `0 0 22px ${aqiColor}66` }}>{aqiLabel}</div>
+              <p className="text-sm text-muted-foreground mt-2 max-w-xs mx-auto">{aqiDesc}</p>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
@@ -147,7 +149,7 @@ export default function AQIForecast({ location }: Props) {
               { label: "CO", value: isLoading ? "—" : `${(co / 1000).toFixed(1)} mg/m³`, color: "#7B8FD9", sub: "Carbon Monoxide" },
               { label: "UV Index", value: isLoading ? "—" : uv.toFixed(1), color: uvInfo.color, sub: uvInfo.label },
             ].map(m => (
-              <div key={m.label} className="bg-card border border-border rounded-xl p-3 text-center">
+              <div key={m.label} className="relative rounded-xl p-3 text-center overflow-hidden border" style={{ borderColor: m.color + "33", background: `linear-gradient(160deg, ${m.color}12, transparent 70%)` }}>
                 <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{m.label}</div>
                 <div className="text-lg font-bold" style={{ color: m.color }}>{m.value}</div>
                 <div className="text-xs mt-1" style={{ color: m.color }}>{m.sub}</div>

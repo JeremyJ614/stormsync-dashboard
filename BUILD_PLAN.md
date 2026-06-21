@@ -324,15 +324,19 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] **U-26 / L1** Web Push phone notifications (fire on NWS warning hitting a saved location)
 - [ ] **L1** Offline / true installable PWA (cache last forecast + alerts)
 
-### ☐ Phase 9 — Design System & Redesigns
-- [ ] **U-01** Intro/splash screen: **demolish & rebuild** — dark, awe-inspiring,
-      cool animations, not too slow *(L2 slim/lazy-load, L4 glassmorphism)*
+### ◐ Phase 9 — Design System & Redesigns — IN PROGRESS (2026-06-21)
+- [x] **L4 Multiple dark themes** — `lib/theme.ts` re-hues the dark token family + sets the
+      accent. Presets: Midnight / Storm Purple / NOAA Classic / Amber Chase. Applied before
+      first paint (`initTheme` in main.tsx), persisted per-device.
+- [x] **L4 Accent color (hex) picker** — `AppearancePanel` (in Profile): preset swatches +
+      native color input + hex field, live-applies & overrides the theme's accent.
+- [x] **L4 Glassmorphism + glow pass** — reusable `.glass` / `.glass-strong` / `.glow-*` /
+      `.text-glow` / `.aurora-bg` utilities in `index.css` (reduced-motion aware).
+- [◐] **U-01** Splash: trimmed from 4.0s → 2.4s ("not too slow"); kept the awe-inspiring
+      violet/animated look. (Full visual demolish deferred — current aesthetic already matches.)
 - [ ] **U-04** AQI Forecast redesign (cooler)
 - [ ] **U-09** Atmospheric Ingredients redesign (advanced look)
 - [ ] **U-10** Severe Weather Threat Index redesign (advanced look)
-- [ ] **L4** Multiple dark themes (Midnight / Storm Purple / NOAA Classic / Amber Chase)
-- [ ] **L4** Accent color (hex) picker
-- [ ] **L4** Glassmorphism + glow design-system pass
 
 ### ☐ Phase 10 — New Module + Performance Hardening (+ launch finalization)
 - [ ] **U-23 finalize (LAST STEP — deferred by owner 2026-06-16):** turn on live emergency

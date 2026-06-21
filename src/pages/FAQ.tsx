@@ -13,7 +13,7 @@ const GENERAL: FAQItem[] = [
   { q: "How do I become a verified SSWX Member?", a: "Sign up with your real name and the email you'll use for community contact. Admins assign the SSWX Member badge after a quick verification. Department Heads and Executive Board badges are reserved for staff." },
   { q: "What does the periwinkle glow on a SSWX News post mean?", a: "Periwinkle glow + 'NEW' badge means the post was published in the last 12 hours. Older posts return to the standard dark card look." },
   { q: "Where does the weather news on the home page come from?", a: "It auto-pulls from Google News with a severe-weather/tornado/hurricane filter, refreshed every 10 minutes. Click any headline to read the full source article." },
-  { q: "Who do I contact for help?", a: "Customer Service: customerservice@stormsync.media. Emergency (Tier 4 only): use the Emergency Storm Contact module, or text 567-204-4402 for live event support." },
+  { q: "Who do I contact for help?", a: "Customer Service: customerservice@stormsync.media. Emergency (Tier 4 only): use the Emergency Storm Contact module — it relays straight to the StormSync admin team during active severe weather." },
   { q: "Is my data shared?", a: "No. Account data is currently stored locally on your device. Server-side multi-device sync is on the roadmap. Push notifications require an explicit opt-in." },
 ];
 
@@ -126,7 +126,7 @@ export default function FAQ() {
         <h3 className="text-sm font-semibold">Still need help?</h3>
         <div className="text-xs text-muted-foreground space-y-1">
           <div className="flex items-center gap-2"><Mail className="w-3 h-3 text-primary" /> <a href="mailto:customerservice@stormsync.media" className="hover:text-primary">customerservice@stormsync.media</a> — general support</div>
-          <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-red-400" /> 567-204-4402 — emergency (Tier 4 only)</div>
+          <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-red-400" /> <Link href="/contact" className="hover:text-primary">Emergency Storm Contact</Link> — Tier 4 only, PIN required</div>
         </div>
       </div>
     </div>

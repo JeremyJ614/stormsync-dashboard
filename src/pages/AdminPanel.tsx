@@ -5,6 +5,7 @@ import {
   listUsers, adminCreateUser, adminDeleteUser, adminSetPin,
   setUserTier, setUserModules, setUserBadges, setUserReferrals,
   getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
+  getEmergencyRecipients, saveEmergencyRecipients,
 } from "../lib/userAdmin";
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, type LoyaltyRules } from "../lib/loyalty";
@@ -763,10 +764,52 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <EmergencyRecipientsCard />
       <LoyaltyRulesCard />
       <div className="bg-card border border-border rounded-xl p-4">
         <p className="text-xs text-muted-foreground">Signup form questions moved to the <strong className="text-foreground">Signups</strong> tab.</p>
       </div>
+    </div>
+  );
+}
+
+function EmergencyRecipientsCard() {
+  const [emails, setEmails] = useState("");
+  const [sms, setSms] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    getEmergencyRecipients().then(r => { setEmails(r.emails.join("\n")); setSms(r.sms_gateways.join("\n")); }).finally(() => setLoading(false));
+  }, []);
+
+  const lines = (s: string) => s.split(/[\n,]+/).map(x => x.trim()).filter(Boolean);
+  async function save() {
+    const r = await saveEmergencyRecipients({ emails: lines(emails), sms_gateways: lines(sms) });
+    if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
+    setSaved(true); setTimeout(() => setSaved(false), 1500);
+  }
+  if (loading) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+      <h3 className="text-sm font-semibold flex items-center gap-2"><AlertTriangle className="w-4 h-4 text-red-400" /> Emergency Relay Recipients</h3>
+      <p className="text-xs text-muted-foreground">Where the Emergency Storm Contact form delivers. One per line. Live email/SMS sending requires the <code className="text-foreground">RESEND_API_KEY</code> Edge Function secret; until it's set, submissions are still stored in the inbox.</p>
+      <div className="grid md:grid-cols-2 gap-3">
+        <label className="space-y-1">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Admin emails</span>
+          <textarea value={emails} onChange={e => setEmails(e.target.value)} rows={3} placeholder="admin@stormsync.media"
+            className="w-full bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40 resize-none font-mono" />
+        </label>
+        <label className="space-y-1">
+          <span className="text-[10px] uppercase tracking-widest text-muted-foreground">Carrier SMS gateways</span>
+          <textarea value={sms} onChange={e => setSms(e.target.value)} rows={3} placeholder="5551234567@vtext.com"
+            className="w-full bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40 resize-none font-mono" />
+        </label>
+      </div>
+      <button onClick={save} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30">
+        {saved ? "Saved ✓" : "Save recipients"}
+      </button>
     </div>
   );
 }

@@ -110,6 +110,16 @@ returns the ingested data without writing (and reports `ai_key_configured` / `ai
   - **Paid fallback:** `ANTHROPIC_API_KEY` — `npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
   - Set via the CLI or the Supabase dashboard (Edge Functions → Secrets). Never commit a key.
 
+### `relay` (`supabase/functions/relay/index.ts`)
+Emergency Storm Contact relay (U-23). `verify_jwt = false`; authorized by the 4-digit
+emergency PIN, checked server-side against `app_config.emergency_pin`. Stores the
+submission in `contact_submissions` and relays it via **Resend** to the admin emails +
+carrier email-to-SMS gateways in `app_config.emergency_recipients` (admin-editable in the
+admin Settings tab). **Secrets:** `RESEND_API_KEY` (https://resend.com free tier — required
+to actually send) and optional `RELAY_FROM` (verified sender, e.g.
+`"StormSync Alerts <alerts@yourdomain>"`; defaults to Resend's shared test sender). Without
+the key, messages are still stored and the caller is told the live relay isn't configured.
+
 ## Frontend env (Vercel + local `.env`)
 - `VITE_SUPABASE_URL=https://djonpetxdjuwcbgftqmt.supabase.co`
 - `VITE_SUPABASE_ANON_KEY=sb_publishable_...` (publishable; see `.env.example`)

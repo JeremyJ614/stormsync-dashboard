@@ -189,3 +189,17 @@ export async function saveEmergencyPin(pin: string): Promise<MutationResult> {
   }
   return { ok: true };
 }
+
+// ─── Emergency relay recipients (U-23) ──────────────────────────────────────────
+export interface EmergencyRecipients { emails: string[]; sms_gateways: string[] }
+export async function getEmergencyRecipients(): Promise<EmergencyRecipients> {
+  const { data, error } = await supabase.from("app_config").select("value").eq("key", "emergency_recipients").maybeSingle();
+  if (error) { logger.error("Failed to read emergency recipients", { scope: "admin", error }); return { emails: [], sms_gateways: [] }; }
+  const v = (data?.value ?? {}) as Partial<EmergencyRecipients>;
+  return { emails: v.emails ?? [], sms_gateways: v.sms_gateways ?? [] };
+}
+export async function saveEmergencyRecipients(r: EmergencyRecipients): Promise<MutationResult> {
+  const { error } = await supabase.from("app_config").update({ value: r }).eq("key", "emergency_recipients");
+  if (error) { logger.error("Failed to save emergency recipients", { scope: "admin", error }); return { ok: false, error: error.message }; }
+  return { ok: true };
+}

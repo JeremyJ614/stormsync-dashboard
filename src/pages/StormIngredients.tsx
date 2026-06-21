@@ -202,9 +202,10 @@ export default function StormIngredients({ location }: Props) {
       <p className="text-sm text-muted-foreground">{location.name} · Atmospheric parameters for convection</p>
 
       <div
-        className="rounded-2xl border-2 p-6 text-center"
-        style={{ borderColor: peak.color + "60", background: peak.bg }}
+        className="aurora-bg rounded-2xl border-2 p-6 text-center"
+        style={{ borderColor: peak.color + "60", background: peak.bg, boxShadow: `0 0 50px -10px ${peak.color}55` }}
       >
+        <div className="relative">
         <div className="text-xs tracking-[0.25em] uppercase text-muted-foreground mb-2">Peak Threat Level</div>
         <div className="text-3xl mb-2">{peak.icon}</div>
         <div
@@ -223,6 +224,7 @@ export default function StormIngredients({ location }: Props) {
           <div className="text-xs text-muted-foreground">
             {swti.hailRisk} hail · {swti.windRisk} wind
           </div>
+        </div>
         </div>
       </div>
 

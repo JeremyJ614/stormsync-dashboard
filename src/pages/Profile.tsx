@@ -6,6 +6,7 @@ import { listBadgeDefs } from "../lib/badges";
 import { listSavedLocations } from "../lib/savedLocations";
 import { getMyLoyalty } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
+import { AppearancePanel } from "../components/AppearancePanel";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
 // Core signup fields are shown elsewhere; everything else the member answered
@@ -118,6 +119,9 @@ export default function Profile() {
           </div>
         </div>
       )}
+
+      {/* Appearance — themes + accent (L4) */}
+      <AppearancePanel />
 
       {/* My Locations */}
       <div className="bg-card border border-border rounded-xl p-4">

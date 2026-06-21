@@ -11,8 +11,8 @@ export default function SplashScreen({ onDone }: Props) {
   const [phase, setPhase] = useState<"loading" | "fade">("loading");
 
   useEffect(() => {
-    const t1 = setTimeout(() => setPhase("fade"), 3200);
-    const t2 = setTimeout(() => onDone(), 4000);
+    const t1 = setTimeout(() => setPhase("fade"), 1800);
+    const t2 = setTimeout(() => onDone(), 2400);
     return () => { clearTimeout(t1); clearTimeout(t2); }
   }, [onDone]);
 

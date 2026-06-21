@@ -3,6 +3,8 @@
 // silently hitting a dead host — the app surfaces a clear module error.
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 export const BASE_API = `${SUPABASE_URL ?? ""}/functions/v1/weather`;
+// Emergency Storm Contact relay (U-23) — server-side email + carrier SMS relay.
+export const RELAY_API = `${SUPABASE_URL ?? ""}/functions/v1/relay`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

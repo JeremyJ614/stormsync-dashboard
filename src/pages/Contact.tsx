@@ -1,16 +1,11 @@
 import { useState } from "react";
 import { contactStore } from "../lib/adminStore";
 import { checkEmergencyPin } from "../hooks/useAuth";
+import { RELAY_API } from "../config";
 import { Mail, Headphones, AlertTriangle, Send, Lock, CheckCircle, Phone } from "lucide-react";
 
 type Tab = "general" | "service" | "emergency";
 
-const EMERGENCY_EMAILS = [
-  "JayMyers@StormSync.Media",
-  "Administration@StormSync.Media",
-  "KeatonPreston@StormSync.Media",
-];
-const EMERGENCY_PHONE = "5672044402";
 const CUSTOMER_SERVICE_EMAIL = "customerservice@stormsync.media";
 
 export default function Contact() {
@@ -142,7 +137,7 @@ function EmergencyTab() {
             The <strong className="text-foreground">Emergency Storm Contact</strong> line is reserved for <strong className="text-foreground">Tier 4 elite members</strong> during active severe weather emergencies — tornadoes on the ground, flash flooding in progress, or any life-threatening storm situation where you need an immediate human response from the StormSync team.
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">What it does:</strong> Submissions go directly to Jay Myers' phone (567-204-4402) and three priority email addresses with an URGENT tag. Expect a reply within minutes.
+            <strong className="text-foreground">What it does:</strong> Submissions are relayed instantly to the StormSync admin team's emergency email and text line with an URGENT tag. Expect a reply within minutes.
           </p>
           <p className="text-xs text-muted-foreground leading-relaxed">
             <strong className="text-foreground">Don't use this for:</strong> general questions, billing, feature requests, or non-time-critical issues. Use the Contact Form or Customer Service tabs instead.
@@ -152,25 +147,38 @@ function EmergencyTab() {
     );
   }
 
-  return <EmergencyForm />;
+  return <EmergencyForm pin={pin} />;
 }
 
-function EmergencyForm() {
+function EmergencyForm({ pin }: { pin: string }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [situation, setSituation] = useState("");
   const [location, setLocation] = useState("");
-  const [sent, setSent] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const [err, setErr] = useState("");
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const message = `URGENT — EMERGENCY STORM CONTACT\nLocation: ${location}\nPhone: ${phone}\n\nSituation:\n${situation}`;
-    contactStore.add({ kind: "emergency", name, email, phone, message });
-    const subject = encodeURIComponent(`🚨 URGENT — Emergency Storm Contact from ${name}`);
-    const body = encodeURIComponent(`URGENT EMERGENCY\n\nName: ${name}\nPhone: ${phone}\nEmail: ${email}\nLocation: ${location}\n\nSituation:\n${situation}\n\n-- Sent via StormSync Emergency Storm Contact`);
-    window.location.href = `mailto:${EMERGENCY_EMAILS.join(",")}?subject=${subject}&body=${body}`;
-    setSent(true);
+    setSending(true); setErr(""); setResult(null);
+    try {
+      const res = await fetch(RELAY_API, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ kind: "emergency", name, email, phone, location, message: situation, pin }),
+      });
+      const data = await res.json() as { ok?: boolean; note?: string; error?: string };
+      if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not send. Try again.");
+      // Keep a local copy for the admin inbox view too.
+      contactStore.add({ kind: "emergency", name, email, phone, message: `Location: ${location}\n\n${situation}` });
+      setResult(data.note ?? "Emergency dispatched.");
+    } catch (e2) {
+      setErr(e2 instanceof Error ? e2.message : "Could not send. Try again.");
+    } finally {
+      setSending(false);
+    }
   }
 
   return (
@@ -180,7 +188,7 @@ function EmergencyForm() {
         <h2 className="text-base font-bold text-red-300">Emergency Storm Contact</h2>
       </div>
       <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-2 text-[11px] text-red-200/90 leading-relaxed">
-        Delivers to phone <span className="font-bold">{EMERGENCY_PHONE.replace(/(\d{3})(\d{3})(\d{4})/, "($1) $2-$3")}</span> and emails <span className="font-bold">{EMERGENCY_EMAILS.join(", ")}</span> with an URGENT tag.
+        Relays instantly to the StormSync admin team's emergency email and text line with an URGENT tag.
       </div>
       <input value={name} onChange={e => setName(e.target.value)} required placeholder="Your name" className="w-full bg-muted/30 border border-red-500/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60" />
       <div className="grid grid-cols-2 gap-2">
@@ -189,10 +197,11 @@ function EmergencyForm() {
       </div>
       <input value={location} onChange={e => setLocation(e.target.value)} required placeholder="Current city, state (be specific)" className="w-full bg-muted/30 border border-red-500/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60" />
       <textarea value={situation} onChange={e => setSituation(e.target.value)} required rows={6} placeholder="Describe the emergency — what storm? What's happening? What do you need?" className="w-full bg-muted/30 border border-red-500/30 rounded-lg px-3 py-2 text-sm outline-none focus:border-red-500/60 resize-none" />
-      <button type="submit" className="w-full px-4 py-3 rounded-lg bg-red-500/30 border-2 border-red-500/60 text-red-200 font-bold hover:bg-red-500/40 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
-        <Phone className="w-4 h-4" /> SEND URGENT
+      <button type="submit" disabled={sending} className="w-full px-4 py-3 rounded-lg bg-red-500/30 border-2 border-red-500/60 text-red-200 font-bold hover:bg-red-500/40 disabled:opacity-50 flex items-center justify-center gap-2 uppercase tracking-widest text-sm">
+        <Phone className="w-4 h-4" /> {sending ? "Sending…" : "SEND URGENT"}
       </button>
-      {sent && <div className="flex items-center gap-2 text-xs text-green-400"><CheckCircle className="w-4 h-4" /> Emergency dispatched. Watch your phone for a response.</div>}
+      {result && <div className="flex items-center gap-2 text-xs text-green-400"><CheckCircle className="w-4 h-4 shrink-0" /> {result}</div>}
+      {err && <div className="text-xs text-red-400">{err}</div>}
     </form>
   );
 }

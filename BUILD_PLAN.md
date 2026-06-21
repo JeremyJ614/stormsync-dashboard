@@ -291,9 +291,13 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **U-28** Richer user profiles: gradient hero (avatar/tier/admin/join date), stats
       (loyalty/referrals/member-for/badges), badge showcase, an "About You" section from
       the member's custom signup answers, a saved-locations strip, and quick actions.
-- [ ] **U-23** Emergency Storm Contact → "SSWX Emergency Storm Contact — Direct
-      Administrative Line"; remove personal phone from description; correct PIN opens a
-      **direct line to admin** via **email relay + free carrier email-to-SMS gateway**
+- [x] **U-23** Emergency Storm Contact: new `relay` Edge Function (PIN-verified server-side
+      against `app_config.emergency_pin`) stores the submission in `contact_submissions` and
+      relays it via **Resend** to admin emails **and free carrier email-to-SMS gateways**
+      (`app_config.emergency_recipients`, admin-editable in Settings). Personal phone number
+      removed from all copy. **Needs the `RESEND_API_KEY` secret** to actually send — until
+      set, submissions are still stored and the user is told relay isn't configured (no dead
+      UI). `RELAY_FROM` env sets the verified sender.
 - [x] **U-22** FAQ / Module Guide: removed the tier filter + T1–T4 badges; the guide now
       just explains what each module/add-on does (access is admin-enabled, not a tier sheet).
 

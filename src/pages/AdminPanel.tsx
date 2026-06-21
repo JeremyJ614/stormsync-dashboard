@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { Link } from "wouter";
+import { renderMarkdown } from "../lib/markdown";
 import { useAuth, ALL_MODULES, HIDDEN_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
 import {
   listUsers, adminCreateUser, adminDeleteUser, adminSetPin,
@@ -10,7 +11,8 @@ import {
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, type LoyaltyRules } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
-import { newsStore, broadcastStore, type NewsPost, type Broadcast } from "../lib/adminStore";
+import { listNews, createNews, deleteNews, type NewsPost } from "../lib/news";
+import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from "../lib/broadcasts";
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 
@@ -582,18 +584,21 @@ function BadgesTab({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; reloadB
 function BroadcastsTab() {
   const [users, setUsers] = useState<User[]>([]);
   useEffect(() => { listUsers().then(setUsers).catch(() => setUsers([])); }, []);
-  const [items, setItems] = useState<Broadcast[]>(broadcastStore.list());
+  const [items, setItems] = useState<Broadcast[]>([]);
   const [msg, setMsg] = useState("");
   const [level, setLevel] = useState<"info" | "warning" | "alert">("info");
   const [target, setTarget] = useState<string>("");
+  const refresh = useCallback(async () => { try { setItems(await listBroadcasts()); } catch { /* empty state */ } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
 
-  function send() {
+  async function send() {
     if (!msg.trim()) return;
-    broadcastStore.add({ message: msg.trim(), level, targetUserId: target || null });
-    setMsg(""); setItems(broadcastStore.list());
+    const r = await createBroadcast({ message: msg.trim(), level, targetUserId: target || null });
+    if (!r.ok) { alert(r.error ?? "Failed to send"); return; }
+    setMsg(""); void refresh();
   }
-  function remove(id: string) {
-    broadcastStore.remove(id); setItems(broadcastStore.list());
+  async function remove(id: string) {
+    await deleteBroadcast(id); void refresh();
   }
 
   return (
@@ -683,43 +688,92 @@ function InboxTab() {
 }
 
 function NewsTab({ adminName }: { adminName: string }) {
-  const [items, setItems] = useState<NewsPost[]>(newsStore.list());
+  const [items, setItems] = useState<NewsPost[]>([]);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [embedHtml, setEmbedHtml] = useState("");
+  const [preview, setPreview] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const bodyRef = useRef<HTMLTextAreaElement>(null);
 
-  function add() {
-    if (!title.trim() || !body.trim()) return;
-    newsStore.add({ title: title.trim(), body: body.trim(), imageUrl: imageUrl.trim() || undefined, videoUrl: videoUrl.trim() || undefined, embedHtml: embedHtml.trim() || undefined, author: adminName });
-    setTitle(""); setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml("");
-    setItems(newsStore.list());
+  const refresh = useCallback(async () => { try { setItems(await listNews()); } catch { /* empty state */ } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  // Wrap the current textarea selection with markdown markers (or insert a snippet).
+  function fmt(before: string, after = before, placeholder = "text") {
+    const el = bodyRef.current; if (!el) return;
+    const start = el.selectionStart, end = el.selectionEnd;
+    const sel = body.slice(start, end) || placeholder;
+    const next = body.slice(0, start) + before + sel + after + body.slice(end);
+    setBody(next);
+    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + sel.length); });
   }
-  function del(id: string) {
+
+  async function add() {
+    if (!title.trim() || !body.trim() || busy) return;
+    setBusy(true);
+    const r = await createNews({ title: title.trim(), body: body.trim(), imageUrl: imageUrl.trim() || undefined, videoUrl: videoUrl.trim() || undefined, embedHtml: embedHtml.trim() || undefined, author: adminName });
+    setBusy(false);
+    if (!r.ok) { alert(r.error ?? "Failed to publish"); return; }
+    setTitle(""); setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPreview(false);
+    void refresh();
+  }
+  async function del(id: string) {
     if (!confirm("Delete this post?")) return;
-    newsStore.remove(id); setItems(newsStore.list());
+    await deleteNews(id); void refresh();
   }
+
+  const TOOLS: { label: string; title: string; run: () => void }[] = [
+    { label: "B", title: "Bold", run: () => fmt("**") },
+    { label: "i", title: "Italic", run: () => fmt("*") },
+    { label: "H", title: "Heading", run: () => fmt("## ", "", "Heading") },
+    { label: "•", title: "List item", run: () => fmt("- ", "", "list item") },
+    { label: "”", title: "Quote", run: () => fmt("> ", "", "quote") },
+    { label: "🔗", title: "Link", run: () => fmt("[", "](https://)", "link text") },
+  ];
 
   return (
     <div className="space-y-4">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2"><Newspaper className="w-4 h-4 text-primary" /> Add SSWX News Post</h3>
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40" />
-        <textarea value={body} onChange={e => setBody(e.target.value)} rows={5} placeholder="Article body (supports plain text)..." className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-none" />
+
+        <div className="flex items-center gap-1 flex-wrap">
+          {TOOLS.map(t => (
+            <button key={t.title} type="button" title={t.title} onClick={t.run}
+              className="w-8 h-8 rounded bg-muted/40 border border-border text-sm hover:border-primary/50 hover:text-primary flex items-center justify-center">{t.label}</button>
+          ))}
+          <button type="button" onClick={() => setPreview(p => !p)}
+            className={`ml-auto px-3 h-8 rounded border text-xs font-medium ${preview ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
+            {preview ? "Edit" : "Preview"}
+          </button>
+        </div>
+
+        {preview ? (
+          <div className="min-h-[8rem] bg-muted/20 border border-border rounded-lg px-3 py-2 text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(body || "_Nothing to preview yet._") }} />
+        ) : (
+          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={6}
+            placeholder="Article body — supports Markdown: **bold**, *italic*, ## headings, - lists, > quotes, [links](https://…)"
+            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-y font-mono" />
+        )}
+        <p className="text-[10px] text-muted-foreground">Body supports Markdown. Use the buttons above, or type it directly.</p>
+
         <div className="grid md:grid-cols-3 gap-2">
           <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="Image URL (optional)" className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40" />
           <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="Video URL (mp4/youtube)" className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40" />
           <input value={embedHtml} onChange={e => setEmbedHtml(e.target.value)} placeholder='Embed HTML (e.g. <iframe ...>)' className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40 font-mono" />
         </div>
-        <button onClick={add} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> Publish
+        <button onClick={add} disabled={busy} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 disabled:opacity-50 flex items-center gap-1.5">
+          <Plus className="w-4 h-4" /> {busy ? "Publishing…" : "Publish"}
         </button>
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Posts ({items.length})</h3></div>
         <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+          {items.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No posts yet.</div>}
           {items.map(p => (
             <div key={p.id} className="p-4 flex items-start gap-3">
               <div className="flex-1 min-w-0">

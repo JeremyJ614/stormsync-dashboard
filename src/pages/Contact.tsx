@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { contactStore } from "../lib/adminStore";
+import { submitContact } from "../lib/contactInbox";
 import { checkEmergencyPin } from "../hooks/useAuth";
 import { RELAY_API } from "../config";
 import { Mail, Headphones, AlertTriangle, Send, Lock, CheckCircle, Phone } from "lucide-react";
@@ -49,10 +49,15 @@ function GeneralForm() {
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    contactStore.add({ kind: "contact", name, email, message });
+    setBusy(true); setErr("");
+    const r = await submitContact({ kind: "contact", name, email, message });
+    setBusy(false);
+    if (!r.ok) { setErr(r.error ?? "Could not send."); return; }
     setSent(true); setName(""); setEmail(""); setMessage("");
     setTimeout(() => setSent(false), 4000);
   }
@@ -64,10 +69,11 @@ function GeneralForm() {
       <input value={name} onChange={e => setName(e.target.value)} required placeholder="Your name" className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40" />
       <input value={email} onChange={e => setEmail(e.target.value)} required type="email" placeholder="Email" className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40" />
       <textarea value={message} onChange={e => setMessage(e.target.value)} required rows={6} placeholder="Your message..." className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-none" />
-      <button type="submit" className="w-full px-4 py-2.5 rounded-lg bg-primary/20 border border-primary/40 text-primary font-semibold hover:bg-primary/30 flex items-center justify-center gap-2">
-        <Send className="w-4 h-4" /> Send Message
+      <button type="submit" disabled={busy} className="w-full px-4 py-2.5 rounded-lg bg-primary/20 border border-primary/40 text-primary font-semibold hover:bg-primary/30 disabled:opacity-50 flex items-center justify-center gap-2">
+        <Send className="w-4 h-4" /> {busy ? "Sending…" : "Send Message"}
       </button>
       {sent && <div className="flex items-center gap-2 text-xs text-green-400"><CheckCircle className="w-4 h-4" /> Message delivered to admin inbox.</div>}
+      {err && <div className="text-xs text-red-400">{err}</div>}
     </form>
   );
 }
@@ -78,9 +84,9 @@ function ServiceForm() {
   const [message, setMessage] = useState("");
   const [sent, setSent] = useState(false);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    contactStore.add({ kind: "customer-service", name, email, message });
+    await submitContact({ kind: "customer-service", name, email, message });
     const body = encodeURIComponent(`From: ${name} <${email}>\n\n${message}`);
     const subject = encodeURIComponent(`StormSync Customer Service from ${name}`);
     window.location.href = `mailto:${CUSTOMER_SERVICE_EMAIL}?subject=${subject}&body=${body}`;
@@ -171,8 +177,7 @@ function EmergencyForm({ pin }: { pin: string }) {
       });
       const data = await res.json() as { ok?: boolean; note?: string; error?: string };
       if (!res.ok || !data.ok) throw new Error(data.error ?? "Could not send. Try again.");
-      // Keep a local copy for the admin inbox view too.
-      contactStore.add({ kind: "emergency", name, email, phone, message: `Location: ${location}\n\n${situation}` });
+      // The relay already stored the submission server-side (it shows in the admin inbox).
       setResult(data.note ?? "Emergency dispatched.");
     } catch (e2) {
       setErr(e2 instanceof Error ? e2.message : "Could not send. Try again.");

@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "../hooks/useAuth";
-import { broadcastStore, type Broadcast } from "../lib/adminStore";
+import { getUnseenBroadcasts, markBroadcastSeen, type Broadcast } from "../lib/broadcasts";
 import { Bell, X, AlertTriangle, Info } from "lucide-react";
 
 export default function NotificationToast() {
@@ -9,15 +9,11 @@ export default function NotificationToast() {
 
   useEffect(() => {
     if (!user) return;
-    const refresh = () => setPending(broadcastStore.getUnseen(user.id));
-    refresh();
-    const t = setInterval(refresh, 5000);
-    const handler = () => refresh();
-    window.addEventListener("store-stormsync_broadcasts_v1", handler);
-    return () => {
-      clearInterval(t);
-      window.removeEventListener("store-stormsync_broadcasts_v1", handler);
-    };
+    let cancelled = false;
+    const refresh = async () => { const b = await getUnseenBroadcasts(user.id); if (!cancelled) setPending(b); };
+    void refresh();
+    const t = setInterval(() => void refresh(), 30000);
+    return () => { cancelled = true; clearInterval(t); };
   }, [user]);
 
   if (!user || pending.length === 0) return null;
@@ -38,7 +34,7 @@ export default function NotificationToast() {
               <div className="text-[10px] opacity-60 mt-1">{new Date(b.createdAt).toLocaleString()}</div>
             </div>
             <button
-              onClick={() => { broadcastStore.markSeen(user.id, b.id); setPending(p => p.filter(x => x.id !== b.id)); }}
+              onClick={() => { void markBroadcastSeen(user.id, b.id); setPending(p => p.filter(x => x.id !== b.id)); }}
               className="opacity-70 hover:opacity-100"
               aria-label="Dismiss"
             >

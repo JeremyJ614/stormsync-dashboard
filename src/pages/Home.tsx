@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
-import { newsStore, type NewsPost } from "../lib/adminStore";
+import { listNews } from "../lib/news";
+import { renderMarkdown } from "../lib/markdown";
 import { useAuth } from "../hooks/useAuth";
 import DailyBriefing from "../components/DailyBriefing";
 import { Newspaper, AlertCircle, Sparkles, ArrowRight, ExternalLink, Clock } from "lucide-react";
@@ -22,9 +24,9 @@ export default function Home() {
   const [tab, setTab] = useState<Tab>("weather");
   const [news, setNews] = useState<NewsItem[]>([]);
   const [newsLoading, setNewsLoading] = useState(true);
-  const [posts, setPosts] = useState<NewsPost[]>(newsStore.list());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { user } = useAuth();
+  const { data: posts = [] } = useQuery({ queryKey: ["sswx-news"], queryFn: listNews, staleTime: 5 * 60 * 1000 });
 
   useEffect(() => {
     const loadNews = () => {
@@ -36,9 +38,7 @@ export default function Home() {
     };
     loadNews();
     const t = setInterval(loadNews, 10 * 60_000);
-    const refresh = () => setPosts(newsStore.list());
-    window.addEventListener("store-stormsync_news_v1", refresh);
-    return () => { clearInterval(t); window.removeEventListener("store-stormsync_news_v1", refresh); };
+    return () => clearInterval(t);
   }, []);
 
   function timeAgo(iso: string): string {
@@ -182,7 +182,7 @@ export default function Home() {
                           <img src={p.imageUrl} alt={p.title} className="w-full h-auto" />
                         </div>
                       )}
-                      <div className="text-sm whitespace-pre-wrap leading-relaxed">{p.body}</div>
+                      <div className="text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.body) }} />
                       {p.videoUrl && (
                         <div className="rounded-lg overflow-hidden border border-border bg-black">
                           {p.videoUrl.includes("youtube") || p.videoUrl.includes("youtu.be") ? (

@@ -305,8 +305,14 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **L2 (contact inbox)** Moved the Contact / Customer-Service / Emergency inbox off
       browser-localStorage onto `contact_submissions` (RLS: anyone insert, admin read/del).
       Public forms now write server-side; the admin inbox reads the table — so **relayed
-      emergencies (U-23) finally appear in the admin inbox**, multi-device. (News & broadcasts
-      still local — next.)
+      emergencies (U-23) finally appear in the admin inbox**, multi-device.
+- [x] **L2 (news + broadcasts)** Moved **SSWX News** → `news_posts` and **in-app broadcasts**
+      → `broadcasts` + `broadcast_seen` (read state per user). Home news + the notification
+      toast + the admin News/Notifications tabs are all server-backed now. Deleted the dead
+      `adminStore` localStorage layer. Seeded a welcome post.
+- [x] **U-25** SSWX News editor: Markdown bodies (safe renderer) with a formatting toolbar
+      (bold/italic/heading/list/quote/link) + live preview in the admin News tab; posts render
+      with headings/lists/links/quotes on Home.
 - [◐] **U-24** Admin: signup-form builder (custom questions/fields, its own section, richer)
       — **first pass done 2026-06-11** (own "Signups" tab; questions render live on the
       public signup form; reorder/edit/delete). "Richer" polish can continue here.

@@ -301,7 +301,12 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [x] **U-22** FAQ / Module Guide: removed the tier filter + T1–T4 badges; the guide now
       just explains what each module/add-on does (access is admin-enabled, not a tier sheet).
 
-### ☐ Phase 7 — Admin & Content Tools
+### ◐ Phase 7 — Admin & Content Tools — IN PROGRESS (2026-06-16)
+- [x] **L2 (contact inbox)** Moved the Contact / Customer-Service / Emergency inbox off
+      browser-localStorage onto `contact_submissions` (RLS: anyone insert, admin read/del).
+      Public forms now write server-side; the admin inbox reads the table — so **relayed
+      emergencies (U-23) finally appear in the admin inbox**, multi-device. (News & broadcasts
+      still local — next.)
 - [◐] **U-24** Admin: signup-form builder (custom questions/fields, its own section, richer)
       — **first pass done 2026-06-11** (own "Signups" tab; questions render live on the
       public signup form; reorder/edit/delete). "Richer" polish can continue here.
@@ -323,7 +328,13 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] **L4** Accent color (hex) picker
 - [ ] **L4** Glassmorphism + glow design-system pass
 
-### ☐ Phase 10 — New Module + Performance Hardening
+### ☐ Phase 10 — New Module + Performance Hardening (+ launch finalization)
+- [ ] **U-23 finalize (LAST STEP — deferred by owner 2026-06-16):** turn on live emergency
+      delivery. The `relay` function + `RESEND_API_KEY` are in place, but Resend won't send
+      until the sending **domain is verified** (owner is using `vip.sswx.space`). To finish:
+      add the domain in Resend + its DNS records, set the `RELAY_FROM` secret to a sender on
+      that domain, then send one test emergency and confirm the email (and carrier SMS, if a
+      gateway is added) actually arrives. Until then submissions still log to the admin inbox.
 - [ ] **L3** Hurricane / Tropical Tracker (cone + spaghetti models) on the shared map
 - [ ] **L2** Code-split heavy maps; bundle-size budget in CI
 - [ ] **L2** Tune React Query stale-while-revalidate across weather data

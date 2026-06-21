@@ -10,7 +10,8 @@ import {
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, type LoyaltyRules } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
-import { newsStore, broadcastStore, contactStore, type NewsPost, type Broadcast, type ContactSubmission } from "../lib/adminStore";
+import { newsStore, broadcastStore, type NewsPost, type Broadcast } from "../lib/adminStore";
+import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 
 type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "news" | "settings";
@@ -41,9 +42,8 @@ export default function AdminPanel() {
       </div>
 
       <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-3 text-xs text-yellow-200/90 leading-relaxed">
-        <strong>Users, badges &amp; settings are server-backed</strong> (Supabase, multi-device).
-        News, broadcasts and the contact inbox are still browser-local on this device — those move to the
-        backend in a later phase.
+        <strong>Users, badges, settings &amp; the contact inbox are server-backed</strong> (Supabase, multi-device).
+        News &amp; broadcasts are still browser-local on this device — those move to the backend next.
       </div>
 
       <div className="flex gap-1 border-b border-border flex-wrap">
@@ -641,14 +641,24 @@ function BroadcastsTab() {
 }
 
 function InboxTab() {
-  const [items, setItems] = useState<ContactSubmission[]>(contactStore.list());
-  const refresh = () => setItems(contactStore.list());
+  const [items, setItems] = useState<ContactSubmissionRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const refresh = useCallback(async () => {
+    try { setItems(await listContactSubmissions()); } catch { /* surfaced via empty state */ } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const unread = items.filter(s => !s.read).length;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
-      <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Contact Inbox ({items.length})</h3></div>
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between">
+        <h3 className="text-sm font-semibold">Contact Inbox ({items.length}{unread ? ` · ${unread} unread` : ""})</h3>
+        <button onClick={() => void refresh()} className="text-xs text-muted-foreground hover:text-primary">Refresh</button>
+      </div>
       <div className="divide-y divide-border max-h-[600px] overflow-y-auto">
-        {items.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No submissions yet</div>}
+        {loading && <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading…</div>}
+        {!loading && items.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No submissions yet</div>}
         {items.map(s => (
           <div key={s.id} className={`p-4 ${s.read ? "opacity-70" : ""}`}>
             <div className="flex items-start justify-between gap-2 mb-1 flex-wrap">
@@ -659,8 +669,8 @@ function InboxTab() {
                 {s.phone && <span className="text-xs text-muted-foreground">{s.phone}</span>}
               </div>
               <div className="flex items-center gap-1">
-                {!s.read && <button onClick={() => { contactStore.markRead(s.id); refresh(); }} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Mark read</button>}
-                <button onClick={() => { contactStore.remove(s.id); refresh(); }} className="p-1 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3 h-3" /></button>
+                {!s.read && <button onClick={async () => { await markContactRead(s.id); void refresh(); }} className="text-[10px] px-2 py-0.5 rounded bg-primary/15 text-primary hover:bg-primary/25">Mark read</button>}
+                <button onClick={async () => { await deleteContactSubmission(s.id); void refresh(); }} className="p-1 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3 h-3" /></button>
               </div>
             </div>
             <div className="text-sm whitespace-pre-wrap mt-1 leading-relaxed">{s.message}</div>

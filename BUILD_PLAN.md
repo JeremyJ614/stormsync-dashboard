@@ -328,7 +328,12 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       cached shell), runtime caching of weather/NWS/SPC data so the last forecast & alerts show
       offline. `lib/pwa.ts` registers the SW (prod) + captures the install prompt; an
       `InstallPrompt` banner offers one-tap install. SW also carries the push handlers for ↓.
-- [ ] **U-26 / L1** Web Push phone notifications (fire on NWS warning hitting a saved location)
+- [x] **U-26 / L1** Web Push phone notifications. Members opt in (Profile → Storm Alerts) →
+      `lib/push.ts` subscribes via the SW + VAPID and stores the subscription in
+      `push_subscriptions`. The `push-dispatch` Edge Function (pg_cron every 10 min) checks each
+      subscriber's saved locations against active NWS **warnings** and sends a push for any not
+      already delivered (deduped in `push_sent`); stale subs (404/410) are pruned. **Needs the
+      `VAPID_PRIVATE_KEY` Edge Function secret** to actually send — until set it no-ops gracefully.
 
 ### ◐ Phase 9 — Design System & Redesigns — IN PROGRESS (2026-06-21)
 - [x] **L4 Multiple dark themes** — `lib/theme.ts` re-hues the dark token family + sets the

@@ -120,6 +120,18 @@ to actually send) and optional `RELAY_FROM` (verified sender, e.g.
 `"StormSync Alerts <alerts@yourdomain>"`; defaults to Resend's shared test sender). Without
 the key, messages are still stored and the caller is told the live relay isn't configured.
 
+### `push-dispatch` (`supabase/functions/push-dispatch/index.ts`)
+Web Push dispatcher (Phase 8B). `verify_jwt = false`; authorized by the `x-engine-secret`
+header (matched to `app_config.storm_engine_secret`) or an admin JWT. Scheduled by pg_cron
+`push-dispatch-10min` (every 10 min). For each `push_subscriptions` row it checks the user's
+`saved_locations` against active NWS **warnings** and sends a push (via `npm:web-push`) for
+any alert not already in `push_sent`; prunes subscriptions that return 404/410. **Secret:**
+`VAPID_PRIVATE_KEY` — the private half of the app's VAPID keypair (public half is baked into
+`src/lib/push.ts` + the function). Optional `VAPID_SUBJECT` (mailto/URL). Without the private
+key the function no-ops gracefully. Generate a keypair with the `web-push` lib or Node crypto;
+set the private half:
+`npx supabase secrets set VAPID_PRIVATE_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
+
 ## Frontend env (Vercel + local `.env`)
 - `VITE_SUPABASE_URL=https://djonpetxdjuwcbgftqmt.supabase.co`
 - `VITE_SUPABASE_ANON_KEY=sb_publishable_...` (publishable; see `.env.example`)

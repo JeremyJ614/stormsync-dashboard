@@ -11,6 +11,7 @@ import { PageSkeleton } from "./components/WeatherSkeleton";
 import SplashScreen from "./components/SplashScreen";
 import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
+import { InstallPrompt } from "./components/InstallPrompt";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 
 const Home = lazy(() => import("./pages/Home"));
@@ -122,6 +123,7 @@ function AppInner() {
         <Route component={NotFound} />
       </Switch>
       <NotificationToast />
+      <InstallPrompt />
     </Layout>
   );
 }

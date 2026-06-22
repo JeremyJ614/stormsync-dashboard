@@ -3,6 +3,7 @@ import type { Location } from "../hooks/useLocation";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell } from "recharts";
 import { format, parseISO } from "date-fns";
 import { Wind, ExternalLink, Info } from "lucide-react";
+import { PageHero } from "../components/PageHero";
 
 interface Props { location: Location }
 
@@ -115,11 +116,7 @@ export default function AQIForecast({ location }: Props) {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <Wind className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold tracking-wide">Air Quality Forecast</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name} · Open-Meteo Air Quality API</p>
+      <PageHero icon={Wind} title="Air Quality Forecast" subtitle={`${location.name} · Open-Meteo Air Quality`} />
 
       {error ? (
         <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 text-sm text-destructive">

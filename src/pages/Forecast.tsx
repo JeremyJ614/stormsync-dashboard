@@ -7,9 +7,10 @@ import {
   XAxis, YAxis, Tooltip, ResponsiveContainer, Legend, ComposedChart,
 } from "recharts";
 import { format, parseISO } from "date-fns";
-import { CalendarDays, Thermometer, Wind, CloudRain, ChevronRight } from "lucide-react";
+import { CalendarDays, Thermometer, Wind, CloudRain } from "lucide-react";
 import { useState } from "react";
-import { WMO_DESCRIPTIONS, WEATHER_ICONS } from "../config";
+import { WEATHER_ICONS } from "../config";
+import { PageHero } from "../components/PageHero";
 
 interface Props { location: Location }
 
@@ -55,18 +56,14 @@ export default function Forecast({ location }: Props) {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <CalendarDays className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold tracking-wide">Forecast</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name}</p>
+      <PageHero icon={CalendarDays} title="Local Forecast" subtitle={`${location.name} · Open-Meteo + NWS`} />
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         {TABS.map(tab => (
           <button key={tab} onClick={() => setActiveTab(tab)}
-            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all ${
               activeTab === tab
-                ? "bg-primary/15 text-primary border border-primary/30"
+                ? "bg-primary/15 text-primary border border-primary/40 ring-glow"
                 : "bg-card border border-border text-muted-foreground hover:border-primary/40"
             }`}>
             {tab}
@@ -82,9 +79,9 @@ export default function Forecast({ location }: Props) {
                 <div key={i} className="bg-card border border-border rounded-xl p-4 h-32 animate-pulse" />
               ))
             ) : dailyCards.map((day, i) => (
-              <div key={i} className="bg-card border border-border rounded-xl p-4 hover:border-primary/30 transition-colors">
+              <div key={i} className="relative rounded-2xl p-4 border border-border bg-gradient-to-br from-card to-primary/[0.04] hover:border-primary/40 hover:shadow-[0_0_24px_-8px_hsl(var(--primary)/0.5)] transition-all">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{day.dateShort}</span>
+                  <span className="text-xs font-semibold text-primary/90 uppercase tracking-widest">{day.dateShort}</span>
                   <span className="text-xl">{WEATHER_ICONS[day.wmo] ?? "🌡️"}</span>
                 </div>
                 <div className="text-xs text-muted-foreground mb-1">{day.date}</div>

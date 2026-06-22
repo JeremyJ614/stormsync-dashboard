@@ -54,12 +54,15 @@ interface BriefRow {
   generated_at: string | null;
 }
 
-/** Latest brief (today's if present). Returns null when none exists yet. */
+/** Latest usable brief. Skips `error` rows so a transient failed run (e.g. the
+ *  AI provider being briefly overloaded) never blanks the consumer pages —
+ *  they fall back to the most recent good brief until the next run succeeds. */
 export async function getLatestBrief(): Promise<DailyBrief | null> {
   if (!isSupabaseConfigured) return null;
   const { data, error } = await supabase
     .from("daily_brief")
     .select("*")
+    .neq("status", "error")
     .order("brief_date", { ascending: false })
     .limit(1)
     .maybeSingle();

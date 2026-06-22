@@ -283,8 +283,10 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       sum of rows). Member page shows balance, how-to-earn (from config), prize ladder with
       progress, and points history. **Admin-configurable** via the admin Settings tab (edit
       point values + prize ladder in `app_config.loyalty_rules`) and an "award points" form
-      per user (referral/renewal/bonus/adjustment). Game wins auto-credit the top-4 at the
-      monthly rollup (engine v7). Profile loyalty stat reads the same ledger.
+      per user. Game wins auto-credit the top-4 at the monthly rollup (engine v7). Profile
+      loyalty stat reads the same ledger. **(2026-06-21) Fully editable:** `loyalty_rules` now
+      holds a flexible `earn_rules` list — admins add/rename/repoint ANY way to earn (not just
+      referrals/renewals), which drives the member "how to earn" list + the award-points dropdown.
 - [x] **U-27** Badge system: admin CRUD + assign to users; glowing text badges w/ **hex
       color picker** — **DONE EARLY in Phase 1B follow-up (2026-06-11)**; SVG icons
       deferred post-Beta
@@ -332,8 +334,9 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       native color input + hex field, live-applies & overrides the theme's accent.
 - [x] **L4 Glassmorphism + glow pass** — reusable `.glass` / `.glass-strong` / `.glow-*` /
       `.text-glow` / `.aurora-bg` utilities in `index.css` (reduced-motion aware).
-- [◐] **U-01** Splash: trimmed from 4.0s → 2.4s ("not too slow"); kept the awe-inspiring
-      violet/animated look. (Full visual demolish deferred — current aesthetic already matches.)
+- [x] **U-01** Splash redesigned (2026-06-21): darker, more professional/advanced — Orbitron
+      title on a steel-indigo-cyan gradient, deep near-black backdrop, a refined rotating accent
+      ring around the mark, cooled glow/scanline. Same text. Runs in 2.4s ("not too slow").
 - [x] **U-04** AQI Forecast redesign — hero on the new aurora-glass + glow treatment, gradient
       pollutant tiles.
 - [x] **U-09** Atmospheric Ingredients redesign — peak-threat hero on aurora-glass + colored glow.

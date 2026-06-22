@@ -27,9 +27,9 @@ export default function Loyalty() {
   const nextPrize = prizes.find(p => p.points > points);
   const progress = nextPrize ? Math.min(100, (points / nextPrize.points) * 100) : 100;
 
-  const earnRules = rules ? [
-    { label: "Referral converts", value: rules.referral_converted, icon: Users },
-    { label: "Membership renewal", value: rules.membership_renewal, icon: TrendingUp },
+  // Ways to earn, straight from the admin-configured rules (custom rules included).
+  const earnRules: { label: string; value: number | string; icon: typeof Users }[] = rules ? [
+    ...rules.earn_rules.filter(r => r.points > 0).map(r => ({ label: r.label, value: r.points, icon: Users })),
     { label: "Forecast Game — 1st", value: rules.game_win_1st, icon: Trophy },
     { label: "Forecast Game — 2nd / 3rd / 4th", value: `${rules.game_win_2nd}/${rules.game_win_3rd}/${rules.game_win_4th}`, icon: Star },
   ] : [];
@@ -119,7 +119,7 @@ export default function Loyalty() {
           {events.map(e => (
             <div key={e.id} className="flex items-center justify-between gap-3 p-2.5 rounded-lg bg-muted/20">
               <div className="min-w-0">
-                <div className="text-sm font-medium">{loyaltyKindLabel(e.kind)}</div>
+                <div className="text-sm font-medium">{loyaltyKindLabel(e.kind, rules)}</div>
                 <div className="text-[11px] text-muted-foreground truncate">
                   {(() => { try { return format(parseISO(e.createdAt), "MMM d, yyyy"); } catch { return ""; } })()}
                   {e.note ? ` · ${e.note}` : ""}

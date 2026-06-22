@@ -45,6 +45,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/comparator", label: "Run Comparator" },
   { id: "/spc", label: "SPC Outlook" },
   { id: "/thunder", label: "Thunderstorm Probability" },
+  { id: "/hurricane", label: "Hurricane Tracker" },
   { id: "/meso", label: "Mesoscale Discussion" },
   { id: "/ingredients", label: "Storm Ingredients" },
   { id: "/swti", label: "Threat Index" },

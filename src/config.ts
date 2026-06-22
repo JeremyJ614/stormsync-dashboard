@@ -5,6 +5,8 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 export const BASE_API = `${SUPABASE_URL ?? ""}/functions/v1/weather`;
 // Emergency Storm Contact relay (U-23) — server-side email + carrier SMS relay.
 export const RELAY_API = `${SUPABASE_URL ?? ""}/functions/v1/relay`;
+// NHC tropical proxy (Phase 10 Hurricane Tracker).
+export const NHC_API = `${SUPABASE_URL ?? ""}/functions/v1/nhc`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

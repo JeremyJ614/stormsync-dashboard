@@ -7,6 +7,7 @@ import {
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { format, parseISO } from "date-fns";
 import { FlaskConical, Zap } from "lucide-react";
+import { PageHero } from "../components/PageHero";
 
 interface Props { location: Location }
 
@@ -195,11 +196,7 @@ export default function StormIngredients({ location }: Props) {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <FlaskConical className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold tracking-wide">Storm Ingredients</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name} · Atmospheric parameters for convection</p>
+      <PageHero icon={FlaskConical} title="Storm Ingredients" subtitle={`${location.name} · Atmospheric parameters for convection`} />
 
       <div
         className="aurora-bg rounded-2xl border-2 p-6 text-center"

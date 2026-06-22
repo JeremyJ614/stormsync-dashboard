@@ -4,6 +4,7 @@ import {
   computeSRHFromProfile, compute06kmShear, computeSWTI, cToF, msToMph,
 } from "../utils/weatherCalc";
 import { Activity, Info, AlertTriangle } from "lucide-react";
+import { PageHero } from "../components/PageHero";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
 import { format, parseISO } from "date-fns";
 
@@ -112,11 +113,7 @@ export default function SWTIPage({ location }: Props) {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <Activity className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold tracking-wide">Storm Weather Threat Index</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name} · Composite threat assessment</p>
+      <PageHero icon={Activity} title="Storm Weather Threat Index" subtitle={`${location.name} · Composite threat assessment`} />
 
       <div className="flex items-start gap-2 bg-muted/20 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
         <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-primary" />

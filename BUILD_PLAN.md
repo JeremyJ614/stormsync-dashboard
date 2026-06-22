@@ -337,6 +337,9 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       `VAPID_PRIVATE_KEY` Edge Function secret** to actually send — until set it no-ops gracefully.
 
 ### ◐ Phase 9 — Design System & Redesigns — IN PROGRESS (2026-06-21)
+- [x] **Redesign pass (2026-06-22)** — reusable `PageHero` (aurora-glass band, glowing icon
+      tile, glow title) applied to **Local Forecast, AQI, Storm Ingredients, SWTI**; Forecast
+      daily cards get gradient + hover-glow; active tab glow. Purely cosmetic — no functional change.
 - [x] **L4 Multiple dark themes** — `lib/theme.ts` re-hues the dark token family + sets the
       accent. Presets: Midnight / Storm Purple / NOAA Classic / Amber Chase. Applied before
       first paint (`initTheme` in main.tsx), persisted per-device.

@@ -322,9 +322,13 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
 - [ ] **U-21/U-27** Admin sections for Loyalty rules + Badges CRUD
 - [ ] **L2** Versioned `app_config`: change tiers/modules/points without redeploy
 
-### ☐ Phase 8 — Notifications & PWA
+### ◐ Phase 8 — Notifications & PWA — IN PROGRESS (2026-06-22)
+- [x] **L1 Installable / offline PWA** — `manifest.webmanifest` + service worker (`public/sw.js`):
+      installable (Add to Home Screen, standalone), offline app-shell (network-first nav →
+      cached shell), runtime caching of weather/NWS/SPC data so the last forecast & alerts show
+      offline. `lib/pwa.ts` registers the SW (prod) + captures the install prompt; an
+      `InstallPrompt` banner offers one-tap install. SW also carries the push handlers for ↓.
 - [ ] **U-26 / L1** Web Push phone notifications (fire on NWS warning hitting a saved location)
-- [ ] **L1** Offline / true installable PWA (cache last forecast + alerts)
 
 ### ◐ Phase 9 — Design System & Redesigns — IN PROGRESS (2026-06-21)
 - [x] **L4 Multiple dark themes** — `lib/theme.ts` re-hues the dark token family + sets the

@@ -30,9 +30,10 @@ export default function SplashScreen({ onDone }: Props) {
           to { opacity: 1; transform: translateY(0); }
         }
         @keyframes logoGlow {
-          0%, 100% { box-shadow: 0 0 60px hsl(262 75% 62% / 0.4), 0 0 120px hsl(262 75% 62% / 0.15); }
-          50% { box-shadow: 0 0 80px hsl(262 75% 62% / 0.7), 0 0 160px hsl(262 75% 62% / 0.3); }
+          0%, 100% { box-shadow: 0 0 50px hsl(217 90% 58% / 0.35), 0 0 110px hsl(213 90% 55% / 0.12); }
+          50% { box-shadow: 0 0 72px hsl(217 90% 60% / 0.6), 0 0 150px hsl(213 90% 55% / 0.25); }
         }
+        @keyframes ringSpin { to { transform: rotate(360deg); } }
         @keyframes lightningFlash {
           0%, 92%, 100% { opacity: 0; }
           93%, 95% { opacity: 0.08; }
@@ -49,17 +50,17 @@ export default function SplashScreen({ onDone }: Props) {
         }
 
         .splash-title {
-          font-family: 'Cinzel Decorative', serif;
-          font-weight: 900;
-          font-size: 2.8rem;
-          letter-spacing: 0.15em;
+          font-family: 'Orbitron', sans-serif;
+          font-weight: 800;
+          font-size: 2.6rem;
+          letter-spacing: 0.18em;
           text-transform: uppercase;
-          background: linear-gradient(135deg, #c4b5fd 0%, #a78bfa 40%, #7c3aed 70%, #c4b5fd 100%);
+          background: linear-gradient(135deg, #e2e8f0 0%, #93c5fd 35%, #6366f1 66%, #38bdf8 100%);
           -webkit-background-clip: text;
           -webkit-text-fill-color: transparent;
           background-clip: text;
           text-shadow: none;
-          filter: drop-shadow(0 0 20px hsl(262 75% 62% / 0.7)) drop-shadow(0 0 40px hsl(262 75% 62% / 0.4));
+          filter: drop-shadow(0 0 14px hsl(217 90% 60% / 0.5)) drop-shadow(0 0 32px hsl(217 90% 55% / 0.25));
           animation: splashFadeIn 0.8s ease forwards;
           animation-delay: 0.3s;
           opacity: 0;
@@ -67,10 +68,10 @@ export default function SplashScreen({ onDone }: Props) {
         .splash-subtitle {
           font-family: 'Rajdhani', sans-serif;
           font-weight: 600;
-          letter-spacing: 0.45em;
+          letter-spacing: 0.5em;
           font-size: 0.72rem;
           text-transform: uppercase;
-          color: hsl(262 40% 72%);
+          color: hsl(213 35% 72%);
           animation: splashFadeIn 0.8s ease forwards;
           animation-delay: 0.6s;
           opacity: 0;
@@ -78,10 +79,10 @@ export default function SplashScreen({ onDone }: Props) {
         .splash-tagline {
           font-family: 'Rajdhani', sans-serif;
           font-weight: 500;
-          letter-spacing: 0.3em;
+          letter-spacing: 0.32em;
           font-size: 0.62rem;
           text-transform: uppercase;
-          color: hsl(262 30% 55%);
+          color: hsl(213 22% 52%);
           animation: splashFadeIn 0.8s ease forwards;
           animation-delay: 0.9s;
           opacity: 0;
@@ -164,7 +165,7 @@ export default function SplashScreen({ onDone }: Props) {
       <div
         className="fixed inset-0 z-[999] flex flex-col items-center justify-center overflow-hidden"
         style={{
-          background: "radial-gradient(ellipse at 50% 30%, hsl(262 40% 12%) 0%, hsl(232 22% 5%) 60%, hsl(232 25% 3%) 100%)",
+          background: "radial-gradient(ellipse at 50% 32%, hsl(222 34% 9%) 0%, hsl(228 30% 5%) 55%, #02030a 100%)",
           transition: "opacity 0.8s ease",
           opacity: phase === "fade" ? 0 : 1,
           pointerEvents: phase === "fade" ? "none" : "auto",
@@ -174,7 +175,7 @@ export default function SplashScreen({ onDone }: Props) {
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: "hsl(262 90% 95%)",
+            background: "hsl(210 90% 96%)",
             animation: "lightningFlash 4s ease-in-out 1.5s infinite",
           }}
         />
@@ -191,7 +192,7 @@ export default function SplashScreen({ onDone }: Props) {
               left: 0,
               right: 0,
               height: "2px",
-              background: "linear-gradient(transparent, hsl(262 75% 62%), transparent)",
+              background: "linear-gradient(transparent, hsl(213 90% 62%), transparent)",
               animation: "scanline 6s linear 2s infinite",
             }}
           />
@@ -223,19 +224,31 @@ export default function SplashScreen({ onDone }: Props) {
 
           {/* Logo icon */}
           <div className="relative" style={{ animation: "splashFadeIn 0.8s ease forwards", opacity: 0 }}>
+            {/* Refined rotating accent ring */}
             <div
-              className="w-24 h-24 rounded-2xl border-2 border-primary/40 flex items-center justify-center"
+              className="absolute rounded-full pointer-events-none"
               style={{
-                background: "linear-gradient(135deg, hsl(262 60% 15%) 0%, hsl(232 30% 10%) 100%)",
+                inset: "-14px",
+                background: "conic-gradient(from 0deg, transparent 0deg, hsl(213 90% 60% / 0.55) 70deg, transparent 140deg, transparent 220deg, hsl(199 90% 60% / 0.4) 290deg, transparent 360deg)",
+                WebkitMask: "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
+                mask: "radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px))",
+                animation: "ringSpin 6s linear infinite",
+              }}
+            />
+            <div
+              className="w-24 h-24 rounded-2xl border flex items-center justify-center"
+              style={{
+                borderColor: "hsl(217 80% 60% / 0.45)",
+                background: "linear-gradient(135deg, hsl(222 45% 13%) 0%, hsl(228 32% 8%) 100%)",
                 animation: "logoGlow 2.5s ease-in-out infinite",
               }}
             >
-              <Zap className="w-12 h-12 text-primary" fill="currentColor" />
+              <Zap className="w-12 h-12" style={{ color: "#7aa2ff" }} fill="currentColor" />
             </div>
             <div
               className="absolute inset-0 rounded-2xl"
               style={{
-                background: "radial-gradient(circle at 50% 50%, hsl(262 75% 62% / 0.15) 0%, transparent 70%)",
+                background: "radial-gradient(circle at 50% 50%, hsl(213 90% 60% / 0.15) 0%, transparent 70%)",
                 animation: "pulse 2s ease-in-out infinite",
               }}
             />
@@ -253,8 +266,9 @@ export default function SplashScreen({ onDone }: Props) {
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="w-1.5 h-1.5 rounded-full bg-primary"
+                className="w-1.5 h-1.5 rounded-full"
                 style={{
+                  background: "#7aa2ff",
                   animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
                   opacity: 0.7,
                 }}

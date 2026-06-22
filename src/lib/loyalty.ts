@@ -9,9 +9,17 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
 
+export interface EarnRule {
+  /** Stored as `loyalty_events.kind`. */
+  key: string;
+  label: string;
+  points: number;
+}
+
 export interface LoyaltyRules {
-  referral_converted: number;
-  membership_renewal: number;
+  /** Fully admin-editable list of ways to earn points (referrals, renewals, anything). */
+  earn_rules: EarnRule[];
+  // Forecast Game placement points (the Storm Engine reads these by key at month rollup).
   game_win_1st: number;
   game_win_2nd: number;
   game_win_3rd: number;
@@ -20,8 +28,12 @@ export interface LoyaltyRules {
 }
 
 export const DEFAULT_RULES: LoyaltyRules = {
-  referral_converted: 100,
-  membership_renewal: 50,
+  earn_rules: [
+    { key: "referral", label: "Referral converted", points: 100 },
+    { key: "renewal", label: "Membership renewal", points: 50 },
+    { key: "bonus", label: "Bonus", points: 0 },
+    { key: "adjustment", label: "Manual adjustment", points: 0 },
+  ],
   game_win_1st: 35, game_win_2nd: 25, game_win_3rd: 15, game_win_4th: 10,
   prizes: [
     { points: 500, prize: "10% off one month" },
@@ -39,22 +51,35 @@ export interface LoyaltyEvent {
   createdAt: string;
 }
 
-const KIND_LABELS: Record<string, string> = {
-  referral: "Referral converted",
-  referral_converted: "Referral converted",
-  renewal: "Membership renewal",
-  membership_renewal: "Membership renewal",
+// Game-win events (engine-written) + a humanized fallback. Custom earn-rule
+// kinds resolve via the rules' earn_rules list (pass `rules` to look them up).
+const STATIC_KIND_LABELS: Record<string, string> = {
   game_win: "Forecast Game win",
-  bonus: "Bonus",
-  adjustment: "Adjustment",
+  game_win_1st: "Forecast Game — 1st place", game_win_2nd: "Forecast Game — 2nd place",
+  game_win_3rd: "Forecast Game — 3rd place", game_win_4th: "Forecast Game — 4th place",
 };
-export const loyaltyKindLabel = (kind: string) => KIND_LABELS[kind] ?? kind.replace(/[_-]+/g, " ");
+export function loyaltyKindLabel(kind: string, rules?: LoyaltyRules): string {
+  const r = rules?.earn_rules.find((e) => e.key === kind);
+  if (r) return r.label;
+  return STATIC_KIND_LABELS[kind] ?? kind.replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/** Slugify a label into a stable earn-rule key. */
+export function slugifyEarnKey(label: string): string {
+  return label.toLowerCase().trim().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 40) || "rule";
+}
 
 export async function getLoyaltyRules(): Promise<LoyaltyRules> {
   if (!isSupabaseConfigured) return DEFAULT_RULES;
   const { data, error } = await supabase.from("app_config").select("value").eq("key", "loyalty_rules").maybeSingle();
   if (error || !data?.value) return DEFAULT_RULES;
-  return { ...DEFAULT_RULES, ...(data.value as Partial<LoyaltyRules>) };
+  const v = data.value as Partial<LoyaltyRules>;
+  return {
+    ...DEFAULT_RULES,
+    ...v,
+    earn_rules: Array.isArray(v.earn_rules) && v.earn_rules.length ? v.earn_rules : DEFAULT_RULES.earn_rules,
+    prizes: Array.isArray(v.prizes) ? v.prizes : DEFAULT_RULES.prizes,
+  };
 }
 
 export async function getMyLoyalty(): Promise<{ points: number; events: LoyaltyEvent[] }> {

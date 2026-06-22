@@ -20,18 +20,6 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist"),
     emptyOutDir: true,
     chunkSizeWarningLimit: 900,
-    rollupOptions: {
-      output: {
-        // Split heavy libs out of the main bundle so first paint ships less JS.
-        manualChunks(id: string) {
-          if (!id.includes("node_modules")) return;
-          if (id.includes("leaflet")) return "leaflet";
-          if (id.includes("recharts") || id.includes("/d3-") || id.includes("victory-vendor")) return "charts";
-          if (id.includes("react-dom") || id.includes("/react/") || id.includes("scheduler")) return "react-vendor";
-          return "vendor";
-        },
-      },
-    },
   },
   server: {
     port,

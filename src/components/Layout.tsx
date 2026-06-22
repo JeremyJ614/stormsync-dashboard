@@ -41,6 +41,7 @@ const NAV_SECTIONS = [
       { label: "Severe Threat Index",     path: "/swti",        icon: Shield },
       { label: "Storm Timing",            path: "/timing",      icon: BarChart3 },
       { label: "Thunderstorm Probability",path: "/thunder",     icon: CloudRain },
+      { label: "Hurricane Tracker",       path: "/hurricane",   icon: Tornado },
     ],
   },
   {

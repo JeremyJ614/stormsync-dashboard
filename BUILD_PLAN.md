@@ -359,10 +359,20 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       add the domain in Resend + its DNS records, set the `RELAY_FROM` secret to a sender on
       that domain, then send one test emergency and confirm the email (and carrier SMS, if a
       gateway is added) actually arrives. Until then submissions still log to the admin inbox.
-- [ ] **L3** Hurricane / Tropical Tracker (cone + spaghetti models) on the shared map
-- [ ] **L2** Code-split heavy maps; bundle-size budget in CI
-- [ ] **L2** Tune React Query stale-while-revalidate across weather data
-- [ ] Final `get_advisors` security + performance pass
+- [x] **L3** Hurricane / Tropical Tracker (2026-06-22) — new `/hurricane` module: live NHC
+      active storms on a Leaflet basin map (intensity-colored markers, pulsing), per-storm cards
+      (Saffir-Simpson category, winds mph, pressure, movement) + link to the official NHC cone;
+      clean "no active systems" state off-season. New `nhc` Edge Function proxies
+      `CurrentStorms.json` (CORS + cache). *(Full cone polygon/spaghetti overlays link out to NHC.)*
+- [x] **L2** Code-split heavy maps/charts — `vite.config` `manualChunks` splits leaflet / recharts /
+      react-vendor / vendor; **main bundle 649 KB → 134 KB** (loaded on demand).
+- [x] **L2** React Query stale-times already tuned per data source (alerts 2m/5m, points 30m,
+      brief/news/history 1h, NHC 5m); left as-is.
+- [x] Final `get_advisors` pass — pinned `tg_touch_updated_at` search_path; remaining notices are
+      intentional (service-role-only `weather_cache`/`push_sent`/`daily_report_counts`, the public
+      contact-form INSERT, and self-guarding `admin_*`/`check_emergency_pin` SECURITY DEFINER fns)
+      or platform-managed (`pg_net` in public). **Owner action:** optionally enable Auth "leaked
+      password protection" in the Supabase dashboard.
 
 ---
 

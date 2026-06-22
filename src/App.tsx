@@ -51,6 +51,7 @@ const SevereWeatherHistory = lazy(() => import("./pages/SevereWeatherHistory"));
 const Loyalty = lazy(() => import("./pages/Loyalty"));
 const ForecastGame = lazy(() => import("./pages/ForecastGame"));
 const ThunderstormOutlook = lazy(() => import("./pages/ThunderstormOutlook"));
+const HurricaneTracker = lazy(() => import("./pages/HurricaneTracker"));
 
 function PW({ children, name }: { children: React.ReactNode; name: string }) {
   return (
@@ -95,6 +96,7 @@ function AppInner() {
         <Route path="/comparator" component={() => <PW name="Run Comparator"><Gated path="/comparator"><ForecastRunComparator location={location} /></Gated></PW>} />
         <Route path="/spc" component={() => <PW name="SPC Outlook"><Gated path="/spc"><SPCOutlook location={location} /></Gated></PW>} />
         <Route path="/thunder" component={() => <PW name="Thunderstorm Probability"><Gated path="/thunder"><ThunderstormOutlook /></Gated></PW>} />
+        <Route path="/hurricane" component={() => <PW name="Hurricane Tracker"><Gated path="/hurricane"><HurricaneTracker /></Gated></PW>} />
         <Route path="/meso" component={() => <PW name="Mesoscale Discussion"><Gated path="/meso"><MesoscaleDiscussion location={location} /></Gated></PW>} />
         <Route path="/ingredients" component={() => <PW name="Storm Ingredients"><Gated path="/ingredients"><StormIngredients location={location} /></Gated></PW>} />
         <Route path="/swti" component={() => <PW name="Threat Index"><Gated path="/swti"><SWTIPage location={location} /></Gated></PW>} />

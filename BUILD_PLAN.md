@@ -274,8 +274,9 @@ request/night is far under the free quota); the paid Claude path is ≈ **a few 
       launcher cards; native climatology charts / EF scale / outbreaks retained.
 
 ### ◐ Phase 6 — Member & Account Features — IN PROGRESS (2026-06-16)
-- [ ] **U-02** Dashboard → interchangeable, customizable basic-forecast area, tier-gated
-      *(L4 drag-drop layouts, L1 tier-gated teasers)*
+- [x] **U-02** Dashboard → customizable widget layout (2026-06-22): the basic-forecast area is
+      now a **drag-to-reorder, show/hide widget grid** (native DnD, "Customize" mode, per-device
+      persisted via `lib/dashboardLayout.ts`). Hidden-widget tray + reset. Same widgets/data.
 - [x] **L1** "My Locations" — save/switch multiple places. Backed by `saved_locations`
       (RLS own-rows); `lib/savedLocations.ts` + `SavedLocations` header control (bookmark
       menu: switch, set-primary ⭐, remove, save-current). Visible to signed-in members.

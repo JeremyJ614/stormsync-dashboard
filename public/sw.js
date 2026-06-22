@@ -4,7 +4,7 @@
  * - Handles Web Push notifications (Part B): shows them and focuses the app on tap.
  * Bump CACHE_VERSION to force clients onto a new worker.
  */
-const CACHE_VERSION = "sswx-v1";
+const CACHE_VERSION = "sswx-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
@@ -12,7 +12,12 @@ const DATA_CACHE = `${CACHE_VERSION}-data`;
 const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/logo.png", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
-  event.waitUntil(caches.open(SHELL_CACHE).then((c) => c.addAll(SHELL_URLS)).then(() => self.skipWaiting()));
+  // Cache shell URLs individually so one failure can't block the worker installing.
+  event.waitUntil(
+    caches.open(SHELL_CACHE)
+      .then((c) => Promise.all(SHELL_URLS.map((u) => c.add(u).catch(() => {}))))
+      .then(() => self.skipWaiting()),
+  );
 });
 
 self.addEventListener("activate", (event) => {

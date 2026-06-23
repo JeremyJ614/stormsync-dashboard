@@ -86,11 +86,7 @@ export default function Login() {
         }
         const r = await signup({ name, email, pin, customAnswers });
         if (!r.ok) { setError(r.error || "Signup failed"); return; }
-        if (r.needsConfirmation) {
-          setNotice("Account created. Check your email to confirm it, then log in with your PIN.");
-          setMode("login");
-          return;
-        }
+        // Accounts are created already-confirmed and signed in immediately.
         navigate("/");
       }
     } finally {

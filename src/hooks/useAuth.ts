@@ -202,8 +202,6 @@ function getServerSnapshot(): AuthState {
 export interface AuthResult {
   ok: boolean;
   error?: string;
-  /** Signup succeeded but the project requires email confirmation before login. */
-  needsConfirmation?: boolean;
 }
 
 export function useAuth() {
@@ -223,18 +221,27 @@ export function useAuth() {
 
   // Self-signup never carries a tier — new accounts start at Tier 1 and an admin
   // raises them (the DB trigger ignores any client-supplied tier; see D-01).
+  //
+  // We create the account through the `signup` Edge Function (service role), which
+  // sets `email_confirm: true` so there is no confirmation email to chase — then we
+  // immediately sign the member in so they land straight in the app.
   const signup = useCallback(
     async (data: { name: string; email: string; pin: string; customAnswers?: Record<string, string> }): Promise<AuthResult> => {
       if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
       if (!/^\d{4}$/.test(data.pin)) return { ok: false, error: "PIN must be exactly 4 digits" };
       if (!/^[^@]+@[^@]+\.[^@]+$/.test(data.email)) return { ok: false, error: "Invalid email" };
-      const { data: result, error } = await supabase.auth.signUp({
-        email: data.email.trim(),
-        password: pinToPassword(data.pin),
-        options: { data: { name: data.name.trim(), custom_answers: data.customAnswers ?? {} } },
+      const email = data.email.trim();
+      const { data: result, error } = await supabase.functions.invoke("signup", {
+        body: { name: data.name.trim(), email, pin: data.pin, customAnswers: data.customAnswers ?? {} },
       });
-      if (error) return { ok: false, error: error.message };
-      if (!result.session) return { ok: true, needsConfirmation: true };
+      if (error) return { ok: false, error: "Could not create your account. Please try again." };
+      if (!result?.ok) return { ok: false, error: result?.error ?? "Could not create your account. Please try again." };
+      // Account exists and is confirmed — log them straight in.
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email,
+        password: pinToPassword(data.pin),
+      });
+      if (signInErr) return { ok: false, error: "Account created, but sign-in failed. Try logging in with your email and PIN." };
       return { ok: true };
     },
     [],

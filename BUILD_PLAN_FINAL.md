@@ -62,7 +62,12 @@ for the person reading it** (their saved/active location), not a generic nationa
 **Done when:** Plain-language tab shows a multi-paragraph, location-specific breakdown that
 references the user's place and their actual forecast.
 
-### P-04 — Air Quality module: full redesign + high-tech AQI bar 🟢 BUILD NOW
+### P-04 — Air Quality module: full redesign + high-tech AQI bar ✅ DONE (2026-06-25)
+**Shipped:** Replaced the plain half-dial with a **cinematic canvas arc gauge** sharing the
+SSWXCon Score look (multi-layer glow, tick ring, dark dial face, glowing score) tuned to the
+0–500 AQI scale. Added a **high-tech gradient AQI bar** with crisp category bands and a glowing
+live marker. Whole module moved to `glass`/`glass-strong` panels with glowing pollutant tiles.
+Data, categories, and charts unchanged.
 **Want:** The whole AQI module redesigned to look **cooler / more advanced / "wow."** The
 **AQI bar at the top** redesigned to feel like a **mix of the SSWXCon Score gauge + more
 glow / high-tech.** Keep all current data & behavior — visual redesign only.
@@ -206,7 +211,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 |-------|------|------|------------|
 | 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | ✅ done |
 | 2  | P-05 | Severe Weather Threat Index — wow redesign | ✅ done |
-| 3  | P-04 | AQI redesign + high-tech AQI bar | 🟢 easy |
+| 3  | P-04 | AQI redesign + high-tech AQI bar | ✅ done |
 | 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | 🟢 easy (no code) |
 | 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | 🟢 easy (no code) |
 | 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | 🟢 easy (decision) |

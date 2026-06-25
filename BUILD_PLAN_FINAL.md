@@ -189,33 +189,36 @@ logic/scoring unchanged.
 
 ---
 
-## Execution order
+## Execution order — **easiest → hardest**
 
-Default: **top-to-bottom, P-01 → P-19**, one task per PR, merged live, skipping the
-📋/🤔 items (P-11, P-12, P-15) except for filling their appendices. Jeremy may reprioritize
-at any time.
+One task per PR, merged live. We go down this list in order; Jeremy may reprioritize at any
+time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 moderate · 🔴 hard).
 
-| # | Task | Status |
-|---|------|--------|
-| P-01 | Hurricane Preview (Milton Cat-5) | ☐ |
-| P-02 | Dashboard glow + basic widgets | ☐ |
-| P-03 | Longer personalized discussion | ☐ |
-| P-04 | AQI redesign + high-tech bar | ☐ |
-| P-05 | SWTI redesign | ☐ |
-| P-06 | SPC phone-fit + static maps | ☐ |
-| P-07 | Meso Discussion upgrade | ☐ |
-| P-08 | Storm Ingredients redesign + graphic | ☐ |
-| P-09 | Thunderstorm Probability rebuild | ☐ |
-| P-10 | Comparator: more params + categories | ☐ |
-| P-11 | Radar/MRMS menu (Appendix A) | 📋 |
-| P-12 | Tornado Climo menu (Appendix B) | 📋 |
-| P-13 | Moon & Astronomy redesign | ☐ |
-| P-14 | Storm Chasing AI target picker | ☐ |
-| P-15 | Weather Learn quizzes | 🤔 |
-| P-16 | Admin FAQ/Module-Guide editor | ☐ |
-| P-17 | Forecast Game scouting + labels | ☐ |
-| P-18 | Admin News editor (rich) | ☐ |
-| P-19 | Alert & Warning tier matrix (Appendix C) | ☐ |
+| Order | Code | Task | Difficulty |
+|-------|------|------|------------|
+| 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | 🟢 easy |
+| 2  | P-05 | Severe Weather Threat Index — wow redesign | 🟢 easy |
+| 3  | P-04 | AQI redesign + high-tech AQI bar | 🟢 easy |
+| 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | 🟢 easy (no code) |
+| 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | 🟢 easy (no code) |
+| 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | 🟢 easy (decision) |
+| 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
+| 8  | P-13 | Moon & Astronomy redesign + realistic moon | 🟡 moderate |
+| 9  | P-03 | Forecast Discussion — longer, personalized plain-language | 🟡 moderate |
+| 10 | P-10 | Model Comparator — more params + categories | 🟡 moderate |
+| 11 | P-16 | Admin FAQ + Module-Guide editor | 🟡 moderate |
+| 12 | P-01 | Hurricane Tracker Preview (Milton Cat-5 demo) | 🟡 moderate |
+| 13 | P-06 | SPC Outlook — phone-fit map + static-map area | 🔴 hard |
+| 14 | P-07 | Meso Discussion — real substance + AI summary | 🔴 hard |
+| 15 | P-18 | Admin SSWX News editor — maximally rich | 🔴 hard |
+| 16 | P-08 | Storm Ingredients redesign + shareable graphic | 🔴 hard |
+| 17 | P-09 | Thunderstorm Probability — rebuild as probability maps | 🔴 hard |
+| 18 | P-14 | Storm Chasing — AI national target picker | 🔴 hard |
+| 19 | P-19 | Alert & Warning System — tiered delivery matrix | 🔴 hardest |
+
+> Note: the P-codes (P-01…P-19) are permanent IDs from the request; the **Order** column is
+> the build sequence. P-11/P-12 are menu-only and P-15 is a decision — they're cheap, so they
+> sit early among the easy wins.
 
 ---
 

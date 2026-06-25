@@ -8,6 +8,9 @@
 > **Owner:** Jeremy (@JeremyJ614) · **Goal:** Ship a working **Beta**.
 > **Repo:** `jeremyj614/stormsync-dashboard` · **Branch:** `claude/vip-forecasts-alerts-beta-9jnfnr`
 > **Last updated:** 2026-06-10
+>
+> **➡️ Phases 0–10 are complete. The active work is now the final polish/feature pass in
+> [`BUILD_PLAN_FINAL.md`](./BUILD_PLAN_FINAL.md) (tasks P-01 … P-19).**
 
 ---
 

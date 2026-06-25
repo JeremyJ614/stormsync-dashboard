@@ -65,7 +65,6 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/wpi", label: "Weather Pattern AI" },
   { id: "/duel", label: "AI Forecast Duel" },
   { id: "/glossary", label: "Weather Glossary" },
-  { id: "/learn", label: "Weather Learn" },
   { id: "/chasing", label: "Storm Chasing" },
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },

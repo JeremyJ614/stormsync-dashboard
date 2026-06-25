@@ -174,6 +174,11 @@ The articles/reading half of the module works fine; only the quiz generator is b
   the AI provider + adds latency/cost.
 - **Remove:** strip the quiz UI, keep Weather Learn as a clean reading module.
 **Done when:** Jeremy picks; we implement that choice.
+**RESOLVED 2026-06-25 — Jeremy chose: remove the whole module + expand the Glossary.** Deleted
+`WeatherLearn.tsx` and every reference (route, sidebar, `ALL_MODULES`, FAQ module-guide). Added
+~60 new Weather Glossary terms — including a new **Basics** category (thunderstorm, updraft,
+fronts, heat index…) to absorb the educational value — plus **Clouds, Lightning, Flooding,
+Patterns, Observations, Aviation** categories.
 
 ### P-16 — Admin: full FAQ + Module-Guide editor 🟢 BUILD NOW
 **Want:** An admin area to **add / remove / modify anything on the FAQ**, including the
@@ -221,7 +226,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 3  | P-04 | AQI redesign + high-tech AQI bar | ✅ done |
 | 4  | P-11 | Radar/MRMS/Satellite overlays (Jeremy's picks) | ✅ built |
 | 5  | P-12 | Tornado Climatology overlays (Jeremy's picks) | ✅ built |
-| 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | ◐ diagnosed, awaiting pick |
+| 6  | P-15 | Weather Learn removed + Glossary expanded | ✅ done |
 | 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
 | 8  | P-13 | Moon & Astronomy redesign + realistic moon | 🟡 moderate |
 | 9  | P-03 | Forecast Discussion — longer, personalized plain-language | 🟡 moderate |

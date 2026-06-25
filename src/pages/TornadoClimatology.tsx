@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import "leaflet/dist/leaflet.css";
 import type { Location } from "../hooks/useLocation";
 import {
   Tornado, ExternalLink, Info, Database, Flame, BarChart3, Map as MapIcon,
@@ -65,9 +66,13 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
       const lp = map.getPane("labels")!; lp.style.zIndex = "650"; lp.style.pointerEvents = "none";
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 10, pane: "labels" }).addTo(map);
       mapRef.current = map;
+      setTimeout(() => map.invalidateSize(), 60);
       draw(L, map);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; layerRef.current = null; }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

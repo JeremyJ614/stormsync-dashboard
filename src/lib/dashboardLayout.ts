@@ -3,13 +3,20 @@
  * basic-forecast widgets; their layout persists per device. New widgets added in
  * a release are appended automatically so nobody's layout goes stale.
  */
-export const DASHBOARD_WIDGETS = ["hero", "alerts", "stats", "swti", "tempChart", "precipChart", "nwsOffice"] as const;
+export const DASHBOARD_WIDGETS = [
+  "hero", "alerts", "stats", "today", "sevenDay", "sunMoon", "windCompass",
+  "swti", "tempChart", "precipChart", "nwsOffice",
+] as const;
 export type WidgetId = (typeof DASHBOARD_WIDGETS)[number];
 
 export const WIDGET_LABELS: Record<WidgetId, string> = {
   hero: "Current conditions",
   alerts: "Active alerts",
   stats: "Conditions grid",
+  today: "Today's high & low",
+  sevenDay: "7-day forecast",
+  sunMoon: "Sunrise & sunset",
+  windCompass: "Wind compass",
   swti: "Storm Threat Index",
   tempChart: "Temperature trend",
   precipChart: "Precip probability",

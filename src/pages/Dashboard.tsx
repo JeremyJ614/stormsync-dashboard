@@ -8,7 +8,7 @@ import {
   computeSRHFromProfile, compute06kmShear, computeSWTI,
 } from "../utils/weatherCalc";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { AlertTriangle, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, GripVertical, EyeOff, Plus, Settings2, RotateCcw, Check } from "lucide-react";
+import { AlertTriangle, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, GripVertical, EyeOff, Plus, Settings2, RotateCcw, Check, Sunrise, Sunset } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { DASHBOARD_WIDGETS, WIDGET_LABELS, getLayout, saveLayout, type WidgetId, type DashboardLayout } from "../lib/dashboardLayout";
 
@@ -29,6 +29,24 @@ function StatCard({ label, value, unit, icon: Icon, sub }: {
       </div>
       {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
     </div>
+  );
+}
+
+function WindCompass({ deg }: { deg: number }) {
+  // Red arm points the way the wind is coming FROM; the blue tail shows where it's headed.
+  return (
+    <svg width="84" height="84" viewBox="0 0 100 100" className="shrink-0">
+      <circle cx="50" cy="50" r="46" fill="none" stroke="hsl(var(--border))" strokeWidth="2" />
+      {["N", "E", "S", "W"].map((d, i) => {
+        const a = ((i * 90 - 90) * Math.PI) / 180;
+        return <text key={d} x={50 + 38 * Math.cos(a)} y={50 + 38 * Math.sin(a) + 3} textAnchor="middle" fontSize="10" fill="#9ca3af">{d}</text>;
+      })}
+      <g transform={`rotate(${deg} 50 50)`}>
+        <polygon points="50,16 44,52 56,52" fill="#ef4444" />
+        <polygon points="50,84 44,48 56,48" fill="#7B8FD9" />
+      </g>
+      <circle cx="50" cy="50" r="4" fill="white" />
+    </svg>
   );
 }
 
@@ -117,6 +135,21 @@ export default function Dashboard({ location }: Props) {
   const swti = srh !== null && shear06 !== null && hourly?.cape
     ? computeSWTI({ cape: hourly.cape[0] ?? 0, srh, shear06km: shear06, liftedIndex: hourly.lifted_index?.[0] ?? 0, dewPointC: hourly.dew_point_2m?.[0] ?? 10 }) : null;
 
+  const daily = weather?.daily;
+  const dCode = (i: number) => (daily?.weather_code?.[i] as number) ?? 0;
+  const todayHi = daily?.temperature_2m_max ? Math.round(cToF(daily.temperature_2m_max[0] as number)) : null;
+  const todayLo = daily?.temperature_2m_min ? Math.round(cToF(daily.temperature_2m_min[0] as number)) : null;
+  const todayPop = (daily?.precipitation_probability_max?.[0] as number) ?? 0;
+  const sunrise = daily?.sunrise?.[0] as string | undefined;
+  const sunset = daily?.sunset?.[0] as string | undefined;
+  const sevenDay = (daily?.time as string[] | undefined)?.slice(0, 7).map((t, i) => ({
+    day: i === 0 ? "Today" : format(parseISO(t), "EEE"),
+    hi: daily!.temperature_2m_max ? Math.round(cToF(daily!.temperature_2m_max[i] as number)) : 0,
+    lo: daily!.temperature_2m_min ? Math.round(cToF(daily!.temperature_2m_min[i] as number)) : 0,
+    code: dCode(i),
+    pop: (daily!.precipitation_probability_max?.[i] as number) ?? 0,
+  })) ?? [];
+
   const TOOLTIP = { background: "hsl(232 20% 10%)", border: "1px solid hsl(232 18% 16%)", borderRadius: 8, fontSize: 12 };
 
   // Each widget's inner content (null = nothing to show right now).
@@ -146,6 +179,64 @@ export default function Dashboard({ location }: Props) {
         )}
       </div>
     ),
+    today: daily ? (
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">Today — {location.name}</h3>
+        <div className="flex items-center gap-4">
+          <div className="text-5xl">{WEATHER_ICONS[dCode(0)] ?? "🌡️"}</div>
+          <div className="flex items-baseline gap-4">
+            <div><span className="text-3xl font-bold">{isLoading ? "—" : `${todayHi}°`}</span><span className="text-xs text-muted-foreground ml-1">High</span></div>
+            <div><span className="text-2xl font-semibold text-muted-foreground">{isLoading ? "—" : `${todayLo}°`}</span><span className="text-xs text-muted-foreground ml-1">Low</span></div>
+          </div>
+        </div>
+        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Droplets className="w-3.5 h-3.5 text-blue-400" /> {todayPop}% chance of precip · {WMO_DESCRIPTIONS[dCode(0)] ?? "—"}
+        </div>
+      </div>
+    ) : null,
+    sevenDay: sevenDay.length ? (
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">7-Day Forecast</h3>
+        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+          {sevenDay.map((d) => (
+            <div key={d.day} className="flex flex-col items-center gap-1 rounded-lg bg-muted/20 py-2">
+              <span className="text-[11px] text-muted-foreground font-medium">{d.day}</span>
+              <span className="text-2xl">{WEATHER_ICONS[d.code] ?? "🌡️"}</span>
+              <span className="text-xs"><span className="font-bold">{d.hi}°</span> <span className="text-muted-foreground">{d.lo}°</span></span>
+              {d.pop > 0 && <span className="text-[10px] text-blue-400">{d.pop}%</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+    ) : null,
+    sunMoon: (sunrise && sunset) ? (
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">Sunrise & Sunset</h3>
+        <div className="grid grid-cols-2 gap-3">
+          <div className="flex items-center gap-3 rounded-lg bg-muted/20 p-3">
+            <Sunrise className="w-6 h-6 text-amber-400 shrink-0" />
+            <div><div className="text-xs text-muted-foreground">Sunrise</div><div className="text-lg font-bold">{format(parseISO(sunrise), "h:mm a")}</div></div>
+          </div>
+          <div className="flex items-center gap-3 rounded-lg bg-muted/20 p-3">
+            <Sunset className="w-6 h-6 text-orange-400 shrink-0" />
+            <div><div className="text-xs text-muted-foreground">Sunset</div><div className="text-lg font-bold">{format(parseISO(sunset), "h:mm a")}</div></div>
+          </div>
+        </div>
+      </div>
+    ) : null,
+    windCompass: cur ? (
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="text-sm font-semibold mb-3">Wind</h3>
+        <div className="flex items-center gap-5">
+          <WindCompass deg={cur.wind_direction_10m} />
+          <div>
+            <div className="text-3xl font-bold">{isLoading ? "—" : windMph} <span className="text-base font-normal text-muted-foreground">mph</span></div>
+            <div className="text-sm text-muted-foreground">From the {windDir} ({Math.round(cur.wind_direction_10m)}°)</div>
+            <div className="text-xs text-muted-foreground mt-1">Gusting {gustMph} mph</div>
+          </div>
+        </div>
+      </div>
+    ) : null,
     swti: swti ? (
       <div className="bg-card border border-border rounded-xl p-4">
         <h3 className="text-sm font-semibold mb-3">Storm Threat Index (SWTI)</h3>
@@ -216,7 +307,7 @@ export default function Dashboard({ location }: Props) {
         <div className="flex items-center gap-2">
           {editing && <button onClick={reset} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1.5"><RotateCcw className="w-3.5 h-3.5" /> Reset</button>}
           <button onClick={() => setEditing(e => !e)}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${editing ? "bg-primary/15 border-primary/40 text-primary" : "bg-card border-border text-muted-foreground hover:border-primary/40"}`}>
+            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${editing ? "bg-primary/15 border-primary/40 text-primary" : "pulse-glow bg-primary/10 border-primary/50 text-primary hover:bg-primary/20"}`}>
             {editing ? <><Check className="w-3.5 h-3.5" /> Done</> : <><Settings2 className="w-3.5 h-3.5" /> Customize</>}
           </button>
         </div>

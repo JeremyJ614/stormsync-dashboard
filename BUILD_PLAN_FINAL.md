@@ -39,7 +39,11 @@ Make the demo storm **Hurricane Milton at its peak Category 5**.
 **Done when:** Preview tab renders Milton at Cat-5 with cone/track/wind-radii/stats and a
 visible demo banner; the live "Active Storms" tab is untouched.
 
-### P-02 — Dashboard: glowing Customize button + more basic widgets 🟢 BUILD NOW
+### P-02 — Dashboard: glowing Customize button + more basic widgets ✅ DONE (2026-06-25)
+**Shipped:** Customize button now pulses with a primary glow (`pulse-glow`, respects
+reduced-motion). Four new **basic** widgets added to the picker — **Today's high & low**,
+**7-day forecast**, **Sunrise & sunset**, **Wind compass** (animated SVG) — all from data we
+already fetch. No existing widget touched; new widgets auto-append to saved layouts.
 **Want:** (a) Make the **Customize** button **glow** (animated pulse/glow) so it's easy to find.
 (b) Add **more widgets** to the dashboard library — **basic-forecast only**, nothing advanced
 or tier-gated. **Do NOT change any existing widget.**
@@ -65,7 +69,11 @@ glow / high-tech.** Keep all current data & behavior — visual redesign only.
 **Done when:** AQI page has the premium treatment (hero, glow, animated gauge) and the top
 bar reads like a high-tech score gauge; no data/logic changed.
 
-### P-05 — Severe Weather Threat Index: same wow-factor redesign 🟢 BUILD NOW
+### P-05 — Severe Weather Threat Index: same wow-factor redesign ✅ DONE (2026-06-25)
+**Shipped:** Richer animated score gauge (gradient active arc with glow filter, tick marks,
+transitioning needle), glowing color-matched risk cards, parameter cards now have glowing
+fill bars showing where each value sits vs. extreme, and the hero panel upgraded to
+`glass-strong`. **Index math and data unchanged** — visual only.
 **Want:** Give the **SWTI** module the **same caliber of redesign** as P-04 (cooler, more
 advanced, glow/high-tech). Visual only — the index math and data stay as-is.
 **Done when:** SWTI matches the new premium look; logic untouched.
@@ -196,8 +204,8 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 
 | Order | Code | Task | Difficulty |
 |-------|------|------|------------|
-| 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | 🟢 easy |
-| 2  | P-05 | Severe Weather Threat Index — wow redesign | 🟢 easy |
+| 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | ✅ done |
+| 2  | P-05 | Severe Weather Threat Index — wow redesign | ✅ done |
 | 3  | P-04 | AQI redesign + high-tech AQI bar | 🟢 easy |
 | 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | 🟢 easy (no code) |
 | 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | 🟢 easy (no code) |

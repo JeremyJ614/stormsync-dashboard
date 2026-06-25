@@ -163,10 +163,17 @@ excited to be.**
 **Done when:** The module shows 2 ranked targets with params and a written rationale +
 expectation/excitement section, refreshed by the nightly engine.
 
-### P-15 — Weather Learn quizzes: fix or remove 🤔 DECIDE LATER
-**Want:** Quizzes aren't working. Decision deferred — **figure out at this phase** whether to
-**fix** them or **remove** them. No action now beyond this note.
-**Done when:** At its phase, we either repair the quiz flow or cleanly remove it.
+### P-15 — Weather Learn quizzes: fix or remove 🤔 DECISION (diagnosed 2026-06-25)
+**Diagnosed:** The quizzes POST to `${BASE_API}/ai/quiz` → `…/functions/v1/weather/ai/quiz`,
+which is a **dead legacy Render route** that no longer exists — so every "Quiz Me" errors out.
+The articles/reading half of the module works fine; only the quiz generator is broken.
+**Options put to Jeremy:**
+- **Fix — built-in question bank** (recommended): ship a curated local bank of questions per
+  topic/difficulty. Instant, free, always works, no AI/network dependency.
+- **Fix — AI-generated** (Gemini via our storm-engine): dynamic/varied quizzes, but depends on
+  the AI provider + adds latency/cost.
+- **Remove:** strip the quiz UI, keep Weather Learn as a clean reading module.
+**Done when:** Jeremy picks; we implement that choice.
 
 ### P-16 — Admin: full FAQ + Module-Guide editor 🟢 BUILD NOW
 **Want:** An admin area to **add / remove / modify anything on the FAQ**, including the
@@ -212,9 +219,9 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | ✅ done |
 | 2  | P-05 | Severe Weather Threat Index — wow redesign | ✅ done |
 | 3  | P-04 | AQI redesign + high-tech AQI bar | ✅ done |
-| 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | 🟢 easy (no code) |
-| 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | 🟢 easy (no code) |
-| 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | 🟢 easy (decision) |
+| 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | ✅ menu delivered |
+| 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | ✅ menu delivered |
+| 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | ◐ diagnosed, awaiting pick |
 | 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
 | 8  | P-13 | Moon & Astronomy redesign + realistic moon | 🟡 moderate |
 | 9  | P-03 | Forecast Discussion — longer, personalized plain-language | 🟡 moderate |
@@ -235,11 +242,90 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 
 ---
 
-## Appendix A — Radar / MRMS / Satellite product menu *(P-11, to fill)*
-_Pending: full categorized list for Jeremy to choose from. Not started._
+## Appendix A — Radar / MRMS / Satellite product menu *(P-11)*
 
-## Appendix B — Tornado Climatology product menu *(P-12, to fill)*
-_Pending: full list for Jeremy to choose from. Not started._
+**Menu delivered 2026-06-25 — awaiting Jeremy's picks.** Pick any number from the lists below;
+once chosen we wire them into the radar page (most overlay natively on our Leaflet maps as
+tile/WMS layers; a few are single-image panels). Feasibility tags: **🟢 native tile/WMS layer**
+· **🟡 static image panel (auto-refreshing)** · **🔴 link-out only (no embed)**.
+
+### A1 — MRMS (Multi-Radar Multi-Sensor) — *this is the "rotation tracks" family Jeremy wanted*
+Source: NOAA/NSSL via **Iowa Environmental Mesonet (IEM)** tile/WMS + NSSL image services.
+- 🟢 **Rotation Tracks — 0–2 km AzShear** (low-level; the tornado-tracking layer) — 30/60/120/240-min accumulations
+- 🟢 **Rotation Tracks — 0–5 km AzShear** (mid-level / mesocyclone)
+- 🟢 **MESH — Max Estimated Size of Hail** + **MESH Tracks** (hail swath history)
+- 🟢 **Seamless Hybrid-Scan Reflectivity** (national radar mosaic, no single-site gaps)
+- 🟢 **Composite Reflectivity** (national)
+- 🟢 **Reflectivity At Lowest Altitude (RALA)** (what's actually near the ground)
+- 🟢 **Echo Top 18 dBZ** (storm height/intensity)
+- 🟢 **VIL & VIL Density** (hail/updraft strength)
+- 🟢 **Precip Rate** (instantaneous rain rate)
+- 🟢 **QPE accumulations** (1/3/6/12/24/48/72-hr radar-estimated rainfall)
+- 🟢 **Vertically Integrated Ice** (severe/hail signal)
+- 🟡 **ProbSevere / ProbHail / ProbTor** (NSSL probabilistic storm objects)
+- 🟡 **FLASH** (flash-flood unit-streamflow / ARI exceedance)
+
+### A2 — Single-site NEXRAD (radar.weather.gov RIDGE) — per-station, high detail
+- 🟢 **Base Reflectivity (N0B)** · **Composite Reflectivity**
+- 🟢 **Base Velocity (N0U)** + **Storm-Relative Velocity (N0S)** — *rotation couplets*
+- 🟢 **Correlation Coefficient (N0C)** — *debris-ball / tornado debris signature*
+- 🟢 **Differential Reflectivity (N0X)** · **Specific Differential Phase (N0K)** (dual-pol hail/rain)
+- 🟢 **Echo Tops (EET)** · **Digital VIL (DVL)**
+- 🟢 **One-Hour & Storm-Total Precip**
+
+### A3 — GOES-East/West Satellite (RAMMB/CIRA SLIDER + IEM)
+- 🟢 **GeoColor** (true-color day / IR night — the "pretty" default)
+- 🟢 **Clean Longwave IR (Band 13)** — cloud-top temps / storm intensity
+- 🟢 **Visible (Band 2)** — daytime high-res
+- 🟢 **Mid-level Water Vapor (Band 9)** · **Upper-level WV (Band 8)**
+- 🟡 **Air Mass RGB** (fronts / stratospheric intrusion) · **Day Cloud Phase RGB**
+- 🟡 **"Sandwich" product** (IR + visible blend — great for convection)
+- 🟢 **GLM Lightning** (geostationary lightning mapper, overlay)
+
+### A4 — Lightning (standalone)
+- 🟡 **GOES GLM Flash Extent Density** (overlay; we already have a Lightning Density module — could deepen)
+- 🔴 Vaisala/Blitzortung real-time strikes (license/embed limits — link-out)
+
+> Recommended starter set if Jeremy wants a quick high-impact pick: **MRMS 0–2 km Rotation
+> Tracks + MESH Tracks + Seamless Reflectivity mosaic + GOES GeoColor** — that alone makes the
+> page feel like a pro storm-chase tool.
+
+## Appendix B — Tornado Climatology product menu *(P-12)*
+
+**Menu delivered 2026-06-25 — awaiting Jeremy's picks.** The current page is mostly link-outs to
+SPC tools + a couple of static charts. The big upgrade available: load the **SPC tornado
+database (SVRGIS / NCEI Storm Events, 1950–present)** once and render everything **natively**
+inside SSWX (Leaflet maps + Recharts) in our own theme. Feasibility: **🟢 native (we build it
+from the dataset)** · **🟡 static SPC image** · **🔴 link-out only**.
+
+### B1 — Native maps (built from the SPC/NCEI tornado dataset, our theme)
+- 🟢 **Tornado density heatmap** (per-county / grid — "where do they actually hit")
+- 🟢 **Historical tornado tracks map** (every path; filter by year range + EF rating)
+- 🟢 **"Near Me" personalized** — every tornado within X miles of the user's saved location, with EF, date, deaths, path length *(uses our existing location system — strong tier seller)*
+- 🟢 **Significant-tornado (EF2+) hot-spot map**
+- 🟢 **State / county ranking** (most tornadoes, most violent, deadliest)
+
+### B2 — Native charts (Recharts, our theme)
+- 🟢 **Monthly frequency** *(already have — keep)*
+- 🟢 **Diurnal distribution** (tornadoes by hour of day)
+- 🟢 **Annual trend** (year-by-year counts; this year vs. average)
+- 🟢 **EF-rating distribution** *(already have a version — keep/upgrade)*
+- 🟢 **Path-length & width distributions**
+- 🟢 **Killer-tornado / casualties timeline**
+- 🟢 **Season-timing by region** (when "tornado season" peaks where the user lives)
+- 🟢 **Live YTD counter vs. climatological average** (SPC annual running total)
+
+### B3 — Static SPC climatology images (drop-in panels)
+- 🟡 **SPC monthly probability maps** (tornado/hail/wind by calendar month)
+- 🟡 **SPC annual average maps** (days with a tornado within 25 mi)
+- 🟡 **Significant-tornado climatology**
+
+### B4 — Keep as curated link-outs (don't embed well)
+- 🔴 SPC Data Viewer · SPC Outbreaks · Environment Browser · Tornado Archive · USA Today archive
+  *(all already linked — keep)*
+
+> Recommended starter set: **"Near Me" personalized tornado history + density heatmap + diurnal
+> chart + live YTD-vs-average counter.** Personalized local history is the standout feature.
 
 ## Appendix C — Alert & Warning tier × channel matrix *(P-19, to design)*
 _Pending: delivery-method matrix per tier. Not started._

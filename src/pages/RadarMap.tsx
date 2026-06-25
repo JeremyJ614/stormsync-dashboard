@@ -1,5 +1,6 @@
 import type { Location } from "../hooks/useLocation";
 import { useState, useRef, useEffect, useMemo } from "react";
+import "leaflet/dist/leaflet.css";
 import { Radar, ExternalLink, Layers, Satellite, Radio, Activity } from "lucide-react";
 
 interface Props { location: Location }
@@ -181,9 +182,15 @@ export default function RadarMap({ location }: Props) {
       lp.style.pointerEvents = "none";
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 12, pane: "labels" }).addTo(map);
       mapRef.current = map;
+      // Lazy routes can mount the container before layout settles — tell Leaflet
+      // its real size once painted, or tiles render misaligned / fail to load.
+      setTimeout(() => map.invalidateSize(), 60);
       setBust(b => b + 1); // trigger first overlay paint
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; overlayRef.current = null; }
+    };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

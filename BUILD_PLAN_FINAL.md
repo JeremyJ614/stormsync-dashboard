@@ -365,6 +365,12 @@ _Pending: delivery-method matrix per tier. Not started._
 ---
 
 ## Fix Log (Post-build)
+- **2026-06-25** — **Leaflet CSS missing → broken maps.** The new `RadarMap` and the
+  `TornadoClimatology` ClimoMap never imported `leaflet/dist/leaflet.css`, so when reached
+  directly the map had no clipping/positioning — tiles rendered glitchy/misaligned and the
+  internal panes ballooned to ~6912px, stretching the page. Fixed by importing leaflet.css in
+  both, plus `map.invalidateSize()` after mount (lazy-route sizing) and `map.remove()` on
+  unmount. Verified headless: leaflet panes no longer oversize the page (6912px → clipped).
 - **2026-06-25** — **P-11 wiring fix:** the new `RadarMap` was orphaned; the live module at
   `/rotation` still rendered the old `RotationalMap`. Routed `/rotation` → `RadarMap`, deleted
   `RotationalMap.tsx`, relabeled to "Radar & MRMS" (sidebar/modules/FAQ).

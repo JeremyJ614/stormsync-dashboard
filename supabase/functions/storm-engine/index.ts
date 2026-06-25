@@ -235,7 +235,7 @@ async function generateBrief(src: SourceData): Promise<BriefResult> {
     "\n\nWrite the SSWX daily severe-weather brief as JSON with these fields:\n" +
     "- headline: one punchy line summarizing today's national severe threat.\n" +
     "- summary: 2-4 sentence daily briefing for the dashboard.\n" +
-    "- discussion_plain: a plain-language forecast discussion (no jargon) of ~4-6 sentences.\n" +
+    "- discussion_plain: a longer plain-language forecast discussion (no jargon), 3 short paragraphs separated by blank lines: (1) what's happening across the country today and why, (2) where the action is and who should pay attention over the next 24 hours, (3) the Day 2-3 trend and bottom-line takeaway. Conversational, ~9-12 sentences total.\n" +
     "- pattern: 2-3 sentences on the broader weather pattern and the Day 2-3 trend.\n" +
     "- chase_targets: 0-2 best storm-chase target areas (empty array if no real risk), each with area, reason, hazards.\n" +
     "- history_recap: 1-2 sentences recapping today's storm reports so far (tornado/hail/wind counts).\n" +

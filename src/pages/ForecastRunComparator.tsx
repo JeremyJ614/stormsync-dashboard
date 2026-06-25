@@ -19,30 +19,58 @@ const MODELS = [
 
 const r0 = (v: number) => Math.round(v);
 const r1 = (v: number) => Math.round(v * 10) / 10;
-const PARAMS = [
+const f = (v: number) => Math.round(cToF(v));
+const mph = (v: number) => Math.round(msToMph(v));
+
+// Comparator parameters, grouped into categories. All original parameters are
+// kept; categories + new variables were added for P-10.
+const CATEGORIES = ["Surface", "Precipitation", "Wind", "Instability", "Upper Air", "Moisture"] as const;
+interface Param { id: string; label: string; unit: string; cat: typeof CATEGORIES[number]; convert: (v: number) => number }
+const PARAMS: Param[] = [
   // Surface
-  { id: "temperature_2m", label: "Temperature (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
-  { id: "apparent_temperature", label: "Feels Like (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
-  { id: "dew_point_2m", label: "Dew Point (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
-  { id: "relative_humidity_2m", label: "Relative Humidity (%)", unit: "%", convert: r0 },
-  { id: "precipitation_probability", label: "Precip Probability (%)", unit: "%", convert: r0 },
-  { id: "precipitation", label: "Precipitation (mm)", unit: "mm", convert: r1 },
-  { id: "cloud_cover", label: "Cloud Cover (%)", unit: "%", convert: r0 },
-  { id: "visibility", label: "Visibility (mi)", unit: "mi", convert: (v: number) => Math.round((v / 1609.34) * 10) / 10 },
-  { id: "surface_pressure", label: "Surface Pressure (hPa)", unit: "hPa", convert: r0 },
-  { id: "pressure_msl", label: "Mean Sea-Level Pressure (hPa)", unit: "hPa", convert: r0 },
+  { id: "temperature_2m", cat: "Surface", label: "Temperature (°F)", unit: "°F", convert: f },
+  { id: "apparent_temperature", cat: "Surface", label: "Feels Like (°F)", unit: "°F", convert: f },
+  { id: "dew_point_2m", cat: "Surface", label: "Dew Point (°F)", unit: "°F", convert: f },
+  { id: "wet_bulb_temperature_2m", cat: "Surface", label: "Wet-Bulb Temp (°F)", unit: "°F", convert: f },
+  { id: "relative_humidity_2m", cat: "Surface", label: "Relative Humidity (%)", unit: "%", convert: r0 },
+  { id: "cloud_cover", cat: "Surface", label: "Cloud Cover (%)", unit: "%", convert: r0 },
+  { id: "visibility", cat: "Surface", label: "Visibility (mi)", unit: "mi", convert: (v) => Math.round((v / 1609.34) * 10) / 10 },
+  { id: "surface_pressure", cat: "Surface", label: "Surface Pressure (hPa)", unit: "hPa", convert: r0 },
+  { id: "pressure_msl", cat: "Surface", label: "Mean Sea-Level Pressure (hPa)", unit: "hPa", convert: r0 },
+  // Precipitation
+  { id: "precipitation_probability", cat: "Precipitation", label: "Precip Probability (%)", unit: "%", convert: r0 },
+  { id: "precipitation", cat: "Precipitation", label: "Precipitation (mm)", unit: "mm", convert: r1 },
+  { id: "rain", cat: "Precipitation", label: "Rain (mm)", unit: "mm", convert: r1 },
+  { id: "showers", cat: "Precipitation", label: "Showers (mm)", unit: "mm", convert: r1 },
+  { id: "snowfall", cat: "Precipitation", label: "Snowfall (cm)", unit: "cm", convert: r1 },
+  { id: "snow_depth", cat: "Precipitation", label: "Snow Depth (in)", unit: "in", convert: (v) => Math.round(v * 39.37 * 10) / 10 },
   // Wind
-  { id: "wind_speed_10m", label: "Wind Speed (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
-  { id: "wind_gusts_10m", label: "Wind Gusts (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
-  { id: "wind_speed_850hPa", label: "850mb Wind (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
-  { id: "wind_speed_500hPa", label: "500mb Wind (mph)", unit: "mph", convert: (v: number) => Math.round(msToMph(v)) },
-  // Severe / upper air
-  { id: "cape", label: "CAPE (J/kg)", unit: "J/kg", convert: r0 },
-  { id: "lifted_index", label: "Lifted Index", unit: "", convert: r1 },
-  { id: "convective_inhibition", label: "CIN (J/kg)", unit: "J/kg", convert: r0 },
-  { id: "freezing_level_height", label: "Freezing Level (ft)", unit: "ft", convert: (v: number) => Math.round((v * 3.281) / 10) * 10 },
-  { id: "temperature_850hPa", label: "850mb Temp (°F)", unit: "°F", convert: (v: number) => Math.round(cToF(v)) },
-  { id: "geopotential_height_500hPa", label: "500mb Height (m)", unit: "m", convert: r0 },
+  { id: "wind_speed_10m", cat: "Wind", label: "Wind Speed (mph)", unit: "mph", convert: mph },
+  { id: "wind_gusts_10m", cat: "Wind", label: "Wind Gusts (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_80m", cat: "Wind", label: "80m Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_120m", cat: "Wind", label: "120m Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_925hPa", cat: "Wind", label: "925mb Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_850hPa", cat: "Wind", label: "850mb Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_700hPa", cat: "Wind", label: "700mb Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_500hPa", cat: "Wind", label: "500mb Wind (mph)", unit: "mph", convert: mph },
+  { id: "wind_speed_300hPa", cat: "Wind", label: "300mb Wind (mph)", unit: "mph", convert: mph },
+  // Instability / severe
+  { id: "cape", cat: "Instability", label: "CAPE (J/kg)", unit: "J/kg", convert: r0 },
+  { id: "lifted_index", cat: "Instability", label: "Lifted Index", unit: "", convert: r1 },
+  { id: "convective_inhibition", cat: "Instability", label: "CIN (J/kg)", unit: "J/kg", convert: r0 },
+  { id: "boundary_layer_height", cat: "Instability", label: "Boundary Layer Height (m)", unit: "m", convert: r0 },
+  { id: "freezing_level_height", cat: "Instability", label: "Freezing Level (ft)", unit: "ft", convert: (v) => Math.round((v * 3.281) / 10) * 10 },
+  // Upper air
+  { id: "temperature_850hPa", cat: "Upper Air", label: "850mb Temp (°F)", unit: "°F", convert: f },
+  { id: "temperature_700hPa", cat: "Upper Air", label: "700mb Temp (°F)", unit: "°F", convert: f },
+  { id: "temperature_500hPa", cat: "Upper Air", label: "500mb Temp (°F)", unit: "°F", convert: f },
+  { id: "geopotential_height_500hPa", cat: "Upper Air", label: "500mb Height (m)", unit: "m", convert: r0 },
+  { id: "geopotential_height_700hPa", cat: "Upper Air", label: "700mb Height (m)", unit: "m", convert: r0 },
+  { id: "relative_humidity_850hPa", cat: "Upper Air", label: "850mb RH (%)", unit: "%", convert: r0 },
+  { id: "relative_humidity_700hPa", cat: "Upper Air", label: "700mb RH (%)", unit: "%", convert: r0 },
+  // Moisture
+  { id: "vapour_pressure_deficit", cat: "Moisture", label: "Vapour Pressure Deficit (kPa)", unit: "kPa", convert: r1 },
+  { id: "et0_fao_evapotranspiration", cat: "Moisture", label: "Evapotranspiration (mm)", unit: "mm", convert: r1 },
 ];
 
 function useForecastModel(location: Location, modelId: string, paramId: string) {
@@ -163,12 +191,19 @@ export default function ForecastRunComparator({ location }: Props) {
 
         <div>
           <div className="text-xs text-muted-foreground mb-2 uppercase tracking-widest font-medium">Parameter</div>
-          <div className="flex flex-wrap gap-2">
-            {PARAMS.map(p => (
-              <button key={p.id} onClick={() => setSelectedParam(p.id)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedParam === p.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"}`}>
-                {p.label.split(" (")[0]}
-              </button>
+          <div className="space-y-2.5">
+            {CATEGORIES.map(cat => (
+              <div key={cat}>
+                <div className="text-[10px] text-muted-foreground/70 uppercase tracking-wider mb-1">{cat}</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {PARAMS.filter(p => p.cat === cat).map(p => (
+                    <button key={p.id} onClick={() => setSelectedParam(p.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${selectedParam === p.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"}`}>
+                      {p.label.split(" (")[0]}
+                    </button>
+                  ))}
+                </div>
+              </div>
             ))}
           </div>
         </div>

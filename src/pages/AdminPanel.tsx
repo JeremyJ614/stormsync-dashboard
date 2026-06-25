@@ -11,12 +11,12 @@ import {
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
-import { listNews, createNews, deleteNews, type NewsPost } from "../lib/news";
+import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, seedFaqDefaults, type FaqEntry, type FaqKind } from "../lib/faq";
 import { DEFAULT_GENERAL, DEFAULT_MODULES } from "../lib/faqDefaults";
 import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from "../lib/broadcasts";
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
-import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
+import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus } from "lucide-react";
 
 type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "news" | "faq" | "settings";
 
@@ -687,19 +687,45 @@ function InboxTab() {
   );
 }
 
+const NEWS_CATEGORIES = ["Announcement", "Forecast", "Severe Weather", "Education", "Event", "Community", "Update"];
+const NEWS_TIERS = [
+  { v: 1, label: "Everyone (Tier 1+)" },
+  { v: 2, label: "Tier 2+" },
+  { v: 3, label: "Tier 3+" },
+  { v: 4, label: "Tier 4 Elite only" },
+];
+const isoToLocalInput = (iso?: string) => {
+  if (!iso) return "";
+  const d = new Date(iso); const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+};
+
 function NewsTab({ adminName }: { adminName: string }) {
   const [items, setItems] = useState<NewsPost[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [title, setTitle] = useState("");
+  const [excerpt, setExcerpt] = useState("");
+  const [category, setCategory] = useState("");
+  const [tags, setTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState("");
   const [body, setBody] = useState("");
   const [imageUrl, setImageUrl] = useState("");
   const [videoUrl, setVideoUrl] = useState("");
   const [embedHtml, setEmbedHtml] = useState("");
+  const [pinned, setPinned] = useState(false);
+  const [status, setStatus] = useState<NewsStatus>("published");
+  const [schedule, setSchedule] = useState("");      // datetime-local string
+  const [minTier, setMinTier] = useState(1);
   const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const formRef = useRef<HTMLDivElement>(null);
 
-  const refresh = useCallback(async () => { try { setItems(await listNews()); } catch { /* empty state */ } }, []);
+  const refresh = useCallback(async () => { try { setItems(await listAllNews()); } catch { /* empty state */ } }, []);
   useEffect(() => { void refresh(); }, [refresh]);
+
+  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
+  const readMin = Math.max(1, Math.round(words / 200));
 
   // Wrap the current textarea selection with markdown markers (or insert a snippet).
   function fmt(before: string, after = before, placeholder = "text") {
@@ -711,79 +737,197 @@ function NewsTab({ adminName }: { adminName: string }) {
     requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + sel.length); });
   }
 
-  async function add() {
+  function reset() {
+    setEditingId(null); setTitle(""); setExcerpt(""); setCategory(""); setTags([]); setTagInput("");
+    setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPinned(false);
+    setStatus("published"); setSchedule(""); setMinTier(1); setPreview(false);
+  }
+  function loadForEdit(p: NewsPost) {
+    setEditingId(p.id); setTitle(p.title); setExcerpt(p.excerpt ?? ""); setCategory(p.category ?? "");
+    setTags(p.tags); setTagInput(""); setBody(p.body); setImageUrl(p.imageUrl ?? "");
+    setVideoUrl(p.videoUrl ?? ""); setEmbedHtml(p.embedHtml ?? ""); setPinned(p.pinned);
+    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier); setPreview(false);
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  function addTag(raw: string) {
+    const t = raw.trim().replace(/,$/, "");
+    if (t && !tags.includes(t) && tags.length < 10) setTags([...tags, t]);
+    setTagInput("");
+  }
+
+  async function save(asStatus: NewsStatus) {
     if (!title.trim() || !body.trim() || busy) return;
     setBusy(true);
-    const r = await createNews({ title: title.trim(), body: body.trim(), imageUrl: imageUrl.trim() || undefined, videoUrl: videoUrl.trim() || undefined, embedHtml: embedHtml.trim() || undefined, author: adminName });
+    const input: NewsInput = {
+      title: title.trim(), body: body.trim(), excerpt: excerpt.trim() || undefined,
+      category: category.trim() || undefined, tags,
+      imageUrl: imageUrl.trim() || undefined, videoUrl: videoUrl.trim() || undefined, embedHtml: embedHtml.trim() || undefined,
+      pinned, status: asStatus,
+      publishAt: asStatus === "published" && schedule ? new Date(schedule).toISOString() : null,
+      minTier,
+    };
+    const r = editingId ? await updateNews(editingId, input) : await createNews({ ...input, author: adminName });
     setBusy(false);
-    if (!r.ok) { alert(r.error ?? "Failed to publish"); return; }
-    setTitle(""); setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPreview(false);
-    void refresh();
+    if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
+    reset(); void refresh();
   }
   async function del(id: string) {
     if (!confirm("Delete this post?")) return;
+    if (editingId === id) reset();
     await deleteNews(id); void refresh();
   }
+  async function togglePin(p: NewsPost) { await patchNews(p.id, { pinned: !p.pinned }); void refresh(); }
+  async function toggleStatus(p: NewsPost) { await patchNews(p.id, { status: p.status === "published" ? "draft" : "published" }); void refresh(); }
 
-  const TOOLS: { label: string; title: string; run: () => void }[] = [
-    { label: "B", title: "Bold", run: () => fmt("**") },
-    { label: "i", title: "Italic", run: () => fmt("*") },
-    { label: "H", title: "Heading", run: () => fmt("## ", "", "Heading") },
-    { label: "•", title: "List item", run: () => fmt("- ", "", "list item") },
-    { label: "”", title: "Quote", run: () => fmt("> ", "", "quote") },
-    { label: "🔗", title: "Link", run: () => fmt("[", "](https://)", "link text") },
+  const TOOLS: { icon: typeof Bold; title: string; run: () => void }[] = [
+    { icon: Bold, title: "Bold", run: () => fmt("**") },
+    { icon: Italic, title: "Italic", run: () => fmt("*") },
+    { icon: Strikethrough, title: "Strikethrough", run: () => fmt("~~") },
+    { icon: Heading2, title: "Heading", run: () => fmt("## ", "", "Heading") },
+    { icon: Heading3, title: "Subheading", run: () => fmt("### ", "", "Subheading") },
+    { icon: List, title: "Bullet list", run: () => fmt("- ", "", "list item") },
+    { icon: ListOrdered, title: "Numbered list", run: () => fmt("1. ", "", "list item") },
+    { icon: Quote, title: "Quote", run: () => fmt("> ", "", "quote") },
+    { icon: Code, title: "Code block", run: () => fmt("```\n", "\n```", "code") },
+    { icon: Link2, title: "Link", run: () => fmt("[", "](https://)", "link text") },
+    { icon: ImageIcon, title: "Inline image", run: () => fmt("![", "](https://)", "alt text") },
+    { icon: Minus, title: "Divider", run: () => fmt("\n---\n", "", "") },
   ];
+
+  const fieldCls = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
 
   return (
     <div className="space-y-4">
-      <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-        <h3 className="text-sm font-semibold flex items-center gap-2"><Newspaper className="w-4 h-4 text-primary" /> Add SSWX News Post</h3>
-        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40" />
+      <div ref={formRef} className="bg-card border border-border rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Newspaper className="w-4 h-4 text-primary" /> {editingId ? "Edit SSWX News Post" : "Add SSWX News Post"}
+          </h3>
+          {editingId && <button onClick={reset} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"><X className="w-3 h-3" /> Cancel edit</button>}
+        </div>
 
-        <div className="flex items-center gap-1 flex-wrap">
+        <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className={fieldCls} />
+        <input value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="Excerpt / summary (optional — shown in the feed preview)" className={`${fieldCls} text-xs`} />
+
+        <div className="grid md:grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-1"><Tag className="w-3 h-3" /> Category</label>
+            <input list="news-cats" value={category} onChange={e => setCategory(e.target.value)} placeholder="e.g. Severe Weather" className={`${fieldCls} text-xs`} />
+            <datalist id="news-cats">{NEWS_CATEGORIES.map(c => <option key={c} value={c} />)}</datalist>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-1"><Eye className="w-3 h-3" /> Audience</label>
+            <select value={minTier} onChange={e => setMinTier(Number(e.target.value))} className={`${fieldCls} text-xs`}>
+              {NEWS_TIERS.map(t => <option key={t.v} value={t.v}>{t.label}</option>)}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 block">Tags</label>
+          <div className="flex flex-wrap items-center gap-1.5 bg-muted/30 border border-border rounded-lg px-2 py-1.5">
+            {tags.map(t => (
+              <span key={t} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-primary/15 text-primary text-[11px]">
+                {t}<button onClick={() => setTags(tags.filter(x => x !== t))} className="hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+              </span>
+            ))}
+            <input value={tagInput} onChange={e => setTagInput(e.target.value)}
+              onKeyDown={e => { if ((e.key === "Enter" || e.key === ",") && tagInput.trim()) { e.preventDefault(); addTag(tagInput); } else if (e.key === "Backspace" && !tagInput && tags.length) { setTags(tags.slice(0, -1)); } }}
+              onBlur={() => tagInput.trim() && addTag(tagInput)}
+              placeholder={tags.length ? "" : "Add tags (Enter to add)"} className="flex-1 min-w-[8rem] bg-transparent text-xs outline-none py-0.5" />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1 flex-wrap border-y border-border py-2">
           {TOOLS.map(t => (
             <button key={t.title} type="button" title={t.title} onClick={t.run}
-              className="w-8 h-8 rounded bg-muted/40 border border-border text-sm hover:border-primary/50 hover:text-primary flex items-center justify-center">{t.label}</button>
+              className="w-8 h-8 rounded bg-muted/40 border border-border hover:border-primary/50 hover:text-primary text-muted-foreground flex items-center justify-center">
+              <t.icon className="w-4 h-4" />
+            </button>
           ))}
           <button type="button" onClick={() => setPreview(p => !p)}
-            className={`ml-auto px-3 h-8 rounded border text-xs font-medium ${preview ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
-            {preview ? "Edit" : "Preview"}
+            className={`ml-auto px-3 h-8 rounded border text-xs font-medium flex items-center gap-1 ${preview ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
+            {preview ? <><Pencil className="w-3 h-3" /> Edit</> : <><Eye className="w-3 h-3" /> Preview</>}
           </button>
         </div>
 
         {preview ? (
-          <div className="min-h-[8rem] bg-muted/20 border border-border rounded-lg px-3 py-2 text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(body || "_Nothing to preview yet._") }} />
+          <div className="bg-muted/10 border border-border rounded-lg p-4 space-y-2">
+            {imageUrl.trim() && <div className="rounded-lg overflow-hidden border border-border bg-black"><img src={imageUrl} alt="" className="w-full h-auto" /></div>}
+            {category && <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">{category}</span>}
+            <h2 className="text-lg font-bold">{title || "Untitled post"}</h2>
+            {excerpt && <p className="text-sm text-muted-foreground italic">{excerpt}</p>}
+            <div className="text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(body || "_Nothing to preview yet._") }} />
+            {tags.length > 0 && <div className="flex flex-wrap gap-1 pt-1">{tags.map(t => <span key={t} className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">#{t}</span>)}</div>}
+          </div>
         ) : (
-          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={6}
-            placeholder="Article body — supports Markdown: **bold**, *italic*, ## headings, - lists, > quotes, [links](https://…)"
-            className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40 resize-y font-mono" />
+          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={8}
+            placeholder="Article body — Markdown: **bold**, *italic*, ~~strike~~, ## headings, 1. / - lists, > quotes, `code`, ```blocks```, [links](https://…), ![image](https://…), --- divider"
+            className={`${fieldCls} resize-y font-mono`} />
         )}
-        <p className="text-[10px] text-muted-foreground">Body supports Markdown. Use the buttons above, or type it directly.</p>
+        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
+          <span>Markdown supported · {words} words · ~{readMin} min read</span>
+        </div>
 
         <div className="grid md:grid-cols-3 gap-2">
-          <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="Image URL (optional)" className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40" />
-          <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="Video URL (mp4/youtube)" className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40" />
-          <input value={embedHtml} onChange={e => setEmbedHtml(e.target.value)} placeholder='Embed HTML (e.g. <iframe ...>)' className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs outline-none focus:border-primary/40 font-mono" />
+          <input value={imageUrl} onChange={e => setImageUrl(e.target.value)} placeholder="Cover image URL" className={`${fieldCls} text-xs`} />
+          <input value={videoUrl} onChange={e => setVideoUrl(e.target.value)} placeholder="Video URL (mp4/youtube)" className={`${fieldCls} text-xs`} />
+          <input value={embedHtml} onChange={e => setEmbedHtml(e.target.value)} placeholder='Embed HTML (<iframe …>)' className={`${fieldCls} text-xs font-mono`} />
         </div>
-        <button onClick={add} disabled={busy} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 disabled:opacity-50 flex items-center gap-1.5">
-          <Plus className="w-4 h-4" /> {busy ? "Publishing…" : "Publish"}
-        </button>
+
+        <div className="grid md:grid-cols-2 gap-2 items-end">
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none bg-muted/20 border border-border rounded-lg px-3 py-2">
+            <input type="checkbox" checked={pinned} onChange={e => setPinned(e.target.checked)} className="accent-primary" />
+            <Pin className="w-3.5 h-3.5" /> Pin to top of the feed
+          </label>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-muted-foreground flex items-center gap-1 mb-1"><Clock className="w-3 h-3" /> Schedule (optional)</label>
+            <input type="datetime-local" value={schedule} onChange={e => setSchedule(e.target.value)} className={`${fieldCls} text-xs`} />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 pt-1">
+          <button onClick={() => save("published")} disabled={busy} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 disabled:opacity-50 flex items-center gap-1.5">
+            {editingId ? <Save className="w-4 h-4" /> : <Plus className="w-4 h-4" />} {busy ? "Saving…" : schedule ? "Schedule" : editingId ? "Update & Publish" : "Publish"}
+          </button>
+          <button onClick={() => save("draft")} disabled={busy} className="px-4 py-2 rounded-lg bg-muted/30 border border-border text-sm font-medium hover:border-primary/40 disabled:opacity-50 flex items-center gap-1.5">
+            <FileText className="w-4 h-4" /> Save as draft
+          </button>
+        </div>
       </div>
 
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border"><h3 className="text-sm font-semibold">Posts ({items.length})</h3></div>
-        <div className="divide-y divide-border max-h-[500px] overflow-y-auto">
+        <div className="divide-y divide-border max-h-[520px] overflow-y-auto">
           {items.length === 0 && <div className="p-6 text-center text-sm text-muted-foreground">No posts yet.</div>}
-          {items.map(p => (
-            <div key={p.id} className="p-4 flex items-start gap-3">
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-semibold">{p.title}</div>
-                <div className="text-xs text-muted-foreground line-clamp-2 mt-0.5">{p.body}</div>
-                <div className="text-[10px] text-muted-foreground/70 mt-1">{new Date(p.createdAt).toLocaleString()} · {p.author}</div>
+          {items.map(p => {
+            const scheduled = p.status === "published" && p.publishAt && new Date(p.publishAt).getTime() > Date.now();
+            return (
+              <div key={p.id} className={`p-4 flex items-start gap-3 ${editingId === p.id ? "bg-primary/5" : ""}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {p.pinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
+                    <span className="text-sm font-semibold truncate">{p.title}</span>
+                    {p.status === "draft" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400">Draft</span>}
+                    {scheduled && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-cyan-500/15 text-cyan-300 flex items-center gap-0.5"><Calendar className="w-2.5 h-2.5" /> Scheduled</span>}
+                    {p.category && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-primary/15 text-primary">{p.category}</span>}
+                    {p.minTier > 1 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-fuchsia-500/15 text-fuchsia-300">T{p.minTier}+</span>}
+                  </div>
+                  {p.excerpt && <div className="text-xs text-muted-foreground line-clamp-1 mt-0.5">{p.excerpt}</div>}
+                  <div className="text-[10px] text-muted-foreground/70 mt-1">
+                    {scheduled ? `Publishes ${new Date(p.publishAt!).toLocaleString()}` : new Date(p.createdAt).toLocaleString()} · {p.author}
+                    {p.tags.length > 0 && <> · {p.tags.map(t => `#${t}`).join(" ")}</>}
+                  </div>
+                </div>
+                <div className="flex items-center gap-0.5 shrink-0">
+                  <button onClick={() => togglePin(p)} title={p.pinned ? "Unpin" : "Pin"} className="p-1.5 rounded hover:bg-primary/15 text-muted-foreground hover:text-primary">{p.pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
+                  <button onClick={() => toggleStatus(p)} title={p.status === "published" ? "Unpublish" : "Publish"} className="p-1.5 rounded hover:bg-primary/15 text-muted-foreground hover:text-primary">{p.status === "published" ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}</button>
+                  <button onClick={() => loadForEdit(p)} title="Edit" className="p-1.5 rounded hover:bg-primary/15 text-muted-foreground hover:text-primary"><Pencil className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => del(p.id)} title="Delete" className="p-1.5 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+                </div>
               </div>
-              <button onClick={() => del(p.id)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </div>

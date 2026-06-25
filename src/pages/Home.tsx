@@ -26,7 +26,7 @@ export default function Home() {
   const [newsLoading, setNewsLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const { user } = useAuth();
-  const { data: posts = [] } = useQuery({ queryKey: ["sswx-news"], queryFn: listNews, staleTime: 5 * 60 * 1000 });
+  const { data: posts = [] } = useQuery({ queryKey: ["sswx-news", user?.tier ?? 1], queryFn: () => listNews(user?.tier ?? 1), staleTime: 5 * 60 * 1000 });
 
   useEffect(() => {
     const loadNews = () => {
@@ -164,13 +164,18 @@ export default function Home() {
                     className={`w-full text-left px-4 py-3 hover:bg-muted/10 transition-colors flex items-center gap-3 ${fresh ? "bg-[#7B8FD9]/15" : ""}`}>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
+                        {p.pinned && <span title="Pinned" className="text-primary">📌</span>}
                         <div className={`text-sm font-bold truncate ${fresh ? "text-[#c7d0f0]" : ""}`}>{p.title}</div>
+                        {p.category && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase bg-primary/15 text-primary border border-primary/30">{p.category}</span>
+                        )}
                         {fresh && (
                           <span className="px-1.5 py-0.5 rounded text-[9px] font-bold tracking-widest uppercase bg-[#a8b4e8]/25 text-[#c7d0f0] border border-[#a8b4e8]/50 animate-pulse">
                             New
                           </span>
                         )}
                       </div>
+                      {p.excerpt && <div className="text-[11px] text-muted-foreground mt-0.5 line-clamp-1">{p.excerpt}</div>}
                       <div className="text-[10px] text-muted-foreground mt-0.5">{timeAgo(p.createdAt)} · {p.author}</div>
                     </div>
                     <ArrowRight className={`w-4 h-4 text-muted-foreground transition-transform ${open ? "rotate-90" : ""}`} />
@@ -193,6 +198,11 @@ export default function Home() {
                         </div>
                       )}
                       {p.embedHtml && <div dangerouslySetInnerHTML={{ __html: p.embedHtml }} />}
+                      {p.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 pt-1">
+                          {p.tags.map(t => <span key={t} className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">#{t}</span>)}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

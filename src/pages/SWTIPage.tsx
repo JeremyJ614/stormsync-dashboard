@@ -20,54 +20,60 @@ function riskBadge(risk: string): string {
 }
 
 function ScoreGauge({ score, color }: { score: number; color: string }) {
-  const cx = 100, cy = 100, r = 78;
-  const polarToXY = (deg: number, radius: number) => {
+  const cx = 110, cy = 110, r = 88;
+  const START = 135, SWEEP = 270; // open-bottom dial
+  const polar = (deg: number, radius: number) => {
     const a = (deg * Math.PI) / 180;
     return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) };
   };
-  const arcPath = (startDeg: number, endDeg: number, radius: number) => {
-    const s = polarToXY(startDeg, radius);
-    const e = polarToXY(endDeg, radius);
+  const arc = (startDeg: number, endDeg: number, radius: number) => {
+    const s = polar(startDeg, radius), e = polar(endDeg, radius);
     const large = endDeg - startDeg > 180 ? 1 : 0;
     return `M ${s.x} ${s.y} A ${radius} ${radius} 0 ${large} 1 ${e.x} ${e.y}`;
   };
-  const angle = (score / 100) * 180; // 0..180 across the dial
-  const needle = polarToXY(angle - 90, r - 8);
+  const frac = Math.max(0, Math.min(1, score / 100));
+  const endDeg = START + SWEEP * frac;
+  const tip = polar(endDeg, r);
 
-  const segments = [
-    { start: -90, end: -54, color: "#4ade80" },
-    { start: -54, end: -18, color: "#fde047" },
-    { start: -18, end: 18, color: "#f97316" },
-    { start: 18, end: 54, color: "#ef4444" },
-    { start: 54, end: 90, color: "#d946ef" },
+  const segs = [
+    { f0: 0.0, f1: 0.2, c: "#4ade80" },
+    { f0: 0.2, f1: 0.4, c: "#fde047" },
+    { f0: 0.4, f1: 0.6, c: "#f97316" },
+    { f0: 0.6, f1: 0.8, c: "#ef4444" },
+    { f0: 0.8, f1: 1.0, c: "#d946ef" },
   ];
-  const ticks = Array.from({ length: 11 }, (_, i) => -90 + i * 18);
+  const ticks = Array.from({ length: 28 }, (_, i) => START + (SWEEP / 27) * i);
 
   return (
-    <svg width="224" height="132" viewBox="0 0 200 120">
+    <svg width="220" height="212" viewBox="0 0 220 212">
       <defs>
-        <filter id="swtiGaugeGlow" x="-60%" y="-60%" width="220%" height="220%">
-          <feGaussianBlur stdDeviation="3.2" result="b" />
+        <filter id="swtiGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="3.4" result="b" />
           <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
         </filter>
+        <radialGradient id="swtiCore" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor={color} stopOpacity="0.30" />
+          <stop offset="68%" stopColor={color} stopOpacity="0.05" />
+          <stop offset="100%" stopColor={color} stopOpacity="0" />
+        </radialGradient>
       </defs>
-      <path d={arcPath(-90, 90, r)} stroke="hsl(var(--border))" strokeWidth="14" fill="none" strokeLinecap="round" opacity={0.5} />
-      {segments.map((seg, i) => (
-        <path key={i} d={arcPath(seg.start, seg.end, r)} stroke={seg.color} strokeWidth="14" fill="none" strokeLinecap="round" opacity={0.22} />
+
+      <path d={arc(START, START + SWEEP, r)} stroke="hsl(var(--border))" strokeWidth="13" fill="none" strokeLinecap="round" opacity={0.5} />
+      {segs.map((s, i) => (
+        <path key={i} d={arc(START + SWEEP * s.f0, START + SWEEP * s.f1, r)} stroke={s.c} strokeWidth="13" fill="none" opacity={0.22} />
       ))}
-      <path d={arcPath(-90, angle - 90, r)} stroke={color} strokeWidth="14" fill="none" strokeLinecap="round"
-        filter="url(#swtiGaugeGlow)" style={{ transition: "all .6s ease" }} />
       {ticks.map((t, i) => {
-        const a = polarToXY(t, r - 15), b = polarToXY(t, r - 21);
-        return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#6b7280" strokeWidth="1.5" opacity={0.6} />;
+        const a = polar(t, r - 14), b = polar(t, r - 20);
+        return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#6b7280" strokeWidth={i % 9 === 0 ? 2 : 1} opacity={0.55} />;
       })}
-      <line x1={cx} y1={cy} x2={needle.x} y2={needle.y} stroke="white" strokeWidth="3" strokeLinecap="round" style={{ transition: "all .6s ease" }} />
-      <circle cx={cx} cy={cy} r="7" fill="white" />
-      <circle cx={cx} cy={cy} r="3.5" fill={color} />
-      <text x={cx} y={cy + 26} textAnchor="middle" fontSize="34" fontWeight="bold" fill={color} filter="url(#swtiGaugeGlow)">{score}</text>
-      <text x={cx} y={cy + 42} textAnchor="middle" fontSize="10" fill="#9ca3af">/ 100</text>
-      <text x={10} y={116} fontSize="9" fill="#6b7280">Benign</text>
-      <text x={168} y={116} fontSize="9" fill="#6b7280">Extreme</text>
+      <circle cx={cx} cy={cy} r="62" fill="url(#swtiCore)" />
+      <path d={arc(START, endDeg, r)} stroke={color} strokeWidth="13" fill="none" strokeLinecap="round" filter="url(#swtiGlow)" style={{ transition: "all .7s ease" }} />
+      <circle cx={tip.x} cy={tip.y} r="6" fill="#fff" filter="url(#swtiGlow)" style={{ transition: "all .7s ease" }} />
+      <circle cx={tip.x} cy={tip.y} r="3" fill={color} style={{ transition: "all .7s ease" }} />
+      <text x={cx} y={cy + 16} textAnchor="middle" fontSize="50" fontWeight="bold" fill={color} filter="url(#swtiGlow)">{score}</text>
+      <text x={cx} y={cy + 38} textAnchor="middle" fontSize="12" fill="#9ca3af" letterSpacing="2">/ 100</text>
+      <text x={polar(START, r + 13).x} y={polar(START, r + 13).y + 4} textAnchor="middle" fontSize="9" fill="#6b7280">0</text>
+      <text x={polar(START + SWEEP, r + 13).x} y={polar(START + SWEEP, r + 13).y + 4} textAnchor="middle" fontSize="9" fill="#6b7280">100</text>
     </svg>
   );
 }
@@ -141,7 +147,7 @@ export default function SWTIPage({ location }: Props) {
         <div className="relative flex flex-col items-center">
           <div className="text-xs tracking-[0.3em] uppercase text-muted-foreground mb-3">Current SWTI Score</div>
           {isLoading
-            ? <div className="h-28 w-52 bg-muted/20 rounded animate-pulse mb-3" />
+            ? <div className="h-52 w-52 bg-muted/20 rounded-full animate-pulse mb-3" />
             : <ScoreGauge score={swti.score} color={swti.color} />
           }
           <div className="text-2xl font-bold mt-2" style={{ color: swti.color, textShadow: `0 0 24px ${swti.color}66` }}>

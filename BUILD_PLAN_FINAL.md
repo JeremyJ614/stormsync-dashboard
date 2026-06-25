@@ -236,7 +236,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 13 | P-06 | SPC Outlook — phone-fit map + static-map area | ✅ done |
 | 14 | P-07 | Meso Discussion — real substance + AI summary | ✅ done |
 | 15 | P-18 | Admin SSWX News editor — maximally rich | ✅ done |
-| 16 | P-08 | Storm Ingredients redesign + shareable graphic | 🔴 hard |
+| 16 | P-08 | Storm Ingredients redesign + shareable graphic | ✅ done |
 | 17 | P-09 | Thunderstorm Probability — rebuild as probability maps | ✅ done |
 | 18 | P-14 | Storm Chasing — AI national target picker | 🔴 hard |
 | 19 | P-19 | Alert & Warning System — tiered delivery matrix | 🔴 hardest |

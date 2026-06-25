@@ -82,7 +82,6 @@ export function ProbabilityMap({ day }: { day: number }) {
   const legend = [...PROB_STEPS].reverse();
   const legW = 250, rowH = 26, legH = legend.length * rowH + 30;
   const legX = MAP_W - legW - 14, legY = MAP_H - legH - 30;
-  const filterId = `probblur-${day}`;
 
   async function rasterize(): Promise<Blob | null> {
     const svg = svgRef.current; if (!svg) return null;
@@ -115,16 +114,13 @@ export function ProbabilityMap({ day }: { day: number }) {
     <div className="space-y-2">
       <div className="relative rounded-lg overflow-hidden border border-border bg-[#0a0e1a]">
         <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} width={MAP_W} height={MAP_H} xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
-          <defs>
-            <filter id={filterId} x="-5%" y="-5%" width="110%" height="110%"><feGaussianBlur stdDeviation="5" /></filter>
-          </defs>
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
           <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="#141a28" stroke="#2b3650" strokeWidth={0.8} />)}</g>
-          <g filter={`url(#${filterId})`}>
-            {polys.map((p, i) => <path key={i} d={p.d} fill={PROB_STEPS[p.step].color} fillOpacity={0.62} stroke={PROB_STEPS[p.step].color} strokeWidth={1} strokeOpacity={0.5} />)}
+          <g>
+            {polys.map((p, i) => <path key={i} d={p.d} fill={PROB_STEPS[p.step].color} fillOpacity={0.6} stroke={PROB_STEPS[p.step].color} strokeWidth={1.2} strokeOpacity={0.9} />)}
           </g>
-          {/* re-draw state borders thinly over the soft fill for orientation */}
-          <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="none" stroke="#2b3650" strokeWidth={0.6} strokeOpacity={0.5} />)}</g>
+          {/* re-draw state borders thinly over the fill for orientation */}
+          <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="none" stroke="#3a4663" strokeWidth={0.6} strokeOpacity={0.45} />)}</g>
           <text x={20} y={36} fill="#ffffff" fontSize={28} fontWeight={800} fontFamily="system-ui, sans-serif">{title}</text>
           <text x={20} y={60} fill="#8FAEC0" fontSize={16} fontFamily="system-ui, sans-serif">Will I see severe weather? · United States</text>
           <text x={20} y={MAP_H - 16} fill="#5b6680" fontSize={14} fontFamily="system-ui, sans-serif">StormSync WX · derived from NOAA SPC outlooks</text>

@@ -12,11 +12,13 @@ import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/bad
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { listNews, createNews, deleteNews, type NewsPost } from "../lib/news";
+import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, seedFaqDefaults, type FaqEntry, type FaqKind } from "../lib/faq";
+import { DEFAULT_GENERAL, DEFAULT_MODULES } from "../lib/faqDefaults";
 import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from "../lib/broadcasts";
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
-import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown } from "lucide-react";
+import { Shield, Users, Bell, Mail, Newspaper, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle } from "lucide-react";
 
-type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "news" | "settings";
+type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "news" | "faq" | "settings";
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -57,6 +59,7 @@ export default function AdminPanel() {
           { id: "broadcasts", label: "Send Notification", icon: Bell },
           { id: "inbox", label: "Contact Inbox", icon: Mail },
           { id: "news", label: "SSWX News", icon: Newspaper },
+          { id: "faq", label: "FAQ & Guide", icon: HelpCircle },
           { id: "settings", label: "Settings", icon: Settings },
         ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
           const Icon = t.icon;
@@ -77,6 +80,7 @@ export default function AdminPanel() {
       {tab === "broadcasts" && <BroadcastsTab />}
       {tab === "inbox" && <InboxTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
+      {tab === "faq" && <FaqTab />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );
@@ -1113,6 +1117,128 @@ function SignupsTab() {
             <input value={qOptions} onChange={e => setQOptions(e.target.value)} placeholder="Comma-separated options (e.g. Beginner, Intermediate, Expert)" className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-xs" />
           )}
           <button onClick={addQ} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold flex items-center gap-1.5"><Plus className="w-4 h-4" /> Add Question</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── FAQ & Module-Guide editor (P-16) ─────────────────────────────────────────
+function FaqTab() {
+  const [entries, setEntries] = useState<FaqEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editing, setEditing] = useState<FaqEntry | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const refresh = useCallback(async () => {
+    try { setEntries(await listFaq()); setErr(""); } catch { setErr("Failed to load FAQ."); } finally { setLoading(false); }
+  }, []);
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const general = entries.filter(e => e.kind === "general");
+  const modules = entries.filter(e => e.kind === "module");
+
+  async function seed() {
+    setBusy(true);
+    const r = await seedFaqDefaults(DEFAULT_GENERAL, DEFAULT_MODULES.map(m => ({ ...m })));
+    setBusy(false);
+    if (!r.ok) { setErr(r.error || "Seed failed"); return; }
+    refresh();
+  }
+  async function remove(id: string) { await deleteFaq(id); refresh(); }
+  async function move(list: FaqEntry[], idx: number, dir: -1 | 1) {
+    const j = idx + dir;
+    if (j < 0 || j >= list.length) return;
+    const a = list[idx], b = list[j];
+    await reorderFaq([{ id: a.id, sortOrder: b.sortOrder }, { id: b.id, sortOrder: a.sortOrder }]);
+    refresh();
+  }
+  async function save(e: FaqEntry) {
+    setBusy(true);
+    const r = e.id ? await updateFaq(e.id, e) : await createFaq(e);
+    setBusy(false);
+    if (!r.ok) { setErr(r.error || "Save failed"); return; }
+    setEditing(null); refresh();
+  }
+  function addNew(kind: FaqKind) {
+    setEditing({ id: "", kind, sortOrder: (kind === "general" ? general : modules).length });
+  }
+
+  if (loading) return <div className="py-10 text-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
+
+  const renderList = (list: FaqEntry[], title: string, kind: FaqKind) => (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold">{title} ({list.length})</h3>
+        <button onClick={() => addNew(kind)} className="px-2.5 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-primary text-xs font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add</button>
+      </div>
+      {list.length === 0 && <p className="text-xs text-muted-foreground">No {kind} entries yet.</p>}
+      {list.map((e, i) => (
+        <div key={e.id} className="bg-card border border-border rounded-xl px-3 py-2.5 flex items-center gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="text-sm font-medium truncate">{kind === "general" ? e.question : `${e.label}`}{kind === "module" && <span className="text-[10px] text-muted-foreground ml-1.5">{e.moduleId} · T{e.tier}</span>}</div>
+            <div className="text-xs text-muted-foreground truncate">{kind === "general" ? e.answer : e.description}</div>
+          </div>
+          <button onClick={() => move(list, i, -1)} disabled={i === 0} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
+          <button onClick={() => move(list, i, 1)} disabled={i === list.length - 1} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
+          <button onClick={() => setEditing(e)} className="p-1 text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
+          <button onClick={() => remove(e.id)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+        </div>
+      ))}
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      {entries.length === 0 && (
+        <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-4 text-sm text-yellow-100/90 space-y-2">
+          <p>The FAQ table is empty, so the public Help page is showing the built-in defaults. Load them here to start editing, or just add your own entries — either way the Help page switches to your DB content.</p>
+          <button onClick={seed} disabled={busy} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{busy ? "Loading…" : "Load defaults to edit"}</button>
+        </div>
+      )}
+      {err && <div className="text-xs text-red-400">{err}</div>}
+      {renderList(general, "General FAQ", "general")}
+      {renderList(modules, "Module Guide", "module")}
+      {editing && <FaqEditor entry={editing} busy={busy} onCancel={() => setEditing(null)} onSave={save} />}
+    </div>
+  );
+}
+
+function FaqEditor({ entry, busy, onCancel, onSave }: { entry: FaqEntry; busy: boolean; onCancel: () => void; onSave: (e: FaqEntry) => void }) {
+  const [e, setE] = useState<FaqEntry>(entry);
+  const set = (k: keyof FaqEntry, v: string | number) => setE(p => ({ ...p, [k]: v }));
+  const inp = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
+  const lbl = "text-[10px] uppercase tracking-widest text-muted-foreground mb-1 block";
+  return (
+    <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onCancel}>
+      <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-3" onClick={ev => ev.stopPropagation()}>
+        <h3 className="text-sm font-bold">{e.id ? "Edit" : "New"} {e.kind === "general" ? "FAQ entry" : "module guide entry"}</h3>
+        {e.kind === "general" ? (
+          <>
+            <label className="block"><span className={lbl}>Question</span><input className={inp} value={e.question ?? ""} onChange={ev => set("question", ev.target.value)} /></label>
+            <label className="block"><span className={lbl}>Answer</span><textarea rows={6} className={`${inp} resize-none`} value={e.answer ?? ""} onChange={ev => set("answer", ev.target.value)} /></label>
+          </>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-2">
+              <label className="block"><span className={lbl}>Route / ID</span><input className={inp} placeholder="/spc" value={e.moduleId ?? ""} onChange={ev => set("moduleId", ev.target.value)} /></label>
+              <label className="block"><span className={lbl}>Tier</span>
+                <select className={inp} value={e.tier ?? 1} onChange={ev => set("tier", Number(ev.target.value))}>
+                  {[1, 2, 3, 4].map(t => <option key={t} value={t}>Tier {t}</option>)}
+                </select>
+              </label>
+            </div>
+            <label className="block"><span className={lbl}>Label</span><input className={inp} value={e.label ?? ""} onChange={ev => set("label", ev.target.value)} /></label>
+            <label className="block"><span className={lbl}>Description</span><textarea rows={2} className={`${inp} resize-none`} value={e.description ?? ""} onChange={ev => set("description", ev.target.value)} /></label>
+            <label className="block"><span className={lbl}>What it does</span><textarea rows={2} className={`${inp} resize-none`} value={e.what ?? ""} onChange={ev => set("what", ev.target.value)} /></label>
+            <label className="block"><span className={lbl}>How to use</span><textarea rows={2} className={`${inp} resize-none`} value={e.howto ?? ""} onChange={ev => set("howto", ev.target.value)} /></label>
+            <label className="block"><span className={lbl}>Pro tip (optional)</span><input className={inp} value={e.tips ?? ""} onChange={ev => set("tips", ev.target.value)} /></label>
+          </>
+        )}
+        <div className="flex gap-2 justify-end pt-1">
+          <button onClick={onCancel} className="px-3 py-1.5 rounded-lg bg-muted/40 text-sm">Cancel</button>
+          <button onClick={() => onSave(e)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </div>

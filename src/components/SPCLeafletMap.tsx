@@ -14,7 +14,7 @@ export type SPCProduct =
 //  Categorical "Severe Weather" uses levels 0-5; probability maps use 1-5.
 // ─────────────────────────────────────────────────────────────────────────────
 interface Level { color: string; label: string }
-const LEVELS: Level[] = [
+export const LEVELS: Level[] = [
   { color: "#D9D9D9", label: "Lvl. 0 Minor Convection" },          // Platinum (TSTM, categorical only)
   { color: "#8FAEC0", label: "Lvl. 1 Unorganized" },              // Pewter Blue
   { color: "#253559", label: "Lvl. 2 Escalating Baseline" },      // Winter Blue
@@ -26,8 +26,8 @@ const L5_TEXT = "#BBB7CC"; // readable tint for the near-black Level 5 on dark c
 
 const CAT_LEVEL: Record<string, number> = { TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5 };
 
-type Kind = "cat" | "torn" | "wind" | "hail" | "anysvr";
-function productKind(product: SPCProduct): Kind {
+export type Kind = "cat" | "torn" | "wind" | "hail" | "anysvr";
+export function productKind(product: SPCProduct): Kind {
   if (/^day[4-8]prob$/.test(product)) return "anysvr";
   const m = product.match(/_(cat|torn|wind|hail)$/);
   return (m?.[1] as Kind) ?? "cat";
@@ -49,7 +49,7 @@ function probToLevel(kind: Kind, pct: number): number {
 }
 
 /** A feature's level, "sig" (significant hatched), or null (skip — e.g. "Predictability Too Low"). */
-function featureLevel(product: SPCProduct, feature: GeoJSON.Feature): number | "sig" | null {
+export function featureLevel(product: SPCProduct, feature: GeoJSON.Feature): number | "sig" | null {
   const kind = productKind(product);
   const label = String(feature.properties?.LABEL ?? "");
   if (kind === "cat") return CAT_LEVEL[label.toUpperCase()] ?? 0;

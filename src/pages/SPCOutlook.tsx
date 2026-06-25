@@ -1,47 +1,38 @@
 import { useState } from "react";
 import type { Location } from "../hooks/useLocation";
-import { Globe, ExternalLink, RefreshCw, Download, Share2, Image as ImageIcon } from "lucide-react";
+import { Globe, ExternalLink, RefreshCw, Image as ImageIcon } from "lucide-react";
 import { SPCLeafletMap, type SPCProduct } from "../components/SPCLeafletMap";
+import { SPCStaticMap } from "../components/SPCStaticMap";
 
 interface Props { location: Location }
 
-// ── Static outlook maps (P-06): shareable SPC images via IEM autoplot #220 ──────
-const STATIC_DAYS = [1, 2, 3, 4, 5, 6, 7, 8];
-const STATIC_CATS = [
-  { id: "categorical", label: "Categorical" },
-  { id: "tornado", label: "Tornado" },
-  { id: "hail", label: "Hail" },
+// ── Static outlook maps (P-06): SSWX-themed, whole-US, downloadable snapshots ────
+// Same risk colors as the live map above, rendered self-contained (no tiles) so
+// every day/hazard always loads and exports cleanly to a shareable image.
+const STATIC_DAYS = [1, 2, 3];
+const STATIC_HAZ = [
+  { id: "cat", label: "Categorical" },
+  { id: "torn", label: "Tornado" },
   { id: "wind", label: "Wind" },
+  { id: "hail", label: "Hail" },
 ] as const;
-const staticUrl = (day: number, cat: string) =>
-  `https://mesonet.agron.iastate.edu/plotting/auto/plot/220/cat:${cat}::which:${day}C::t:state::csector:conus::_r:t.png`;
+type HazId = (typeof STATIC_HAZ)[number]["id"];
 
 function SPCStaticMaps() {
   const [day, setDay] = useState(1);
-  const [cat, setCat] = useState<string>("categorical");
+  const [haz, setHaz] = useState<HazId>("cat");
+  // Hazard-specific outlooks only exist for Days 1-2; Day 3 is categorical only.
   const hazardOk = day <= 2;
-  const activeCat = hazardOk ? cat : "categorical";
-  const url = staticUrl(day, activeCat);
-  const fname = `spc-day${day}-${activeCat}.png`;
-
-  async function download() {
-    try {
-      const r = await fetch(url); const b = await r.blob();
-      const u = URL.createObjectURL(b); const a = document.createElement("a");
-      a.href = u; a.download = fname; a.click(); URL.revokeObjectURL(u);
-    } catch { window.open(url, "_blank"); }
-  }
-  async function share() {
-    if (navigator.share) { try { await navigator.share({ title: "SPC Convective Outlook", text: `SPC Day ${day} ${activeCat} outlook`, url }); return; } catch { /* user cancelled */ } }
-    try { await navigator.clipboard.writeText(url); } catch { window.open(url, "_blank"); }
-  }
+  const activeHaz: HazId = hazardOk ? haz : "cat";
+  const product = (activeHaz === "cat" ? `day${day}otlk_cat` : `day${day}otlk_${activeHaz}`) as SPCProduct;
+  const hazLabel = STATIC_HAZ.find(h => h.id === activeHaz)!.label;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       <div className="px-4 py-2.5 border-b border-border bg-black/30 flex items-center gap-2">
         <ImageIcon className="w-4 h-4 text-primary" />
         <h3 className="text-sm font-semibold">Static Outlook Maps</h3>
-        <span className="text-[10px] text-muted-foreground ml-auto">Shareable images · NOAA SPC via IEM</span>
+        <span className="text-[10px] text-muted-foreground ml-auto">SSWX-themed · download &amp; share</span>
       </div>
       <div className="p-3 space-y-3">
         <div className="flex flex-wrap gap-1.5">
@@ -51,22 +42,16 @@ function SPCStaticMaps() {
           ))}
         </div>
         <div className="flex flex-wrap gap-1.5">
-          {STATIC_CATS.map(c => {
-            const disabled = !hazardOk && c.id !== "categorical";
+          {STATIC_HAZ.map(h => {
+            const disabled = !hazardOk && h.id !== "cat";
             return (
-              <button key={c.id} disabled={disabled} onClick={() => setCat(c.id)}
-                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${activeCat === c.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"} ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}>{c.label}</button>
+              <button key={h.id} disabled={disabled} onClick={() => setHaz(h.id)}
+                className={`px-3 py-1.5 rounded text-xs font-medium transition-colors ${activeHaz === h.id ? "bg-primary/15 text-primary border border-primary/30" : "bg-muted/30 text-muted-foreground border border-transparent hover:border-border"} ${disabled ? "opacity-30 cursor-not-allowed" : ""}`}>{h.label}</button>
             );
           })}
         </div>
-        {!hazardOk && <p className="text-[11px] text-muted-foreground">Days 3–8 issue a single categorical / any-severe outlook (no hazard breakdown).</p>}
-        <div className="rounded-lg overflow-hidden border border-border bg-black/40">
-          <img key={url} src={url} alt={`SPC Day ${day} ${activeCat} outlook`} loading="lazy" className="w-full h-auto" />
-        </div>
-        <div className="flex gap-2">
-          <button onClick={download} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary/15 border border-primary/30 text-primary text-sm font-semibold"><Download className="w-4 h-4" /> Download</button>
-          <button onClick={share} className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-muted/30 border border-border text-sm font-medium hover:border-primary/40 transition-colors"><Share2 className="w-4 h-4" /> Share</button>
-        </div>
+        {!hazardOk && <p className="text-[11px] text-muted-foreground">Day 3 issues a single categorical outlook (no hazard breakdown).</p>}
+        <SPCStaticMap product={product} title={`Day ${day} ${hazLabel} Outlook`} subtitle="NOAA Storm Prediction Center · United States" />
       </div>
     </div>
   );

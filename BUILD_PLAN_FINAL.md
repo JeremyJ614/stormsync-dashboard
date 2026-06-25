@@ -219,7 +219,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 1  | P-02 | Dashboard: glowing Customize button + more basic widgets | ✅ done |
 | 2  | P-05 | Severe Weather Threat Index — wow redesign | ✅ done |
 | 3  | P-04 | AQI redesign + high-tech AQI bar | ✅ done |
-| 4  | P-11 | Radar/MRMS — write the product **menu** (Appendix A) 📋 | ✅ menu delivered |
+| 4  | P-11 | Radar/MRMS/Satellite overlays (Jeremy's picks) | ✅ built |
 | 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | ✅ menu delivered |
 | 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | ◐ diagnosed, awaiting pick |
 | 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
@@ -289,6 +289,20 @@ Source: NOAA/NSSL via **Iowa Environmental Mesonet (IEM)** tile/WMS + NSSL image
 > Recommended starter set if Jeremy wants a quick high-impact pick: **MRMS 0–2 km Rotation
 > Tracks + MESH Tracks + Seamless Reflectivity mosaic + GOES GeoColor** — that alone makes the
 > page feel like a pro storm-chase tool.
+
+### ✅ BUILT 2026-06-25 — Jeremy's picks (new `RadarMap.tsx`)
+Rebuilt the radar page as a dark Leaflet map with grouped subtabs, city labels, nearest-station
+auto-select, opacity control, per-product legends, and 4-min auto-refresh. Sources verified via
+curl (IEM RIDGE single-site + SSEC RealEarth national/satellite tiles, all serve latest frame).
+- **Live Radar (IEM single-site):** Base Reflectivity (#14), Base Velocity + Storm-Rel Velocity
+  (#15), VIL (#8).
+- **National / MRMS (RealEarth):** National MRMS Reflectivity (#4), Near-Ground Reflectivity
+  (#6 → MRMS hybrid-scan), ProbSevere (#12).
+- **Satellite (RealEarth GOES-East):** True Color (#20 → GeoColor substitute, day), Clean IR
+  (#21), Air Mass RGB (#24), IR Sandwich (#26).
+- **Not built — no public tile service exists:** Rotation Tracks #1/#2 (AzShear) and MESH #3.
+  Covered instead by **Storm-Relative Velocity + ProbSevere** (the live way to watch rotation),
+  with an in-app note explaining the couplet signature.
 
 ## Appendix B — Tornado Climatology product menu *(P-12)*
 

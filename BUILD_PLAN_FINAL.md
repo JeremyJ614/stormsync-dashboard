@@ -220,7 +220,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 2  | P-05 | Severe Weather Threat Index — wow redesign | ✅ done |
 | 3  | P-04 | AQI redesign + high-tech AQI bar | ✅ done |
 | 4  | P-11 | Radar/MRMS/Satellite overlays (Jeremy's picks) | ✅ built |
-| 5  | P-12 | Tornado Climatology — write the product **menu** (Appendix B) 📋 | ✅ menu delivered |
+| 5  | P-12 | Tornado Climatology overlays (Jeremy's picks) | ✅ built |
 | 6  | P-15 | Weather Learn quizzes — fix-or-remove **decision** 🤔 | ◐ diagnosed, awaiting pick |
 | 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
 | 8  | P-13 | Moon & Astronomy redesign + realistic moon | 🟡 moderate |
@@ -340,6 +340,19 @@ from the dataset)** · **🟡 static SPC image** · **🔴 link-out only**.
 
 > Recommended starter set: **"Near Me" personalized tornado history + density heatmap + diurnal
 > chart + live YTD-vs-average counter.** Personalized local history is the standout feature.
+
+### ✅ BUILT 2026-06-25 — Jeremy's picks (rebuilt `TornadoClimatology.tsx`)
+Precomputed the full SPC tornado database (1950–2023, 70,022 tornadoes) into a compact
+`public/data/tornadoClimo.json` (~324 KB, lazy-fetched) and rebuilt the page with 11 native
+subtabs in SSWX theme, plus kept all existing reference content (EF scale, notable outbreaks,
+SPC tool launcher, external archives):
+- **A** Density heatmap (1° grid, Leaflet) · **D** EF2+ hotspots · **B** Tornado tracks map
+  (8,995 EF2+ paths, filter by EF + era)
+- **E** State rankings table · **F** Monthly average · **H** Annual trend (vs avg line)
+- **J** Path length & width distributions · **K** Fatalities by year + deadliest tornadoes
+- **L** Season timing by region (6-region line chart) · **M** Cumulative climatological average
+  vs today's date · **N** SPC static climatology maps (4 verified NOAA images)
+- Not picked (skipped): C (Near-Me personalized), G (diurnal), I (EF distribution chart), O.
 
 ## Appendix C — Alert & Warning tier × channel matrix *(P-19, to design)*
 _Pending: delivery-method matrix per tier. Not started._

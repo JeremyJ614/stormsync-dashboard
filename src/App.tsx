@@ -32,7 +32,7 @@ const SSWXCon = lazy(() => import("./pages/SSWXCon"));
 const MoonAstronomy = lazy(() => import("./pages/MoonAstronomy"));
 const StarSkygazing = lazy(() => import("./pages/StarSkygazing"));
 const AuroraForecast = lazy(() => import("./pages/AuroraForecast"));
-const RotationalMap = lazy(() => import("./pages/RotationalMap"));
+const RadarMap = lazy(() => import("./pages/RadarMap"));
 const TornadoClimatology = lazy(() => import("./pages/TornadoClimatology"));
 const WeatherPatternIndex = lazy(() => import("./pages/WeatherPatternIndex"));
 const AIForecastDuel = lazy(() => import("./pages/AIForecastDuel"));
@@ -108,7 +108,7 @@ function AppInner() {
         <Route path="/moon" component={() => <PW name="Moon & Astronomy"><Gated path="/moon"><MoonAstronomy location={location} /></Gated></PW>} />
         <Route path="/skygazing" component={() => <PW name="Star & Skygazing"><Gated path="/skygazing"><StarSkygazing location={location} /></Gated></PW>} />
         <Route path="/aurora" component={() => <PW name="Aurora Forecast"><Gated path="/aurora"><AuroraForecast location={location} /></Gated></PW>} />
-        <Route path="/rotation" component={() => <PW name="Rotational Map"><Gated path="/rotation"><RotationalMap location={location} /></Gated></PW>} />
+        <Route path="/rotation" component={() => <PW name="Radar & MRMS"><Gated path="/rotation"><RadarMap location={location} /></Gated></PW>} />
         <Route path="/climatology" component={() => <PW name="Tornado Climatology"><Gated path="/climatology"><TornadoClimatology location={location} /></Gated></PW>} />
         <Route path="/history" component={() => <PW name="Severe Weather History"><Gated path="/history"><SevereWeatherHistory /></Gated></PW>} />
         <Route path="/wpi" component={() => <PW name="Weather Pattern AI"><Gated path="/wpi"><WeatherPatternIndex location={location} /></Gated></PW>} />

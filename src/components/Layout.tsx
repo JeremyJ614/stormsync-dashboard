@@ -49,7 +49,7 @@ const NAV_SECTIONS = [
     items: [
       { label: "Model Runs",       path: "/comparator",      icon: Satellite },
       { label: "Lightning Monitor",path: "/lightning-globe", icon: Zap },
-      { label: "MRMS Data",        path: "/rotation",        icon: Target },
+      { label: "Radar & MRMS",     path: "/rotation",        icon: Target },
       { label: "Hazards & Drought",path: "/hazards",         icon: Map },
       { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
     ],

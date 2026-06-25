@@ -365,5 +365,11 @@ _Pending: delivery-method matrix per tier. Not started._
 ---
 
 ## Fix Log (Post-build)
+- **2026-06-25** — **P-11 wiring fix:** the new `RadarMap` was orphaned; the live module at
+  `/rotation` still rendered the old `RotationalMap`. Routed `/rotation` → `RadarMap`, deleted
+  `RotationalMap.tsx`, relabeled to "Radar & MRMS" (sidebar/modules/FAQ).
+- **2026-06-25** — **P-12 layout fix:** Tornado Climatology was way too tall (reference blocks
+  always rendered under the active tab). Moved EF scale / notable outbreaks / external tools into
+  a dedicated **Reference** subtab and trimmed map height 420→360, so the page is one tab tall.
 - **2026-06-25** — Created this Post-Build FINAL VERSION punch list from Jeremy's 19-item
   request. P-11/P-12 are **list-only** (build the menu, not the page); P-15 is **decide-later**.

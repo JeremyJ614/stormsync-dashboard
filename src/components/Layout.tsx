@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
 import {
   LayoutDashboard, CalendarDays, MessageSquare, Zap, Layers,
-  Brain, Swords, BookOpen, GraduationCap, FlaskConical,
+  Brain, Swords, BookOpen, FlaskConical,
   Moon, Wind, BarChart3, Activity, AlertCircle, FileText,
   Map, Star, Tornado, Sparkles, MapPin, Search, Navigation,
   Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
@@ -78,7 +78,6 @@ const NAV_SECTIONS = [
       { label: "Forecast Game",     path: "/game",     icon: Gamepad2 },
       { label: "Loyalty Dashboard", path: "/loyalty",  icon: Trophy },
       { label: "Weather Glossary",  path: "/glossary", icon: BookOpen },
-      { label: "Weather Learn",     path: "/learn",    icon: GraduationCap },
       { label: "FAQ",               path: "/faq",      icon: HelpCircle },
       { label: "Contact Us",        path: "/contact",  icon: Mail },
     ],

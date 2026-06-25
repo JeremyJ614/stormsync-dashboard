@@ -151,6 +151,70 @@ const GLOSSARY_TERMS = [
   { term: "PM2.5", full: "Fine Particulate Matter", category: "AQI & Environmental", desc: "Airborne particles ≤2.5 micrometers in diameter. Can penetrate deep into lungs and bloodstream. Primary driver of AQI in urban areas and during wildfire smoke events. Major health hazard above 35 μg/m³ (24hr avg).", unit: "μg/m³" },
   { term: "Ozone", full: "Ground-Level Ozone (O₃)", category: "AQI & Environmental", desc: "A secondary pollutant formed when NOx and VOCs react in sunlight. A major respiratory irritant. Highest on hot, sunny summer afternoons in urban areas. Damages lung tissue with repeated exposure.", unit: "ppb" },
   { term: "Inversion", full: "Temperature Inversion", category: "AQI & Environmental", desc: "A layer where temperature increases with altitude rather than decreasing. Traps pollutants near the surface and suppresses convection. Surface-based inversions are common at night and create fog, smog, and poor air quality.", unit: "" },
+  { term: "AOD", full: "Aerosol Optical Depth", category: "AQI & Environmental", desc: "A satellite-derived measure of how much aerosol (smoke, dust, haze) is in a column of atmosphere, blocking sunlight. Used to track wildfire smoke plumes and Saharan dust over large areas.", unit: "dimensionless" },
+  { term: "NO₂", full: "Nitrogen Dioxide", category: "AQI & Environmental", desc: "A reddish-brown gas from combustion (vehicles, power plants). A respiratory irritant and precursor to ground-level ozone and particulate matter. Concentrations peak near busy roadways.", unit: "ppb" },
+
+  // Basics — foundational terms for new weather enthusiasts
+  { term: "Thunderstorm", full: "Thunderstorm", category: "Basics", desc: "A storm produced by a cumulonimbus cloud, always containing lightning and thunder. Requires three ingredients: moisture, instability, and lift. Becomes 'severe' at ≥58 mph winds, ≥1 inch hail, or a tornado.", unit: "" },
+  { term: "Updraft", full: "Updraft", category: "Basics", desc: "The rising current of warm, moist air that fuels a thunderstorm. Stronger updrafts support taller storms, larger hail, and (with rotation) tornadoes. Updraft strength scales with instability (CAPE).", unit: "" },
+  { term: "Downdraft", full: "Downdraft", category: "Basics", desc: "Sinking air within a thunderstorm, driven by precipitation drag and evaporative cooling. Reaching the ground, it spreads out as gusty outflow and can produce damaging straight-line winds.", unit: "" },
+  { term: "Convection", full: "Convection", category: "Basics", desc: "The vertical transport of heat and moisture by rising air parcels. In meteorology, 'convection' is shorthand for showers and thunderstorms that form when unstable air rises.", unit: "" },
+  { term: "Lift", full: "Lifting Mechanism", category: "Basics", desc: "Any process that forces air upward to its level of free convection — fronts, drylines, outflow boundaries, terrain, or daytime heating. The trigger that releases instability into storms.", unit: "" },
+  { term: "Cold Front", full: "Cold Front", category: "Basics", desc: "The leading edge of an advancing cold air mass. Lifts warm air sharply, often triggering a line of showers and thunderstorms. Passage brings wind shifts, temperature drops, and clearing.", unit: "" },
+  { term: "Warm Front", full: "Warm Front", category: "Basics", desc: "The leading edge of advancing warm air overriding cooler air. Produces widespread layered clouds and steady precipitation ahead of it. Often a focus for elevated convection and freezing rain in winter.", unit: "" },
+  { term: "Dryline", full: "Dryline (Basics)", category: "Basics", desc: "A boundary between moist and dry air, most common in the Southern Plains. A favored ignition zone for supercells on spring afternoons as it mixes eastward.", unit: "" },
+  { term: "Trough", full: "Trough", category: "Basics", desc: "An elongated region of lower atmospheric pressure. Upper-level troughs bring cooler air, lift, and increased storm potential downstream of their axis.", unit: "" },
+  { term: "Ridge", full: "Ridge", category: "Basics", desc: "An elongated region of higher pressure, usually bringing sinking air, warm/dry conditions, and suppressed storms. Persistent summer ridges drive heat waves ('heat domes').", unit: "" },
+  { term: "Relative Humidity", full: "Relative Humidity", category: "Basics", desc: "The amount of water vapor in the air relative to the maximum it can hold at that temperature, as a percentage. 100% means saturation (fog/clouds). Dewpoint is a better measure of absolute moisture.", unit: "%" },
+  { term: "Heat Index", full: "Heat Index", category: "Basics", desc: "The 'feels-like' temperature combining air temperature and humidity, reflecting reduced sweat evaporation. Values ≥103°F (extended) prompt heat advisories; ≥125°F is extremely dangerous.", unit: "°F" },
+  { term: "Wind Chill", full: "Wind Chill", category: "Basics", desc: "The 'feels-like' temperature in cold conditions accounting for heat loss from wind over exposed skin. Wind chills below -18°F can cause frostbite within 30 minutes.", unit: "°F" },
+  { term: "Advection", full: "Advection", category: "Basics", desc: "Horizontal transport of an atmospheric property (heat, moisture, vorticity) by the wind. Warm-air advection promotes rising motion and clouds; cold-air advection promotes sinking and clearing.", unit: "" },
+
+  // Clouds & visual storm features
+  { term: "Cumulonimbus", full: "Cumulonimbus (Cb)", category: "Clouds", desc: "The towering thunderstorm cloud, extending from near the surface to the tropopause. Its flattened, anvil-shaped top marks where the updraft hits stable air. The only cloud that produces lightning, hail, and tornadoes.", unit: "" },
+  { term: "Anvil", full: "Anvil Cloud", category: "Clouds", desc: "The flat, spreading top of a mature thunderstorm, formed where the updraft reaches the tropopause and spreads horizontally. Anvil-level lightning can strike many miles from the storm core ('bolt from the blue').", unit: "" },
+  { term: "Wall Cloud", full: "Wall Cloud", category: "Clouds", desc: "An isolated, lowered cloud base beneath a supercell's rain-free base, marking the strongest part of the updraft/mesocyclone. A persistent, rotating wall cloud often precedes a tornado.", unit: "" },
+  { term: "Shelf Cloud", full: "Shelf Cloud", category: "Clouds", desc: "A low, wedge-shaped cloud attached to the leading edge of a storm's outflow (gust front). Signals strong straight-line winds are arriving — not rotation. Common with squall lines and bow echoes.", unit: "" },
+  { term: "Funnel Cloud", full: "Funnel Cloud", category: "Clouds", desc: "A rotating, funnel-shaped cloud extending from a storm base that has NOT reached the ground. Becomes a tornado on ground contact. Take it as a serious warning sign.", unit: "" },
+  { term: "Mammatus", full: "Mammatus Clouds", category: "Clouds", desc: "Pouch-like protrusions hanging beneath a thunderstorm anvil, caused by sinking pockets of cooler air. Often appear after the strongest part of a storm has passed; visually dramatic but not directly dangerous.", unit: "" },
+  { term: "Scud", full: "Scud (Fractus)", category: "Clouds", desc: "Ragged, low cloud fragments that form in the moist, rain-cooled air near a storm. Often mistaken for funnel clouds, but scud is non-rotating and moves with the wind rather than spinning.", unit: "" },
+  { term: "Overshooting Top", full: "Overshooting Top", category: "Clouds", desc: "A dome of cloud punching above the smooth anvil, where a very strong updraft briefly overshoots the tropopause. Indicates an intense, likely severe storm; visible on satellite and from the ground.", unit: "" },
+  { term: "Lenticular", full: "Lenticular Cloud", category: "Clouds", desc: "A smooth, lens-shaped cloud that forms in the wave crests of air flowing over mountains. Stationary despite strong winds. Indicates strong winds and moisture aloft; popular with photographers.", unit: "" },
+
+  // Lightning
+  { term: "CG Lightning", full: "Cloud-to-Ground Lightning", category: "Lightning", desc: "A lightning discharge between a cloud and the ground — the type that poses a direct threat to people. Most CG strikes are negatively charged; rarer positive CG strikes are more powerful and can strike far from the storm.", unit: "" },
+  { term: "IC Lightning", full: "Intracloud Lightning", category: "Lightning", desc: "Lightning that stays within or between clouds without reaching the ground. The most common lightning type, often seen as sheet-like flashes illuminating the cloud ('heat lightning' when too distant to hear thunder).", unit: "" },
+  { term: "Positive CG", full: "Positive Cloud-to-Ground", category: "Lightning", desc: "A lightning strike carrying positive charge to the ground, often originating from the anvil and striking far from the storm core. Carries far more energy than typical strikes — a major wildfire and casualty risk.", unit: "" },
+  { term: "GLM", full: "Geostationary Lightning Mapper", category: "Lightning", desc: "An instrument aboard GOES satellites that continuously maps total lightning (in-cloud + cloud-to-ground) across the hemisphere. Rapid increases in flash rate ('lightning jumps') often precede severe weather.", unit: "" },
+
+  // Flooding & hydrology
+  { term: "Flash Flood", full: "Flash Flood", category: "Flooding", desc: "Rapid flooding of low-lying areas in under 6 hours of heavy rain, dam failure, or ice jam. The leading cause of thunderstorm-related deaths in the US. 'Turn Around, Don't Drown' — 12 inches of moving water can sweep a car away.", unit: "" },
+  { term: "FFG", full: "Flash Flood Guidance", category: "Flooding", desc: "The amount of rainfall over a given duration needed to cause flash flooding in a specific area, accounting for soil moisture. Forecasters compare expected rainfall against FFG to assess flood risk.", unit: "inches" },
+  { term: "Training", full: "Training Storms", category: "Flooding", desc: "When thunderstorms repeatedly move over the same area like railcars on a track, producing prolonged heavy rain over one location. A primary mechanism for extreme flash-flooding events.", unit: "" },
+  { term: "ARI", full: "Average Recurrence Interval", category: "Flooding", desc: "The statistical likelihood of a rainfall amount, expressed as a return period (e.g. a '100-year rain' has a 1% chance in any year). Used to communicate how rare and dangerous an extreme rainfall event is.", unit: "years" },
+
+  // Climate & pattern drivers
+  { term: "ENSO", full: "El Niño–Southern Oscillation", category: "Patterns", desc: "A recurring climate pattern of warming (El Niño) and cooling (La Niña) in the tropical Pacific that shifts global weather. Strongly modulates US winter storm tracks, drought, and Atlantic hurricane activity.", unit: "" },
+  { term: "El Niño", full: "El Niño", category: "Patterns", desc: "The warm phase of ENSO. Typically increases wind shear over the Atlantic (suppressing hurricanes), wets the southern US, and dries the Pacific Northwest and Ohio Valley in winter.", unit: "" },
+  { term: "La Niña", full: "La Niña", category: "Patterns", desc: "The cool phase of ENSO. Generally favors a more active Atlantic hurricane season, drier/warmer conditions across the southern US, and an active northern storm track.", unit: "" },
+  { term: "NAO", full: "North Atlantic Oscillation", category: "Patterns", desc: "A seesaw in pressure between the Icelandic Low and Azores High. The negative phase favors cold-air outbreaks and blocking over the eastern US and Europe; the positive phase favors mild, zonal flow.", unit: "" },
+  { term: "Atmospheric River", full: "Atmospheric River", category: "Patterns", desc: "A long, narrow corridor of concentrated water vapor transport (e.g. the 'Pineapple Express'). Responsible for much of the West Coast's heavy rain, mountain snow, and flooding.", unit: "" },
+  { term: "Omega Block", full: "Omega Block", category: "Patterns", desc: "A blocking pattern shaped like the Greek letter Ω — a ridge flanked by two troughs — that stalls weather systems for days. Brings prolonged heat under the ridge and persistent storms/cold in the troughs.", unit: "" },
+  { term: "Cutoff Low", full: "Cutoff Low", category: "Patterns", desc: "An upper-level low that has detached from the main jet-stream flow, drifting slowly and unpredictably. Produces prolonged unsettled weather and is notoriously hard for models to handle.", unit: "" },
+
+  // Observations & tools
+  { term: "Sounding", full: "Atmospheric Sounding", category: "Observations", desc: "A vertical profile of temperature, dewpoint, and wind through the atmosphere, usually from a weather balloon (radiosonde) or model. The fundamental tool for assessing instability and shear.", unit: "" },
+  { term: "Skew-T", full: "Skew-T Log-P Diagram", category: "Observations", desc: "The standard thermodynamic chart for plotting a sounding. Temperature lines are skewed 45°; the area between the parcel and environment curves represents CAPE (positive) or CIN (negative).", unit: "" },
+  { term: "Radiosonde", full: "Radiosonde", category: "Observations", desc: "An instrument package carried aloft by a weather balloon, transmitting temperature, humidity, pressure, and wind as it rises. Launched twice daily (00Z/12Z) worldwide to initialize forecast models.", unit: "" },
+  { term: "Mesonet", full: "Mesonet", category: "Observations", desc: "A dense network of automated surface weather stations providing high-resolution observations (often every 5 minutes). Invaluable for tracking boundaries, mesoscale features, and verifying warnings.", unit: "" },
+  { term: "ASOS", full: "Automated Surface Observing System", category: "Observations", desc: "The primary US automated weather stations, mostly at airports, reporting conditions every minute and generating METARs. The backbone of official surface climate and aviation observations.", unit: "" },
+  { term: "Spotter", full: "Storm Spotter", category: "Observations", desc: "A trained volunteer who reports real-time ground truth (hail size, wind damage, funnel clouds) to the NWS via SKYWARN. Spotter reports are critical for verifying radar-indicated warnings.", unit: "" },
+
+  // Aviation
+  { term: "METAR", full: "Aviation Routine Weather Report", category: "Aviation", desc: "A coded hourly surface observation used in aviation, reporting wind, visibility, cloud layers, temperature/dewpoint, pressure, and significant weather. The most widely used surface ob format worldwide.", unit: "" },
+  { term: "TAF", full: "Terminal Aerodrome Forecast", category: "Aviation", desc: "A coded forecast for the weather within ~5 statute miles of an airport, typically covering 24-30 hours. Used by pilots and dispatchers for flight planning.", unit: "" },
+  { term: "SIGMET", full: "Significant Meteorological Information", category: "Aviation", desc: "An in-flight advisory of weather hazardous to all aircraft — severe turbulence, icing, dust storms, volcanic ash, or thunderstorms. Convective SIGMETs cover organized thunderstorm activity.", unit: "" },
+  { term: "Ceiling", full: "Cloud Ceiling", category: "Aviation", desc: "The height above ground of the lowest broken or overcast cloud layer. A key aviation parameter — low ceilings (with low visibility) define instrument flight rules (IFR) conditions.", unit: "feet" },
 ];
 
 const CATEGORIES = [...new Set(GLOSSARY_TERMS.map(t => t.category))].sort();
@@ -186,6 +250,13 @@ export default function WeatherGlossary() {
     "Synoptic": "#e879f9",
     "Models": "#38bdf8",
     "AQI & Environmental": "#34d399",
+    "Basics": "#94a3b8",
+    "Clouds": "#a5b4fc",
+    "Lightning": "#facc15",
+    "Flooding": "#3b82f6",
+    "Patterns": "#c084fc",
+    "Observations": "#fca5a5",
+    "Aviation": "#2dd4bf",
   };
 
   return (

@@ -232,8 +232,8 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 9  | P-03 | Forecast Discussion — longer, personalized plain-language | ✅ done |
 | 10 | P-10 | Model Comparator — more params + categories | ✅ done |
 | 11 | P-16 | Admin FAQ + Module-Guide editor | ✅ done |
-| 12 | P-01 | Hurricane Tracker Preview (Milton Cat-5 demo) | 🟡 moderate |
-| 13 | P-06 | SPC Outlook — phone-fit map + static-map area | 🔴 hard |
+| 12 | P-01 | Hurricane Tracker Preview (Milton Cat-5 demo) | ✅ done |
+| 13 | P-06 | SPC Outlook — phone-fit map + static-map area | ✅ done |
 | 14 | P-07 | Meso Discussion — real substance + AI summary | 🔴 hard |
 | 15 | P-18 | Admin SSWX News editor — maximally rich | 🔴 hard |
 | 16 | P-08 | Storm Ingredients redesign + shareable graphic | 🔴 hard |

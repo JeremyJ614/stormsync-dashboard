@@ -132,7 +132,14 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
         center: [39, -97], zoom: 4, zoomControl: true, attributionControl: false, scrollWheelZoom: false,
       });
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 10 }).addTo(map);
+      // City labels on top of the risk polygons so users can orient themselves.
+      map.createPane("labels");
+      const lp = map.getPane("labels")!;
+      lp.style.zIndex = "650";
+      lp.style.pointerEvents = "none";
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 10, pane: "labels" }).addTo(map);
       mapRef.current = map;
+      setTimeout(() => map.invalidateSize(), 60);
       loadData(L, map);
     });
     return () => { cancelled = true; };

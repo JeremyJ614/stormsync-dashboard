@@ -359,8 +359,46 @@ SPC tool launcher, external archives):
   vs today's date · **N** SPC static climatology maps (4 verified NOAA images)
 - Not picked (skipped): C (Near-Me personalized), G (diurnal), I (EF distribution chart), O.
 
-## Appendix C — Alert & Warning tier × channel matrix *(P-19, to design)*
-_Pending: delivery-method matrix per tier. Not started._
+## Appendix C — Alert & Warning System *(P-19)*
+
+### Channel menu (every way to receive an alert)
+| Channel | Cost | Notes / limits |
+|---|---|---|
+| **In-app inbox** (bell + feed) | Free | Built. Durable history, fully custom look, per-type prefs. Universal backbone every channel logs into. |
+| **In-app live banner** | Free | (next) Slam-down banner / takeover when a warning fires with the app open. |
+| **Web/PWA push** | Free | Built (warnings). Android/desktop now; iOS needs installed PWA. Custom content/icon/buttons, OS-framed. |
+| **Audible weather-radio** | Free | (later) Siren tone + vibration + spoken read-aloud while app open. Can play a custom recorded clip in-app / on tap. |
+| **Email — event** | ~Free (Resend) | Built. Branded HTML, warnings/watches/escalations. Tier 3+. |
+| **Email — daily digest** | ~Free (Resend) | Built. Morning brief summary. Tier 2+. |
+| **Telegram bot** | Free | (next) Link once → instant reliable phone alerts, no carrier/Apple limits. |
+| **Discord webhook** | Free | (later) Pipe alerts into a community channel. |
+| **Carrier email-to-SMS** | Free | Exists (emergency line). Unreliable & deprecating (Verizon gateway shut down) — fallback only. |
+| **Twilio SMS** | Paid (~$0.008/msg) | (later) Real reliable texts. Tier 4. Needs `TWILIO_*` secrets. |
+| **Twilio voice call** | Paid (~$0.014/min) | (later) "Call me & read the tornado warning." Tier 4. |
+| *Experimental Nowcast / threat-boxes* | — | Parked as its own module (overlaps P-11). Never labeled "Tornado Warning"; defer to NWS. Liability-sensitive. |
+
+### Alert types in scope
+NWS **warnings** (tornado/severe/flash-flood) · NWS **watches** · **SPC Day-1 outlook escalations** (your area → ENH+). _(Daily-brief digest + News are informational, via digest/in-app.)_
+
+### Tier × channel matrix (cumulative ladder)
+| | In-app inbox | Web push | Daily digest (email) | Event email | Telegram | SMS / voice |
+|---|:--:|:--:|:--:|:--:|:--:|:--:|
+| **Tier 1 (Free)** | ✅ | — | — | — | — | — |
+| **Tier 2** | ✅ | ✅ | ✅ | — | ✅ | — |
+| **Tier 3** | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| **Tier 4 Elite** | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+Every member also controls **per-type** opt-outs (warnings / watches / outlook) and per-channel toggles in the bell's gear menu; tier gating is enforced server-side.
+
+### Shipped this pass (first build)
+- **`notifications` + `notification_prefs`** tables (RLS: members read/maintain their own; Edge Functions insert via service role).
+- **In-app inbox**: `NotificationBell` (header bell + unread badge + feed + mark-read/all + delete) and a **settings panel** (channel + type toggles, tier-aware locks). `lib/notifications.ts`.
+- **`alerts-fanout`** Edge Function (cron */10): per member with saved locations → NWS warnings + watches + SPC ENH+ escalation → in-app insert (all tiers, deduped) + **branded event email** (Tier 3+, opt-in). 
+- **`daily-digest`** Edge Function (cron 11:30 UTC, after the nightly brief): in-app digest + **branded digest email** (Tier 2+, opt-in).
+- pg_cron jobs `alerts-fanout-10min` and `daily-digest-morning`.
+
+### Next passes
+Telegram bot → in-app live banner + audible weather-radio → Twilio SMS/voice (Tier 4) → experimental Nowcast module.
 
 ---
 

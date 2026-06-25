@@ -20,24 +20,19 @@ function riskBadge(risk: string): string {
 }
 
 function ScoreGauge({ score, color }: { score: number; color: string }) {
-  const pct = score / 100;
-  const angle = pct * 180;
-  const rad = ((angle - 90) * Math.PI) / 180;
   const cx = 100, cy = 100, r = 78;
-  const nx = cx + r * Math.cos(rad);
-  const ny = cy + r * Math.sin(rad);
-
-  function polarToXY(angleDeg: number, radius: number) {
-    const a = (angleDeg * Math.PI) / 180;
+  const polarToXY = (deg: number, radius: number) => {
+    const a = (deg * Math.PI) / 180;
     return { x: cx + radius * Math.cos(a), y: cy + radius * Math.sin(a) };
-  }
-
-  function arcPath(startDeg: number, endDeg: number, radius: number) {
+  };
+  const arcPath = (startDeg: number, endDeg: number, radius: number) => {
     const s = polarToXY(startDeg, radius);
     const e = polarToXY(endDeg, radius);
     const large = endDeg - startDeg > 180 ? 1 : 0;
     return `M ${s.x} ${s.y} A ${radius} ${radius} 0 ${large} 1 ${e.x} ${e.y}`;
-  }
+  };
+  const angle = (score / 100) * 180; // 0..180 across the dial
+  const needle = polarToXY(angle - 90, r - 8);
 
   const segments = [
     { start: -90, end: -54, color: "#4ade80" },
@@ -46,21 +41,33 @@ function ScoreGauge({ score, color }: { score: number; color: string }) {
     { start: 18, end: 54, color: "#ef4444" },
     { start: 54, end: 90, color: "#d946ef" },
   ];
+  const ticks = Array.from({ length: 11 }, (_, i) => -90 + i * 18);
 
   return (
-    <svg width="200" height="115" viewBox="0 0 200 115">
+    <svg width="224" height="132" viewBox="0 0 200 120">
+      <defs>
+        <filter id="swtiGaugeGlow" x="-60%" y="-60%" width="220%" height="220%">
+          <feGaussianBlur stdDeviation="3.2" result="b" />
+          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
+      </defs>
+      <path d={arcPath(-90, 90, r)} stroke="hsl(var(--border))" strokeWidth="14" fill="none" strokeLinecap="round" opacity={0.5} />
       {segments.map((seg, i) => (
-        <path key={i} d={arcPath(seg.start, seg.end, 78)} stroke={seg.color}
-          strokeWidth="14" fill="none" strokeLinecap="round" opacity={0.25} />
+        <path key={i} d={arcPath(seg.start, seg.end, r)} stroke={seg.color} strokeWidth="14" fill="none" strokeLinecap="round" opacity={0.22} />
       ))}
-      <path d={arcPath(-90, angle - 90, 78)} stroke={color}
-        strokeWidth="14" fill="none" strokeLinecap="round" />
-      <line x1={cx} y1={cy} x2={nx} y2={ny} stroke="white" strokeWidth="3" strokeLinecap="round" />
-      <circle cx={cx} cy={cy} r="6" fill="white" />
-      <text x={cx} y={cy + 24} textAnchor="middle" fontSize="32" fontWeight="bold" fill={color}>{score}</text>
-      <text x={cx} y={cy + 40} textAnchor="middle" fontSize="10" fill="#9ca3af">/ 100</text>
-      <text x={15} y={112} fontSize="9" fill="#6b7280">Benign</text>
-      <text x={160} y={112} fontSize="9" fill="#6b7280">Extreme</text>
+      <path d={arcPath(-90, angle - 90, r)} stroke={color} strokeWidth="14" fill="none" strokeLinecap="round"
+        filter="url(#swtiGaugeGlow)" style={{ transition: "all .6s ease" }} />
+      {ticks.map((t, i) => {
+        const a = polarToXY(t, r - 15), b = polarToXY(t, r - 21);
+        return <line key={i} x1={a.x} y1={a.y} x2={b.x} y2={b.y} stroke="#6b7280" strokeWidth="1.5" opacity={0.6} />;
+      })}
+      <line x1={cx} y1={cy} x2={needle.x} y2={needle.y} stroke="white" strokeWidth="3" strokeLinecap="round" style={{ transition: "all .6s ease" }} />
+      <circle cx={cx} cy={cy} r="7" fill="white" />
+      <circle cx={cx} cy={cy} r="3.5" fill={color} />
+      <text x={cx} y={cy + 26} textAnchor="middle" fontSize="34" fontWeight="bold" fill={color} filter="url(#swtiGaugeGlow)">{score}</text>
+      <text x={cx} y={cy + 42} textAnchor="middle" fontSize="10" fill="#9ca3af">/ 100</text>
+      <text x={10} y={116} fontSize="9" fill="#6b7280">Benign</text>
+      <text x={168} y={116} fontSize="9" fill="#6b7280">Extreme</text>
     </svg>
   );
 }
@@ -130,7 +137,7 @@ export default function SWTIPage({ location }: Props) {
         </div>
       )}
 
-      <div className="aurora-bg glass rounded-2xl p-6 flex flex-col items-center text-center" style={{ boxShadow: `0 0 44px -8px ${swti.color}55`, borderColor: swti.color + "55" }}>
+      <div className="aurora-bg glass-strong rounded-2xl p-6 flex flex-col items-center text-center" style={{ boxShadow: `0 0 52px -8px ${swti.color}66`, borderColor: swti.color + "66" }}>
         <div className="relative flex flex-col items-center">
           <div className="text-xs tracking-[0.3em] uppercase text-muted-foreground mb-3">Current SWTI Score</div>
           {isLoading
@@ -150,7 +157,8 @@ export default function SWTIPage({ location }: Props) {
           { label: "Hail Risk", value: swti.hailRisk, color: (swti.hailRisk === "giant" || swti.hailRisk === "large") ? "#ef4444" : swti.hailRisk === "small" ? "#f97316" : "#4ade80", riskClass: (swti.hailRisk === "giant" || swti.hailRisk === "large") ? "high" : swti.hailRisk === "small" ? "moderate" : "minimal" },
           { label: "Wind Risk", value: swti.windRisk, color: swti.windRisk === "significant" ? "#ef4444" : swti.windRisk === "marginal" ? "#f97316" : "#4ade80", riskClass: swti.windRisk === "significant" ? "high" : swti.windRisk === "marginal" ? "moderate" : "minimal" },
         ].map(m => (
-          <div key={m.label} className="bg-card border border-border rounded-xl p-3 text-center">
+          <div key={m.label} className="glass rounded-xl p-3 text-center transition-shadow"
+            style={{ borderColor: m.color + "44", boxShadow: `0 0 22px -12px ${m.color}` }}>
             <div className="text-xs text-muted-foreground uppercase tracking-wide mb-2">{m.label}</div>
             <span className={`inline-block px-2 py-1 rounded-lg text-xs font-bold capitalize border ${riskBadge(m.riskClass)}`}>
               {m.value}
@@ -161,15 +169,18 @@ export default function SWTIPage({ location }: Props) {
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {[
-          { label: "CAPE", value: `${Math.round(cape)} J/kg`, color: cape >= 2000 ? "#ef4444" : cape >= 1000 ? "#f97316" : cape >= 500 ? "#fde047" : "#4ade80", threshold: `${cape >= 2000 ? "Extreme" : cape >= 1000 ? "Large" : cape >= 500 ? "Moderate" : "Weak"}` },
-          { label: "0-3km SRH", value: `${Math.round(srh)} m²/s²`, color: srh >= 300 ? "#ef4444" : srh >= 150 ? "#f97316" : srh >= 75 ? "#fde047" : "#4ade80", threshold: srh >= 300 ? "Very favorable" : srh >= 150 ? "Favorable" : "Limited" },
-          { label: "0-6km Shear", value: `${Math.round(shear)} kts`, color: shear >= 50 ? "#ef4444" : shear >= 40 ? "#f97316" : shear >= 30 ? "#fde047" : "#4ade80", threshold: shear >= 50 ? "Extreme" : shear >= 40 ? "Strong" : "Moderate" },
-          { label: "Lifted Index", value: li.toFixed(1), color: li <= -6 ? "#ef4444" : li <= -4 ? "#f97316" : li <= 0 ? "#fde047" : "#4ade80", threshold: li <= -6 ? "Extreme instability" : li <= -4 ? "Unstable" : li <= 0 ? "Slightly unstable" : "Stable" },
+          { label: "CAPE", value: `${Math.round(cape)} J/kg`, color: cape >= 2000 ? "#ef4444" : cape >= 1000 ? "#f97316" : cape >= 500 ? "#fde047" : "#4ade80", threshold: `${cape >= 2000 ? "Extreme" : cape >= 1000 ? "Large" : cape >= 500 ? "Moderate" : "Weak"}`, pct: Math.min(100, (cape / 3000) * 100) },
+          { label: "0-3km SRH", value: `${Math.round(srh)} m²/s²`, color: srh >= 300 ? "#ef4444" : srh >= 150 ? "#f97316" : srh >= 75 ? "#fde047" : "#4ade80", threshold: srh >= 300 ? "Very favorable" : srh >= 150 ? "Favorable" : "Limited", pct: Math.min(100, (srh / 400) * 100) },
+          { label: "0-6km Shear", value: `${Math.round(shear)} kts`, color: shear >= 50 ? "#ef4444" : shear >= 40 ? "#f97316" : shear >= 30 ? "#fde047" : "#4ade80", threshold: shear >= 50 ? "Extreme" : shear >= 40 ? "Strong" : "Moderate", pct: Math.min(100, (shear / 60) * 100) },
+          { label: "Lifted Index", value: li.toFixed(1), color: li <= -6 ? "#ef4444" : li <= -4 ? "#f97316" : li <= 0 ? "#fde047" : "#4ade80", threshold: li <= -6 ? "Extreme instability" : li <= -4 ? "Unstable" : li <= 0 ? "Slightly unstable" : "Stable", pct: Math.min(100, Math.max(0, (-li / 8) * 100)) },
         ].map(m => (
-          <div key={m.label} className="bg-card border border-border rounded-xl p-3">
+          <div key={m.label} className="glass rounded-xl p-3" style={{ borderColor: m.color + "33" }}>
             <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{m.label}</div>
             <div className="text-xl font-bold" style={{ color: m.color }}>{isLoading ? "—" : m.value}</div>
-            <div className="text-xs mt-1" style={{ color: m.color }}>{m.threshold}</div>
+            <div className="mt-2 h-1.5 rounded-full bg-muted/40 overflow-hidden">
+              <div className="h-full rounded-full transition-all duration-700" style={{ width: `${isLoading ? 0 : m.pct}%`, backgroundColor: m.color, boxShadow: `0 0 10px -1px ${m.color}` }} />
+            </div>
+            <div className="text-xs mt-1.5" style={{ color: m.color }}>{m.threshold}</div>
           </div>
         ))}
       </div>
@@ -179,7 +190,7 @@ export default function SWTIPage({ location }: Props) {
           { label: "Dew Point", value: `${Math.round(cToF(dewC))}°F`, color: dewC >= 18 ? "#ef4444" : dewC >= 13 ? "#f97316" : dewC >= 10 ? "#fde047" : "#4ade80", sub: dewC >= 18 ? "Very moist — fuel for storms" : dewC >= 10 ? "Adequate moisture" : "Limited moisture" },
           { label: "Surface Wind", value: `${Math.round(msToMph(ws10))} mph`, color: "#7B8FD9", sub: `From ~${wd10}°` },
         ].map(m => (
-          <div key={m.label} className="bg-card border border-border rounded-xl p-3">
+          <div key={m.label} className="glass rounded-xl p-3" style={{ borderColor: m.color + "33" }}>
             <div className="text-xs text-muted-foreground uppercase tracking-wide mb-1">{m.label}</div>
             <div className="text-xl font-bold" style={{ color: m.color }}>{isLoading ? "—" : m.value}</div>
             <div className="text-xs text-muted-foreground mt-1">{m.sub}</div>

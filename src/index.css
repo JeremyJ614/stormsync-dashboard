@@ -318,3 +318,13 @@
 @media (prefers-reduced-motion: reduce) {
   .aurora-bg::before { animation: none; }
 }
+
+/* Attention pulse for call-to-action buttons (e.g. dashboard Customize). */
+.pulse-glow { animation: pulseGlow 2.2s ease-in-out infinite; }
+@keyframes pulseGlow {
+  0%, 100% { box-shadow: 0 0 0 0 hsl(var(--primary) / 0.0), 0 0 10px -2px hsl(var(--primary) / 0.5); }
+  50%      { box-shadow: 0 0 0 4px hsl(var(--primary) / 0.12), 0 0 22px 0 hsl(var(--primary) / 0.75); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pulse-glow { animation: none; box-shadow: 0 0 16px -2px hsl(var(--primary) / 0.6); }
+}

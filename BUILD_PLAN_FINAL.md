@@ -227,7 +227,7 @@ time. Difficulty is a rough build-effort + risk estimate (🟢 easy · 🟡 mode
 | 4  | P-11 | Radar/MRMS/Satellite overlays (Jeremy's picks) | ✅ built |
 | 5  | P-12 | Tornado Climatology overlays (Jeremy's picks) | ✅ built |
 | 6  | P-15 | Weather Learn removed + Glossary expanded | ✅ done |
-| 7  | P-17 | Forecast Game — scouting info + city labels on map | 🟡 moderate |
+| 7  | P-17 | Forecast Game — scouting info + city labels on map | ✅ done |
 | 8  | P-13 | Moon & Astronomy redesign + realistic moon | 🟡 moderate |
 | 9  | P-03 | Forecast Discussion — longer, personalized plain-language | 🟡 moderate |
 | 10 | P-10 | Model Comparator — more params + categories | 🟡 moderate |

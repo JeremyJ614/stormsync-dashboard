@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { Link } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { getMyGuess, lockGuess, monthlyLeaderboard, getWinners, type GameGuess, type LeaderRow, type WinnerRow } from "../lib/gameDb";
+import { useDailyBrief } from "../hooks/useDailyBrief";
 import { geocodeLocation } from "../utils/weatherApi";
 import usStatesAlbers from "../data/usStatesAlbers.json";
 import { Gamepad2, Search, MapPin, Trophy, Calendar, Crown, Target, Info, ExternalLink, AlertTriangle } from "lucide-react";
@@ -88,10 +89,38 @@ function unproject(x: number, y: number): { lat: number; lon: number } {
   return { lat, lon };
 }
 
+// Major metros for on-map orientation labels (projected through the same affine).
+const GAME_CITIES: { name: string; lat: number; lon: number }[] = [
+  { name: "Seattle", lat: 47.61, lon: -122.33 }, { name: "Portland", lat: 45.52, lon: -122.68 },
+  { name: "San Francisco", lat: 37.77, lon: -122.42 }, { name: "Los Angeles", lat: 34.05, lon: -118.24 },
+  { name: "Las Vegas", lat: 36.17, lon: -115.14 }, { name: "Phoenix", lat: 33.45, lon: -112.07 },
+  { name: "Salt Lake City", lat: 40.76, lon: -111.89 }, { name: "Denver", lat: 39.74, lon: -104.99 },
+  { name: "Albuquerque", lat: 35.08, lon: -106.65 }, { name: "Dallas", lat: 32.78, lon: -96.80 },
+  { name: "Houston", lat: 29.76, lon: -95.37 }, { name: "San Antonio", lat: 29.42, lon: -98.49 },
+  { name: "Oklahoma City", lat: 35.47, lon: -97.52 }, { name: "Kansas City", lat: 39.10, lon: -94.58 },
+  { name: "Minneapolis", lat: 44.98, lon: -93.27 }, { name: "St. Louis", lat: 38.63, lon: -90.20 },
+  { name: "Chicago", lat: 41.88, lon: -87.63 }, { name: "Detroit", lat: 42.33, lon: -83.05 },
+  { name: "Nashville", lat: 36.16, lon: -86.78 }, { name: "Memphis", lat: 35.15, lon: -90.05 },
+  { name: "New Orleans", lat: 29.95, lon: -90.07 }, { name: "Atlanta", lat: 33.75, lon: -84.39 },
+  { name: "Miami", lat: 25.76, lon: -80.19 }, { name: "Tampa", lat: 27.95, lon: -82.46 },
+  { name: "Charlotte", lat: 35.23, lon: -80.84 }, { name: "Washington", lat: 38.90, lon: -77.04 },
+  { name: "New York", lat: 40.71, lon: -74.00 }, { name: "Boston", lat: 42.36, lon: -71.06 },
+];
+
+const CAT_RANK: Record<string, number> = { TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5 };
+const CAT_MEANING: Record<string, string> = {
+  TSTM: "General thunderstorms — not severe.",
+  MRGL: "Marginal — isolated severe possible.",
+  SLGT: "Slight — scattered severe storms.",
+  ENH: "Enhanced — numerous severe storms likely.",
+  MDT: "Moderate — widespread, intense severe.",
+  HIGH: "High — a severe/tornado outbreak.",
+};
+
 interface SPCOutlookInfo {
   day: number;
   issued: string | null;
-  riskAreas: { label: string; color: string }[];
+  riskAreas: { label: string; color: string; code: string }[];
 }
 
 export default function ForecastGame() {
@@ -107,6 +136,8 @@ export default function ForecastGame() {
   const [winners, setWinners] = useState<WinnerRow[]>([]);
   const states = US_STATES;
   const [outlook, setOutlook] = useState<SPCOutlookInfo | null>(null);
+  const [riskPolys, setRiskPolys] = useState<{ d: string; color: string; rank: number }[]>([]);
+  const { data: brief } = useDailyBrief();
   const svgRef = useRef<SVGSVGElement>(null);
   const today = new Date().toISOString().slice(0, 10);
   const yyyymm = today.slice(0, 7);
@@ -122,15 +153,32 @@ export default function ForecastGame() {
       };
       const seen = new Set<string>();
       const areas: { label: string; color: string }[] = [];
+      const polys: { d: string; color: string; rank: number }[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       for (const f of d.features as any[]) {
-        const lbl: string = f.properties?.LABEL2 || f.properties?.LABEL || "";
-        if (!lbl || seen.has(lbl)) continue;
-        seen.add(lbl);
-        areas.push({ label: lbl, color: colorMap[lbl] || "#7B8FD9" });
+        const code: string = f.properties?.LABEL || "";
+        const lbl: string = f.properties?.LABEL2 || code || "";
+        const color = colorMap[code] || "#7B8FD9";
+        if (lbl && !seen.has(lbl)) { seen.add(lbl); areas.push({ label: lbl, color, code }); }
+        // Project the polygon geometry onto the SVG so the risk shows on the map.
+        const g = f.geometry;
+        const rings: number[][][][] = g?.type === "Polygon" ? [g.coordinates] : g?.type === "MultiPolygon" ? g.coordinates : [];
+        for (const poly of rings) {
+          let path = "";
+          for (const ring of poly) {
+            ring.forEach((co, idx) => {
+              const p = project(co[0], co[1]);
+              path += `${idx === 0 ? "M" : "L"}${p.x.toFixed(1)},${p.y.toFixed(1)}`;
+            });
+            path += "Z";
+          }
+          polys.push({ d: path, color, rank: CAT_RANK[code] ?? 0 });
+        }
       }
+      polys.sort((p1, p2) => p1.rank - p2.rank); // higher categories drawn on top
+      setRiskPolys(polys);
       setOutlook({ day: 1, issued: new Date().toISOString(), riskAreas: areas });
-    }).catch(() => setOutlook({ day: 1, issued: null, riskAreas: [] }));
+    }).catch(() => { setOutlook({ day: 1, issued: null, riskAreas: [] }); setRiskPolys([]); });
   }, []);
 
   // Load my locked guess for today + the leaderboard/winners from Supabase.
@@ -266,6 +314,20 @@ export default function ForecastGame() {
                     <title>{s.name}</title>
                   </path>
                 ))}
+                {/* SPC risk polygons — the scouting overlay */}
+                {riskPolys.map((p, i) => (
+                  <path key={`r${i}`} d={p.d} fill={p.color} fillOpacity={0.32} stroke={p.color} strokeOpacity={0.75} strokeWidth={0.8} pointerEvents="none" />
+                ))}
+                {/* City orientation labels */}
+                {GAME_CITIES.map(ci => {
+                  const p = project(ci.lon, ci.lat);
+                  return (
+                    <g key={ci.name} pointerEvents="none">
+                      <circle cx={p.x} cy={p.y} r={2.2} fill="#e2e8f0" stroke="#000" strokeWidth={0.5} />
+                      <text x={p.x + 4} y={p.y + 3} fill="#cbd5e1" fontSize={8.5} fontFamily="system-ui" style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 1.6 }}>{ci.name}</text>
+                    </g>
+                  );
+                })}
                 {pt && (
                   <g>
                     <circle cx={pt.x} cy={pt.y} r={18} fill="none" stroke="#fde047" strokeWidth={2} opacity={0.6}>
@@ -278,6 +340,30 @@ export default function ForecastGame() {
                 <text x={20} y={28} fill="#64748b" fontSize={11} fontFamily="monospace">CLICK ANY STATE TO PLACE A PIN</text>
               </svg>
             </div>
+          </div>
+
+          {/* Scouting Report — helps the player pick a target */}
+          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <h3 className="text-sm font-semibold flex items-center gap-2"><Target className="w-4 h-4 text-primary" /> Scouting Report</h3>
+            {brief?.headline && (
+              <p className="text-xs text-muted-foreground leading-relaxed">
+                <span className="text-primary font-semibold">National picture: </span>{brief.headline}
+                {brief.content?.risk_overview?.day1_category_name && <span className="text-foreground"> · SPC Day 1: {brief.content.risk_overview.day1_category_name}</span>}
+              </p>
+            )}
+            {outlook && outlook.riskAreas.length > 0 ? (
+              <div className="space-y-1.5">
+                {[...outlook.riskAreas].sort((x, y) => (CAT_RANK[y.code] ?? 0) - (CAT_RANK[x.code] ?? 0)).map(r => (
+                  <div key={r.label} className="flex items-start gap-2 text-xs">
+                    <span className="mt-0.5 w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: r.color }} />
+                    <span><strong style={{ color: r.color }}>{r.label}</strong> <span className="text-muted-foreground">— {CAT_MEANING[r.code] ?? "Severe risk area."}</span></span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">No SPC severe risk areas issued today — a quiet-day pin still scores 25 pts, so aim where storms are most likely.</p>
+            )}
+            <p className="text-[11px] text-primary/90">🎯 The shaded areas on the map are today's SPC risk. Drop your pin inside the highest category for the best shot at points + the tornado bonus.</p>
           </div>
 
           {/* Scoring rules */}

@@ -60,7 +60,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/skygazing", label: "Star & Skygazing" },
   { id: "/aurora", label: "Aurora Forecast" },
   { id: "/lightning-globe", label: "Lightning Density" },
-  { id: "/rotation", label: "Rotational Map" },
+  { id: "/rotation", label: "Radar & MRMS" },
   { id: "/climatology", label: "Tornado Climatology" },
   { id: "/wpi", label: "Weather Pattern AI" },
   { id: "/duel", label: "AI Forecast Duel" },

@@ -98,10 +98,10 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
     layerRef.current = group;
   }
 
-  return <div ref={containerRef} style={{ height: 420, background: "#0a0e1a" }} className="rounded-xl" />;
+  return <div ref={containerRef} style={{ height: 360, background: "#0a0e1a" }} className="rounded-xl" />;
 }
 
-type TabId = "annual" | "monthly" | "region" | "ytd" | "density" | "hotspots" | "tracks" | "states" | "pathsize" | "casualties" | "spcmaps";
+type TabId = "annual" | "monthly" | "region" | "ytd" | "density" | "hotspots" | "tracks" | "states" | "pathsize" | "casualties" | "spcmaps" | "reference";
 const NEW_TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "annual", label: "Annual Trend", icon: TrendingUp },
   { id: "monthly", label: "Monthly", icon: Calendar },
@@ -114,6 +114,7 @@ const NEW_TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
   { id: "pathsize", label: "Path Size", icon: Ruler },
   { id: "casualties", label: "Casualties", icon: Skull },
   { id: "spcmaps", label: "SPC Maps", icon: Database },
+  { id: "reference", label: "Reference", icon: Layers },
 ];
 
 const REGION_COLORS: Record<string, string> = {
@@ -443,12 +444,9 @@ export default function TornadoClimatology({ location }: Props) {
         </div>
       )}
 
-      {/* ── Reference & external tools (kept) ─────────────────────────────── */}
-      <div className="flex items-center gap-2 pt-2">
-        <Layers className="w-4 h-4 text-primary" />
-        <h3 className="text-sm font-bold uppercase tracking-wide">Reference &amp; External Tools</h3>
-      </div>
-
+      {/* ── Reference & external tools (now its own tab to keep the page short) ── */}
+      {tab === "reference" && (
+      <div className="space-y-5">
       <div className="bg-gradient-to-br from-card to-primary/5 border border-primary/20 rounded-xl p-4">
         <div className="flex items-start gap-2 mb-3">
           <Info className="w-4 h-4 text-primary shrink-0 mt-0.5" />
@@ -509,6 +507,8 @@ export default function TornadoClimatology({ location }: Props) {
           ))}
         </div>
       </div>
+      </div>
+      )}
     </div>
   );
 }

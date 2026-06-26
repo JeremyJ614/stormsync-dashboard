@@ -45,6 +45,19 @@ Deno.serve(async (req: Request) => {
   const auth = await authorize(req);
   if (auth instanceof Response) return auth;
 
+  // Controlled test: send ONE branded email to a given address and surface the
+  // exact Resend response (verifies RESEND_API_KEY + RELAY_FROM + domain).
+  let body: { testEmail?: string } = {};
+  try { body = await req.json(); } catch { /* no body */ }
+  if (body.testEmail) {
+    if (!RESEND_API_KEY) return json({ ok: false, error: "RESEND_API_KEY not set" });
+    try {
+      const r = await fetch("https://api.resend.com/emails", { method: "POST", headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" }, body: JSON.stringify({ from: RELAY_FROM, to: [body.testEmail], subject: "✅ StormSync email test", html: emailHtml("Email is working", "If you're reading this, StormSync alert emails are configured correctly.") }) });
+      const txt = await r.text();
+      return json({ ok: r.ok, status: r.status, from: RELAY_FROM, resend: txt.slice(0, 400) });
+    } catch (e) { return json({ ok: false, error: String(e) }); }
+  }
+
   const { data: brief } = await admin.from("daily_brief").select("headline,summary,content,generated_at").order("generated_at", { ascending: false }).limit(1).maybeSingle();
   const headline = (brief?.headline as string) || "Today's StormSync brief";
   const summary = (brief?.summary as string) || (brief?.content as { discussion_plain?: string } | null)?.discussion_plain || "Open StormSync for today's full national severe-weather brief.";

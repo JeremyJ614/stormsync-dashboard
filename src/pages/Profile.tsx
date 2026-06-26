@@ -9,6 +9,7 @@ import { BadgeChip } from "../components/BadgeChip";
 import { AppearancePanel } from "../components/AppearancePanel";
 import { StormAlertsCard } from "../components/StormAlertsCard";
 import { InstallApp } from "../components/InstallApp";
+import { AlertContactCard } from "../components/AlertContactCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
 // Core signup fields are shown elsewhere; everything else the member answered
@@ -124,6 +125,9 @@ export default function Profile() {
 
       {/* Storm Alerts (Web Push) */}
       <StormAlertsCard userId={user.id} />
+
+      {/* Email & Text alert opt-in (Tier 3+) */}
+      {user.tier >= 3 && <AlertContactCard user={user} />}
 
       {/* Install to home screen (PWA) */}
       <InstallApp />

@@ -50,20 +50,20 @@ Deno.serve(async (req: Request) => {
   const summary = (brief?.summary as string) || (brief?.content as { discussion_plain?: string } | null)?.discussion_plain || "Open StormSync for today's full national severe-weather brief.";
   const ymd = new Date().toISOString().slice(0, 10);
 
-  // Tier 2+ members get the digest; email gated by their email_digest preference.
-  const { data: profs } = await admin.from("profiles").select("id,email,tier").gte("tier", 2);
+  // Daily digest is available to all tiers; email gated by the email_digest preference.
+  const { data: profs } = await admin.from("profiles").select("id,email,tier");
   const ids = (profs ?? []).map((p) => p.id);
-  const { data: prefRows } = ids.length ? await admin.from("notification_prefs").select("user_id,email_digest,inapp_enabled").in("user_id", ids) : { data: [] };
-  const prefById = new Map((prefRows ?? []).map((p) => [p.user_id as string, p as { email_digest: boolean; inapp_enabled: boolean }]));
+  const { data: prefRows } = ids.length ? await admin.from("notification_prefs").select("user_id,email_digest,inapp_enabled,alert_email").in("user_id", ids) : { data: [] };
+  const prefById = new Map((prefRows ?? []).map((p) => [p.user_id as string, p as { email_digest: boolean; inapp_enabled: boolean; alert_email: string | null }]));
 
   let inapp = 0, emails = 0;
   for (const p of profs ?? []) {
-    const pref = prefById.get(p.id) ?? { email_digest: true, inapp_enabled: true };
+    const pref = prefById.get(p.id) ?? { email_digest: true, inapp_enabled: true, alert_email: null };
     if (pref.inapp_enabled !== false) {
       const { data: existing } = await admin.from("notifications").select("id").eq("user_id", p.id).eq("dedup_key", `digest-${ymd}`).maybeSingle();
       if (!existing) { const { error } = await admin.from("notifications").insert({ user_id: p.id, kind: "digest", severity: "info", title: headline, body: summary, link: "/", dedup_key: `digest-${ymd}` }); if (!error) inapp++; }
     }
-    if (pref.email_digest !== false) { const ok = await sendEmail(p.email as string, `☀️ StormSync Daily Brief — ${headline}`, emailHtml(headline, summary)); if (ok) emails++; }
+    if (pref.email_digest !== false) { const ok = await sendEmail((pref.alert_email || p.email) as string, `☀️ StormSync Daily Brief — ${headline}`, emailHtml(headline, summary)); if (ok) emails++; }
   }
   return json({ ok: true, recipients: (profs ?? []).length, inapp, emails });
 });

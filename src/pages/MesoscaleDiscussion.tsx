@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from "react";
 import type { Location } from "../hooks/useLocation";
 import { Layers, ExternalLink, RefreshCw, AlertTriangle, Clock, MapPin, Info, ChevronDown, Tornado, Wind, CloudHail } from "lucide-react";
-import { US_STATES, MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { UsStatesBackdrop, UsStateLabels } from "../components/UsStatesBackdrop";
 
 interface Props { location: Location }
 
@@ -110,8 +111,9 @@ function MDCard({ md }: { md: MD }) {
         <div className="border-b md:border-b-0 md:border-r border-border bg-[#0a0e1a]">
           <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} style={{ width: "100%", height: "auto", display: "block" }} xmlns="http://www.w3.org/2000/svg">
             <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
-            {US_STATES.map((s, i) => <path key={i} d={s.d} fill="#141a28" stroke="#2b3650" strokeWidth={0.8} />)}
+            <UsStatesBackdrop labels={false} />
             <path d={md.geomD} fill="#FA003F" fillOpacity={0.32} stroke="#FA003F" strokeWidth={2.6} />
+            <UsStateLabels />
           </svg>
         </div>
 

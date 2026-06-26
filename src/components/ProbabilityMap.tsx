@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Download, Share2 } from "lucide-react";
 import { BASE_API } from "../config";
-import { US_STATES, MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { UsStatesBackdrop, UsStateLabels } from "./UsStatesBackdrop";
 
 // "Will I see severe weather?" — a true total-severe probability map, distinct from
 // the SPC categorical outlook. Day 1-3 read the categorical product (whose bins ARE
@@ -115,12 +116,11 @@ export function ProbabilityMap({ day }: { day: number }) {
       <div className="relative rounded-lg overflow-hidden border border-border bg-[#0a0e1a]">
         <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} width={MAP_W} height={MAP_H} xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
-          <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="#141a28" stroke="#2b3650" strokeWidth={0.8} />)}</g>
+          <UsStatesBackdrop labels={false} />
           <g>
             {polys.map((p, i) => <path key={i} d={p.d} fill={PROB_STEPS[p.step].color} fillOpacity={0.6} stroke={PROB_STEPS[p.step].color} strokeWidth={1.2} strokeOpacity={0.9} />)}
           </g>
-          {/* re-draw state borders thinly over the fill for orientation */}
-          <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="none" stroke="#3a4663" strokeWidth={0.6} strokeOpacity={0.45} />)}</g>
+          <UsStateLabels />
           <text x={20} y={36} fill="#ffffff" fontSize={28} fontWeight={800} fontFamily="system-ui, sans-serif">{title}</text>
           <text x={20} y={60} fill="#8FAEC0" fontSize={16} fontFamily="system-ui, sans-serif">Will I see severe weather? · United States</text>
           <text x={20} y={MAP_H - 16} fill="#5b6680" fontSize={14} fontFamily="system-ui, sans-serif">StormSync WX · derived from NOAA SPC outlooks</text>

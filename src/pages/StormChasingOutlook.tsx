@@ -5,7 +5,8 @@ import type { Location } from "../hooks/useLocation";
 import { Car, ExternalLink, Crosshair, Brain, MapPin, Clock, Flame, RefreshCw } from "lucide-react";
 import { computeSRHFromProfile, compute06kmShear, computeSWTI, cToF, mpsToKnots } from "../utils/weatherCalc";
 import { CHASE_CITIES } from "../data/usChaseCities";
-import { US_STATES, MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { UsStatesBackdrop } from "../components/UsStatesBackdrop";
 import { BASE_API } from "../config";
 
 interface Props { location: Location }
@@ -203,7 +204,7 @@ export default function StormChasingOutlook(_props: Props) {
             <div className="bg-card border border-border rounded-xl overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border bg-black/30"><h3 className="text-sm font-semibold flex items-center gap-1.5"><Crosshair className="w-4 h-4 text-primary" /> National Scan — {ranked.length} cities</h3></div>
               <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} style={{ width: "100%", height: "auto", display: "block", background: "#0a0e1a" }}>
-                {US_STATES.map((s, i) => <path key={i} d={s.d} fill="#141a28" stroke="#2b3650" strokeWidth={0.8} />)}
+                <UsStatesBackdrop />
                 {ranked.map((t, i) => { const p = project(t.lon, t.lat); return <circle key={i} cx={p.x} cy={p.y} r={4 + t.hype * 0.9} fill={dotColor(t.hype)} fillOpacity={0.85} stroke="#0a0e1a" strokeWidth={1} />; })}
                 {targets.map((t, i) => { const p = project(t.lon, t.lat); return (
                   <g key={i}>

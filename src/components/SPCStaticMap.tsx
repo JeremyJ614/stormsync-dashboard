@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Download, Share2 } from "lucide-react";
 import { BASE_API } from "../config";
 import { LEVELS, featureLevel, productKind, type SPCProduct } from "./SPCLeafletMap";
-import { US_STATES, MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { MAP_W, MAP_H, project } from "../lib/usAlbers";
+import { UsStatesBackdrop, UsStateLabels } from "./UsStatesBackdrop";
 
 // A self-contained, non-interactive SPC outlook map in the SSWX palette. It draws
 // the same risk levels/colors as the live Leaflet map (shared from SPCLeafletMap)
@@ -98,7 +99,7 @@ export function SPCStaticMap({ product, title, subtitle }: { product: SPCProduct
       <div className="relative rounded-lg overflow-hidden border border-border bg-[#0a0e1a]">
         <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} width={MAP_W} height={MAP_H} xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
-          <g>{US_STATES.map((s, i) => <path key={i} d={s.d} fill="#141a28" stroke="#2b3650" strokeWidth={0.8} />)}</g>
+          <UsStatesBackdrop labels={false} />
           <g>
             {polys.map((p, i) => {
               if (p.level === "sig") return <path key={i} d={p.d} fill="none" stroke="#ffffff" strokeWidth={2.4} opacity={0.95} />;
@@ -107,6 +108,7 @@ export function SPCStaticMap({ product, title, subtitle }: { product: SPCProduct
               return <path key={i} d={p.d} fill={LEVELS[lvl].color} fillOpacity={op} stroke={lvl === 5 ? "#9896A4" : LEVELS[lvl].color} strokeWidth={lvl === 5 ? 2.4 : 1} />;
             })}
           </g>
+          <UsStateLabels />
           {/* Title + brand (baked into the PNG) */}
           <text x={20} y={36} fill="#ffffff" fontSize={28} fontWeight={800} fontFamily="system-ui, -apple-system, sans-serif">{title}</text>
           <text x={20} y={60} fill="#8FAEC0" fontSize={16} fontFamily="system-ui, -apple-system, sans-serif">{subtitle}</text>

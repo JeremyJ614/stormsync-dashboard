@@ -8,6 +8,7 @@ import { getMyLoyalty } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { AppearancePanel } from "../components/AppearancePanel";
 import { StormAlertsCard } from "../components/StormAlertsCard";
+import { InstallApp } from "../components/InstallApp";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
 // Core signup fields are shown elsewhere; everything else the member answered
@@ -123,6 +124,9 @@ export default function Profile() {
 
       {/* Storm Alerts (Web Push) */}
       <StormAlertsCard userId={user.id} />
+
+      {/* Install to home screen (PWA) */}
+      <InstallApp />
 
       {/* Appearance — themes + accent (L4) */}
       <AppearancePanel />

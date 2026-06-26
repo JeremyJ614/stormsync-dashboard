@@ -15,7 +15,7 @@ import webpush from "npm:web-push@3.6.7";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-const VAPID_PUBLIC = "BLud2dgGHYNaLNnk9HvlijNKV6cC8AQ2G0C1BBizwGOq8J6FomGWSr2oQf9EUq3T_PJ1hjGN9AkCM5RP39TogD0";
+const VAPID_PUBLIC = "BPQVDL8EAh58PxE8ZB6Wz-6coY_4MtJ0EiZf_tSMxgBdUlkSsUe6GgmzH4P3rtYTBn1wvB6KcgRCgxIFJ4nXwYo";
 const VAPID_PRIVATE = Deno.env.get("VAPID_PRIVATE_KEY") ?? "";
 const VAPID_SUBJECT = Deno.env.get("VAPID_SUBJECT") ?? "mailto:admin@stormsync.media";
 

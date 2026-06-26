@@ -9,7 +9,7 @@ import { logger } from "./logger";
 
 // Public VAPID key (safe to ship). The matching private key is the
 // VAPID_PRIVATE_KEY Edge Function secret used only by `push-dispatch`.
-export const VAPID_PUBLIC_KEY = "BLud2dgGHYNaLNnk9HvlijNKV6cC8AQ2G0C1BBizwGOq8J6FomGWSr2oQf9EUq3T_PJ1hjGN9AkCM5RP39TogD0";
+export const VAPID_PUBLIC_KEY = "BPQVDL8EAh58PxE8ZB6Wz-6coY_4MtJ0EiZf_tSMxgBdUlkSsUe6GgmzH4P3rtYTBn1wvB6KcgRCgxIFJ4nXwYo";
 
 export const isPushSupported = (): boolean =>
   typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window && "Notification" in window;

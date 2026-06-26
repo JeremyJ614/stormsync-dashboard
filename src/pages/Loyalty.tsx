@@ -2,7 +2,7 @@ import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "../hooks/useAuth";
 import { getLoyaltyRules, getMyLoyalty, loyaltyKindLabel } from "../lib/loyalty";
-import { Trophy, Star, Users, Gift, History, Sparkles, TrendingUp } from "lucide-react";
+import { Trophy, Star, Users, Gift, History, Sparkles, TrendingUp, Lock } from "lucide-react";
 import { format, parseISO } from "date-fns";
 
 export default function Loyalty() {
@@ -90,14 +90,15 @@ export default function Loyalty() {
             return (
               <div key={p.points} className={`flex items-center gap-3 p-3 rounded-lg border ${unlocked ? "bg-yellow-400/10 border-yellow-400/40" : "bg-muted/20 border-border"}`}>
                 <div className={`w-9 h-9 rounded-full flex items-center justify-center ${unlocked ? "bg-yellow-400/20 text-yellow-300" : "bg-muted/40 text-muted-foreground"}`}>
-                  <Gift className="w-4 h-4" />
+                  {unlocked ? <Gift className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold flex items-center gap-2">
-                    {p.prize}
-                    {unlocked && <span className="text-[9px] text-green-400 uppercase tracking-widest">unlocked</span>}
+                    {unlocked
+                      ? <>{p.prize}<span className="text-[9px] text-green-400 uppercase tracking-widest">unlocked</span></>
+                      : <span className="blur-[6px] select-none text-muted-foreground" title="Reach the points to reveal this prize">{p.prize}</span>}
                   </div>
-                  <div className="text-xs text-muted-foreground">{p.points.toLocaleString()} points</div>
+                  <div className="text-xs text-muted-foreground">{p.points.toLocaleString()} points{unlocked ? "" : " to unlock"}</div>
                 </div>
                 {!unlocked && <div className="text-xs text-muted-foreground tabular-nums shrink-0">{(p.points - points).toLocaleString()} to go</div>}
               </div>

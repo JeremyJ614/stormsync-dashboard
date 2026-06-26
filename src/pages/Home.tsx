@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { listNews } from "../lib/news";
+import { InstallApp } from "../components/InstallApp";
 import { renderMarkdown } from "../lib/markdown";
 import { useAuth } from "../hooks/useAuth";
 import DailyBriefing from "../components/DailyBriefing";
@@ -82,6 +83,7 @@ export default function Home() {
               <Link href="/warnings" className="px-4 py-2 rounded-lg bg-red-500/15 border border-red-500/30 text-red-300 text-sm font-semibold hover:bg-red-500/25">
                 <AlertCircle className="w-3 h-3 inline mr-1" /> Live Warnings
               </Link>
+              <InstallApp variant="compact" />
             </div>
           </div>
         </div>

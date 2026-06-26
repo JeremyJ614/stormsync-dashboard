@@ -12,8 +12,8 @@ import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/bad
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
-import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, seedFaqDefaults, type FaqEntry, type FaqKind } from "../lib/faq";
-import { DEFAULT_GENERAL, DEFAULT_MODULES } from "../lib/faqDefaults";
+import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
+import { DEFAULT_FAQ } from "../lib/faqDefaults";
 import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from "../lib/broadcasts";
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
@@ -1381,120 +1381,140 @@ function SignupsTab() {
 
 // ── FAQ & Module-Guide editor (P-16) ─────────────────────────────────────────
 function FaqTab() {
+  const [cats, setCats] = useState<FaqCategory[]>([]);
   const [entries, setEntries] = useState<FaqEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<FaqEntry | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const [newCat, setNewCat] = useState("");
 
   const refresh = useCallback(async () => {
-    try { setEntries(await listFaq()); setErr(""); } catch { setErr("Failed to load FAQ."); } finally { setLoading(false); }
+    try { const [c, e] = await Promise.all([listCategories(), listFaq()]); setCats(c); setEntries(e); setErr(""); }
+    catch { setErr("Failed to load."); } finally { setLoading(false); }
   }, []);
   useEffect(() => { refresh(); }, [refresh]);
 
-  const general = entries.filter(e => e.kind === "general");
-  const modules = entries.filter(e => e.kind === "module");
-
-  async function seed() {
-    setBusy(true);
-    const r = await seedFaqDefaults(DEFAULT_GENERAL, DEFAULT_MODULES.map(m => ({ ...m })));
-    setBusy(false);
-    if (!r.ok) { setErr(r.error || "Seed failed"); return; }
-    refresh();
+  async function seed() { setBusy(true); const r = await seedFaqDefaults(DEFAULT_FAQ); setBusy(false); if (!r.ok) { setErr(r.error || "Seed failed"); return; } refresh(); }
+  async function addCategory() { if (!newCat.trim()) return; await createCategory(newCat.trim(), cats.length); setNewCat(""); refresh(); }
+  async function removeCategory(id: string) { if (!confirm("Delete this page and ALL its entries?")) return; await deleteCategory(id); refresh(); }
+  async function moveCat(i: number, dir: -1 | 1) {
+    const j = i + dir; if (j < 0 || j >= cats.length) return;
+    await reorderCategories([{ id: cats[i].id, sortOrder: cats[j].sortOrder }, { id: cats[j].id, sortOrder: cats[i].sortOrder }]); refresh();
   }
-  async function remove(id: string) { await deleteFaq(id); refresh(); }
-  async function move(list: FaqEntry[], idx: number, dir: -1 | 1) {
-    const j = idx + dir;
-    if (j < 0 || j >= list.length) return;
-    const a = list[idx], b = list[j];
-    await reorderFaq([{ id: a.id, sortOrder: b.sortOrder }, { id: b.id, sortOrder: a.sortOrder }]);
-    refresh();
+  async function removeEntry(id: string) { await deleteFaq(id); refresh(); }
+  async function moveEntry(list: FaqEntry[], i: number, dir: -1 | 1) {
+    const j = i + dir; if (j < 0 || j >= list.length) return;
+    await reorderFaq([{ id: list[i].id, sortOrder: list[j].sortOrder }, { id: list[j].id, sortOrder: list[i].sortOrder }]); refresh();
   }
   async function save(e: FaqEntry) {
-    setBusy(true);
-    const r = e.id ? await updateFaq(e.id, e) : await createFaq(e);
-    setBusy(false);
-    if (!r.ok) { setErr(r.error || "Save failed"); return; }
-    setEditing(null); refresh();
+    setBusy(true); const r = e.id ? await updateFaq(e.id, e) : await createFaq(e); setBusy(false);
+    if (!r.ok) { setErr(r.error || "Save failed"); return; } setEditing(null); refresh();
   }
-  function addNew(kind: FaqKind) {
-    setEditing({ id: "", kind, sortOrder: (kind === "general" ? general : modules).length });
+  function addEntry(categoryId: string) {
+    const n = entries.filter((x) => x.categoryId === categoryId).length;
+    setEditing({ id: "", categoryId, sortOrder: n, title: "", sections: [{ heading: "", body: "" }] });
   }
 
   if (loading) return <div className="py-10 text-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>;
 
-  const renderList = (list: FaqEntry[], title: string, kind: FaqKind) => (
-    <div className="space-y-2">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold">{title} ({list.length})</h3>
-        <button onClick={() => addNew(kind)} className="px-2.5 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-primary text-xs font-semibold flex items-center gap-1"><Plus className="w-3.5 h-3.5" /> Add</button>
-      </div>
-      {list.length === 0 && <p className="text-xs text-muted-foreground">No {kind} entries yet.</p>}
-      {list.map((e, i) => (
-        <div key={e.id} className="bg-card border border-border rounded-xl px-3 py-2.5 flex items-center gap-2">
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">{kind === "general" ? e.question : `${e.label}`}{kind === "module" && <span className="text-[10px] text-muted-foreground ml-1.5">{e.moduleId} · T{e.tier}</span>}</div>
-            <div className="text-xs text-muted-foreground truncate">{kind === "general" ? e.answer : e.description}</div>
-          </div>
-          <button onClick={() => move(list, i, -1)} disabled={i === 0} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
-          <button onClick={() => move(list, i, 1)} disabled={i === list.length - 1} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
-          <button onClick={() => setEditing(e)} className="p-1 text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
-          <button onClick={() => remove(e.id)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
-        </div>
-      ))}
-    </div>
-  );
-
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {entries.length === 0 && (
         <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-4 text-sm text-yellow-100/90 space-y-2">
-          <p>The FAQ table is empty, so the public Help page is showing the built-in defaults. Load them here to start editing, or just add your own entries — either way the Help page switches to your DB content.</p>
+          <p>No entries yet — the public Help page is showing the built-in defaults. Load them here to start editing (fills the pages below with the current content), or create your own pages &amp; entries.</p>
           <button onClick={seed} disabled={busy} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{busy ? "Loading…" : "Load defaults to edit"}</button>
         </div>
       )}
       {err && <div className="text-xs text-red-400">{err}</div>}
-      {renderList(general, "General FAQ", "general")}
-      {renderList(modules, "Module Guide", "module")}
+
+      {/* Add a page/category */}
+      <div className="flex items-center gap-2">
+        <input value={newCat} onChange={(e) => setNewCat(e.target.value)} placeholder="New page name (e.g. Billing, Getting Started)…"
+          className="flex-1 bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40" />
+        <button onClick={addCategory} className="px-3 py-2 rounded-lg bg-primary/15 border border-primary/30 text-primary text-sm font-semibold flex items-center gap-1"><Plus className="w-4 h-4" /> Add page</button>
+      </div>
+
+      {cats.map((c, ci) => {
+        const list = entries.filter((e) => e.categoryId === c.id).sort((a, b) => a.sortOrder - b.sortOrder);
+        return (
+          <div key={c.id} className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border bg-black/20">
+              <input defaultValue={c.name} onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== c.name) updateCategory(c.id, { name: v }).then(refresh); }}
+                className="flex-1 bg-transparent text-sm font-bold outline-none focus:bg-muted/30 rounded px-1.5 py-1" />
+              <span className="text-[10px] text-muted-foreground">{list.length}</span>
+              <button onClick={() => moveCat(ci, -1)} disabled={ci === 0} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowUp className="w-3.5 h-3.5" /></button>
+              <button onClick={() => moveCat(ci, 1)} disabled={ci === cats.length - 1} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowDown className="w-3.5 h-3.5" /></button>
+              <button onClick={() => addEntry(c.id)} className="px-2 py-1 rounded bg-primary/15 border border-primary/30 text-primary text-[11px] font-semibold flex items-center gap-1"><Plus className="w-3 h-3" /> Entry</button>
+              <button onClick={() => removeCategory(c.id)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+            </div>
+            <div className="divide-y divide-border/60">
+              {list.length === 0 && <p className="text-xs text-muted-foreground p-3">No entries yet.</p>}
+              {list.map((e, i) => (
+                <div key={e.id} className="px-3 py-2.5 flex items-center gap-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{e.title || "(untitled)"}{e.moduleId && <span className="text-[10px] text-muted-foreground ml-1.5">{e.moduleId}{e.tier ? ` · T${e.tier}` : ""}</span>}</div>
+                    <div className="text-xs text-muted-foreground truncate">{e.sections.map((s) => s.heading).filter(Boolean).join(" · ") || e.sections[0]?.body?.slice(0, 60)}</div>
+                  </div>
+                  <button onClick={() => moveEntry(list, i, -1)} disabled={i === 0} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowUp className="w-4 h-4" /></button>
+                  <button onClick={() => moveEntry(list, i, 1)} disabled={i === list.length - 1} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowDown className="w-4 h-4" /></button>
+                  <button onClick={() => setEditing(e)} className="p-1 text-muted-foreground hover:text-primary"><Pencil className="w-4 h-4" /></button>
+                  <button onClick={() => removeEntry(e.id)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+
       {editing && <FaqEditor entry={editing} busy={busy} onCancel={() => setEditing(null)} onSave={save} />}
     </div>
   );
 }
 
 function FaqEditor({ entry, busy, onCancel, onSave }: { entry: FaqEntry; busy: boolean; onCancel: () => void; onSave: (e: FaqEntry) => void }) {
-  const [e, setE] = useState<FaqEntry>(entry);
-  const set = (k: keyof FaqEntry, v: string | number) => setE(p => ({ ...p, [k]: v }));
+  const [e, setE] = useState<FaqEntry>({ ...entry, sections: entry.sections.length ? entry.sections : [{ heading: "", body: "" }] });
   const inp = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
   const lbl = "text-[10px] uppercase tracking-widest text-muted-foreground mb-1 block";
+
+  const setSection = (i: number, patch: Partial<FaqSection>) => setE((p) => ({ ...p, sections: p.sections.map((s, j) => (j === i ? { ...s, ...patch } : s)) }));
+  const addSection = () => setE((p) => ({ ...p, sections: [...p.sections, { heading: "", body: "" }] }));
+  const removeSection = (i: number) => setE((p) => ({ ...p, sections: p.sections.filter((_, j) => j !== i) }));
+  const moveSection = (i: number, dir: -1 | 1) => setE((p) => { const j = i + dir; if (j < 0 || j >= p.sections.length) return p; const s = [...p.sections]; [s[i], s[j]] = [s[j], s[i]]; return { ...p, sections: s }; });
+
   return (
     <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-lg max-h-[85vh] overflow-y-auto space-y-3" onClick={ev => ev.stopPropagation()}>
-        <h3 className="text-sm font-bold">{e.id ? "Edit" : "New"} {e.kind === "general" ? "FAQ entry" : "module guide entry"}</h3>
-        {e.kind === "general" ? (
-          <>
-            <label className="block"><span className={lbl}>Question</span><input className={inp} value={e.question ?? ""} onChange={ev => set("question", ev.target.value)} /></label>
-            <label className="block"><span className={lbl}>Answer</span><textarea rows={6} className={`${inp} resize-none`} value={e.answer ?? ""} onChange={ev => set("answer", ev.target.value)} /></label>
-          </>
-        ) : (
-          <>
-            <div className="grid grid-cols-2 gap-2">
-              <label className="block"><span className={lbl}>Route / ID</span><input className={inp} placeholder="/spc" value={e.moduleId ?? ""} onChange={ev => set("moduleId", ev.target.value)} /></label>
-              <label className="block"><span className={lbl}>Tier</span>
-                <select className={inp} value={e.tier ?? 1} onChange={ev => set("tier", Number(ev.target.value))}>
-                  {[1, 2, 3, 4].map(t => <option key={t} value={t}>Tier {t}</option>)}
-                </select>
-              </label>
+      <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-lg max-h-[88vh] overflow-y-auto space-y-3" onClick={(ev) => ev.stopPropagation()}>
+        <h3 className="text-sm font-bold">{e.id ? "Edit" : "New"} entry</h3>
+        <label className="block"><span className={lbl}>Title / Question</span><input className={inp} value={e.title} onChange={(ev) => setE((p) => ({ ...p, title: ev.target.value }))} /></label>
+        <div className="grid grid-cols-2 gap-2">
+          <label className="block"><span className={lbl}>Link route (optional)</span><input className={inp} placeholder="/spc" value={e.moduleId ?? ""} onChange={(ev) => setE((p) => ({ ...p, moduleId: ev.target.value || undefined }))} /></label>
+          <label className="block"><span className={lbl}>Tier (optional)</span>
+            <select className={inp} value={e.tier ?? 0} onChange={(ev) => setE((p) => ({ ...p, tier: Number(ev.target.value) || undefined }))}>
+              <option value={0}>—</option>{[1, 2, 3, 4].map((t) => <option key={t} value={t}>Tier {t}</option>)}
+            </select>
+          </label>
+        </div>
+
+        <div className="space-y-2 pt-1">
+          <span className={lbl}>Sections (add your own — "What it does", "Pro tip", anything)</span>
+          {e.sections.map((s, i) => (
+            <div key={i} className="border border-border rounded-lg p-2.5 space-y-1.5 bg-muted/10">
+              <div className="flex items-center gap-1.5">
+                <input className={`${inp} py-1.5`} placeholder="Section heading (leave blank for plain text)" value={s.heading} onChange={(ev) => setSection(i, { heading: ev.target.value })} />
+                <button onClick={() => moveSection(i, -1)} disabled={i === 0} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowUp className="w-3.5 h-3.5" /></button>
+                <button onClick={() => moveSection(i, 1)} disabled={i === e.sections.length - 1} className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30"><ArrowDown className="w-3.5 h-3.5" /></button>
+                <button onClick={() => removeSection(i)} className="p-1 text-muted-foreground hover:text-red-400"><Trash2 className="w-3.5 h-3.5" /></button>
+              </div>
+              <textarea rows={3} className={`${inp} resize-y`} placeholder="Section text…" value={s.body} onChange={(ev) => setSection(i, { body: ev.target.value })} />
             </div>
-            <label className="block"><span className={lbl}>Label</span><input className={inp} value={e.label ?? ""} onChange={ev => set("label", ev.target.value)} /></label>
-            <label className="block"><span className={lbl}>Description</span><textarea rows={2} className={`${inp} resize-none`} value={e.description ?? ""} onChange={ev => set("description", ev.target.value)} /></label>
-            <label className="block"><span className={lbl}>What it does</span><textarea rows={2} className={`${inp} resize-none`} value={e.what ?? ""} onChange={ev => set("what", ev.target.value)} /></label>
-            <label className="block"><span className={lbl}>How to use</span><textarea rows={2} className={`${inp} resize-none`} value={e.howto ?? ""} onChange={ev => set("howto", ev.target.value)} /></label>
-            <label className="block"><span className={lbl}>Pro tip (optional)</span><input className={inp} value={e.tips ?? ""} onChange={ev => set("tips", ev.target.value)} /></label>
-          </>
-        )}
+          ))}
+          <button onClick={addSection} className="w-full py-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:text-primary hover:border-primary/40 flex items-center justify-center gap-1"><Plus className="w-3.5 h-3.5" /> Add section</button>
+        </div>
+
         <div className="flex gap-2 justify-end pt-1">
           <button onClick={onCancel} className="px-3 py-1.5 rounded-lg bg-muted/40 text-sm">Cancel</button>
-          <button onClick={() => onSave(e)} disabled={busy} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
+          <button onClick={() => onSave({ ...e, sections: e.sections.filter((s) => s.heading.trim() || s.body.trim()) })} disabled={busy || !e.title.trim()} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">{busy ? "Saving…" : "Save"}</button>
         </div>
       </div>
     </div>

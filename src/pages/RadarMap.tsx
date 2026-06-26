@@ -94,6 +94,7 @@ export default function RadarMap({ location }: Props) {
       const lp = map.getPane("labels")!;
       lp.style.zIndex = "650";
       lp.style.pointerEvents = "none";
+      lp.style.filter = "brightness(1.7) contrast(1.1)"; // make city/state labels read on the dark base
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 12, pane: "labels" }).addTo(map);
       mapRef.current = map;
       // Lazy routes can mount the container before layout settles — tell Leaflet

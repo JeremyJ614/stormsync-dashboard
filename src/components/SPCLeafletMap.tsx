@@ -15,12 +15,12 @@ export type SPCProduct =
 // ─────────────────────────────────────────────────────────────────────────────
 interface Level { color: string; label: string }
 export const LEVELS: Level[] = [
-  { color: "#D9D9D9", label: "Lvl. 0 Minor Convection" },          // Platinum (TSTM, categorical only)
-  { color: "#8FAEC0", label: "Lvl. 1 Unorganized" },              // Pewter Blue
-  { color: "#253559", label: "Lvl. 2 Escalating Baseline" },      // Winter Blue
-  { color: "#CBA135", label: "Lvl. 3 Intensified Multi-Hazard" }, // Satin Sheet Gold
+  { color: "#00A170", label: "Lvl. 0 Minor Convection" },          // Emerald
+  { color: "#005348", label: "Lvl. 1 Unorganized" },              // Deep Pine
+  { color: "#FFD662", label: "Lvl. 2 Escalating Baseline" },      // Marigold
+  { color: "#FF6F61", label: "Lvl. 3 Intensified Multi-Hazard" }, // Coral
   { color: "#FA003F", label: "Lvl. 4 Destructive Apex Threat" },  // Rose Red
-  { color: "#1E1B29", label: "Lvl. 5 Lethal Historic Catastrophe" }, // Near-black + pulsing lilac border
+  { color: "#9B1B30", label: "Lvl. 5 Lethal Historic Catastrophe" }, // Crimson
 ];
 const L5_TEXT = "#BBB7CC"; // readable tint for the near-black Level 5 on dark chrome
 
@@ -137,6 +137,7 @@ export function SPCLeafletMap({ product, height = 340 }: Props) {
       const lp = map.getPane("labels")!;
       lp.style.zIndex = "650";
       lp.style.pointerEvents = "none";
+      lp.style.filter = "brightness(1.7) contrast(1.1)"; // make city/state labels read on the dark base
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 10, pane: "labels" }).addTo(map);
       mapRef.current = map;
       setTimeout(() => map.invalidateSize(), 60);

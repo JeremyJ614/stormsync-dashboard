@@ -63,7 +63,7 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
       const map = L.map(containerRef.current, { center: [39, -97], zoom: 4, zoomControl: true, attributionControl: false, scrollWheelZoom: false });
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 10 }).addTo(map);
       map.createPane("labels");
-      const lp = map.getPane("labels")!; lp.style.zIndex = "650"; lp.style.pointerEvents = "none";
+      const lp = map.getPane("labels")!; lp.style.zIndex = "650"; lp.style.pointerEvents = "none"; lp.style.filter = "brightness(1.7) contrast(1.1)";
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 10, pane: "labels" }).addTo(map);
       mapRef.current = map;
       setTimeout(() => map.invalidateSize(), 60);

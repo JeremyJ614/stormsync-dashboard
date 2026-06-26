@@ -93,9 +93,25 @@ Deno.serve(async (req: Request) => {
   if (!VAPID_PRIVATE) return json({ ok: true, skipped: "no_vapid_key" });
   webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC, VAPID_PRIVATE);
 
+  let reqBody: { test?: boolean } = {};
+  try { reqBody = await req.json(); } catch { /* no body */ }
+
   // Subscribers + their saved locations.
   const { data: subs } = await admin.from("push_subscriptions").select("id,user_id,endpoint,keys");
   if (!subs || subs.length === 0) return json({ ok: true, sent: 0, subscribers: 0 });
+
+  // Test mode: fire a one-off test notification to every subscription (verifies the
+  // whole chain end-to-end without waiting for a live warning).
+  if (reqBody.test) {
+    let tSent = 0, tRemoved = 0;
+    for (const s of subs as Sub[]) {
+      try {
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, JSON.stringify({ title: "✅ StormSync test alert", body: "Push notifications are working on this device.", url: "/", tag: "sswx-test" }));
+        tSent++;
+      } catch (e) { const st = (e as { statusCode?: number }).statusCode; if (st === 404 || st === 410) { await admin.from("push_subscriptions").delete().eq("endpoint", s.endpoint); tRemoved++; } }
+    }
+    return json({ ok: true, test: true, subscribers: subs.length, sent: tSent, removed_stale: tRemoved });
+  }
   const userIds = [...new Set((subs as Sub[]).map((s) => s.user_id))];
   const { data: locs } = await admin.from("saved_locations").select("user_id,lat,lon,name").in("user_id", userIds);
   const locsByUser = new Map<string, Loc[]>();

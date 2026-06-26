@@ -52,8 +52,8 @@ async function authorize(req: Request): Promise<boolean | Response> {
 
 interface Loc { user_id: string; lat: number; lon: number; name: string }
 interface Prof { id: string; email: string; name: string; tier: number }
-interface Prefs { inapp_enabled: boolean; email_alerts: boolean; warnings: boolean; watches: boolean; outlook: boolean }
-const DEFAULT_PREFS: Prefs = { inapp_enabled: true, email_alerts: true, warnings: true, watches: true, outlook: true };
+interface Prefs { inapp_enabled: boolean; warnings: boolean; watches: boolean; outlook: boolean; email_optin: boolean; alert_email: string | null }
+const DEFAULT_PREFS: Prefs = { inapp_enabled: true, warnings: true, watches: true, outlook: true, email_optin: false, alert_email: null };
 interface Alert { id: string; kind: "warning" | "watch"; event: string; headline: string; area: string; severity: string }
 
 async function alertsForPoint(lat: number, lon: number): Promise<Alert[]> {
@@ -160,8 +160,14 @@ Deno.serve(async (req: Request) => {
   let inapp = 0, emails = 0;
   for (const uid of userIds) {
     const prof = profById.get(uid);
+    const tier = prof?.tier ?? 1;
+    // Tier 1 has no severe warning/watch/outlook alerts (those unlock at Tier 2).
+    if (tier < 2) continue;
     const prefs = prefsById.get(uid) ?? DEFAULT_PREFS;
     if (!prefs.inapp_enabled) continue;
+    // Email delivery is a Tier-3 opt-in, sent to their chosen alert email.
+    const emailOk = tier >= 3 && prefs.email_optin;
+    const emailTo = prefs.alert_email || prof?.email || "";
     const myLocs = locsByUser.get(uid) ?? [];
 
     // NWS warnings + watches (distinct across the user's locations).
@@ -176,8 +182,8 @@ Deno.serve(async (req: Request) => {
       const created = await insertNotif(uid, { kind: a.kind, severity: a.severity, title, body, link: "/warnings", dedupKey: a.id });
       if (!created) continue;
       inapp++;
-      if (prof && (prof.tier ?? 1) >= 3 && prefs.email_alerts) {
-        const ok = await sendEmail(prof.email, `⚠️ ${title}`, emailHtml(title, body));
+      if (emailOk && emailTo) {
+        const ok = await sendEmail(emailTo, `⚠️ ${title}`, emailHtml(title, body));
         if (ok) { emails++; await admin.from("notifications").update({ emailed_at: new Date().toISOString() }).eq("user_id", uid).eq("dedup_key", a.id); }
       }
     }
@@ -192,8 +198,8 @@ Deno.serve(async (req: Request) => {
         const created = await insertNotif(uid, { kind: "outlook", severity: maxRank >= 5 ? "extreme" : maxRank >= 4 ? "severe" : "moderate", title: `SPC ${name} Risk${near}`, body: `Your area is in a Day 1 ${name} (level ${maxRank}/5) severe-weather risk. Stay weather-aware.`, link: "/spc", dedupKey: `outlook-day1-${ymd}-${maxRank}-${uid}` });
         if (created) {
           inapp++;
-          if (prof && (prof.tier ?? 1) >= 3 && prefs.email_alerts) {
-            const ok = await sendEmail(prof.email, `⚠️ SPC ${name} Risk${near}`, emailHtml(`SPC ${name} Risk${near}`, `Your area is in a Day 1 ${name} (level ${maxRank}/5) severe-weather risk today. Stay weather-aware and review your plan.`));
+          if (emailOk && emailTo) {
+            const ok = await sendEmail(emailTo, `⚠️ SPC ${name} Risk${near}`, emailHtml(`SPC ${name} Risk${near}`, `Your area is in a Day 1 ${name} (level ${maxRank}/5) severe-weather risk today. Stay weather-aware and review your plan.`));
             if (ok) emails++;
           }
         }

@@ -397,8 +397,17 @@ Every member also controls **per-type** opt-outs (warnings / watches / outlook) 
 - **`daily-digest`** Edge Function (cron 11:30 UTC, after the nightly brief): in-app digest + **branded digest email** (Tier 2+, opt-in).
 - pg_cron jobs `alerts-fanout-10min` and `daily-digest-morning`.
 
+### Tier rules (refined — item 6)
+- **Tier 1:** in-app inbox + push + daily digest only. **No** warnings/watches/outlook alerts.
+- **Tier 2:** unlocks **Warnings + Watches + Outlook escalations** (in-app + push), toggled in the bell's gear.
+- **Tier 3:** **opts into Email &/or Text alerts in My Profile** — a dedicated alert email + phone (auto-filled from sign-up, editable/separate) and a chosen saved-location to watch. Outlook-escalation/warning **emails auto-send** to that address; **texts** are sent personally by the team.
+- **Tier 4:** keeps the Emergency direct-contact form, and appears in the admin **Direct Line** list.
+
+### Admin "Alert Opt-ins" tab
+Shows **Tier-3 text opt-ins** (name, phone, watched location) — a row **glows red + a banner appears** when that location is currently under a live NWS warning/watch (so you know to text them) — plus **Tier-3 email opt-ins** (auto-sent) and the **Tier-4 direct-line** roster with one-tap `sms:` links.
+
 ### Next passes
-Telegram bot → in-app live banner + audible weather-radio → Twilio SMS/voice (Tier 4) → experimental Nowcast module.
+Telegram bot → in-app live banner + audible weather-radio → admin push-reminder on opt-in risk → Twilio SMS/voice (Tier 4) → experimental Nowcast module.
 
 ---
 

@@ -121,15 +121,17 @@ function SettingsPanel({ userId, tier }: { userId: string; tier: number }) {
   const [saved, setSaved] = useState(false);
   useEffect(() => { getPrefs(userId).then(setPrefs); }, [userId]);
 
-  const set = (k: keyof NotifPrefs, v: boolean) => { const next = { ...prefs, [k]: v }; setPrefs(next); setSaved(false); savePrefs(userId, next).then(() => setSaved(true)); };
+  const set = (k: keyof NotifPrefs, v: boolean) => { const next = { ...prefs, [k]: v }; setPrefs(next); setSaved(false); savePrefs(userId, { [k]: v }).then(() => setSaved(true)); };
 
-  // Cumulative ladder: in-app (all) · push (T2+) · email digest (T2+) · email alerts (T3+).
-  const pushOk = tier >= 2, digestOk = tier >= 2, emailOk = tier >= 3;
+  // Tier rules: in-app / push / daily digest = all tiers. Warnings/watches/outlook = Tier 2+.
+  // Email & text alert delivery is opted into from My Profile (Tier 3+).
+  const typesOk = tier >= 2;
+  const tierHint = (ok: boolean, normal: string) => (ok ? normal : "Tier 2+");
 
   const Row = ({ label, k, locked, hint }: { label: string; k: keyof NotifPrefs; locked?: boolean; hint?: string }) => (
     <div className="flex items-center justify-between gap-2 py-1.5">
       <div><div className="text-xs font-medium">{label}</div>{hint && <div className="text-[10px] text-muted-foreground">{hint}</div>}</div>
-      <Toggle on={!locked && prefs[k]} onClick={() => set(k, !prefs[k])} disabled={locked} />
+      <Toggle on={!locked && Boolean(prefs[k])} onClick={() => set(k, !prefs[k])} disabled={locked} />
     </div>
   );
 
@@ -137,13 +139,15 @@ function SettingsPanel({ userId, tier }: { userId: string; tier: number }) {
     <div className="p-3 max-h-[60vh] overflow-y-auto">
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Channels</div>
       <Row label="In-app alerts" k="inapp_enabled" hint="Always available" />
-      <Row label="Push notifications" k="push_enabled" locked={!pushOk} hint={pushOk ? "Browser / phone push" : "Tier 2+"} />
-      <Row label="Daily digest email" k="email_digest" locked={!digestOk} hint={digestOk ? "Morning summary" : "Tier 2+"} />
-      <Row label="Event email alerts" k="email_alerts" locked={!emailOk} hint={emailOk ? "Warnings & watches by email" : "Tier 3+"} />
+      <Row label="Push notifications" k="push_enabled" hint="Browser / phone push" />
+      <Row label="Daily digest" k="email_digest" hint="Morning summary" />
       <div className="text-[10px] uppercase tracking-widest text-muted-foreground mt-3 mb-1">Alert types</div>
-      <Row label="Warnings" k="warnings" hint="Tornado / severe / flash flood" />
-      <Row label="Watches" k="watches" hint="Tornado & severe thunderstorm" />
-      <Row label="Outlook escalations" k="outlook" hint="When your area goes ENH+" />
+      <Row label="Warnings" k="warnings" locked={!typesOk} hint={tierHint(typesOk, "Tornado / severe / flash flood")} />
+      <Row label="Watches" k="watches" locked={!typesOk} hint={tierHint(typesOk, "Tornado & severe thunderstorm")} />
+      <Row label="Outlook escalations" k="outlook" locked={!typesOk} hint={tierHint(typesOk, "When your area goes ENH+")} />
+      <div className="mt-3 text-[10px] text-muted-foreground leading-relaxed border-t border-border pt-2">
+        {tier >= 3 ? "Email & text alerts are set up in My Profile." : "Email & text alerts unlock at Tier 3 (set up in My Profile)."}
+      </div>
       <div className="text-[10px] text-muted-foreground mt-2 h-3">{saved ? "Saved ✓" : ""}</div>
     </div>
   );

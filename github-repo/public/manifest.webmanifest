@@ -1,0 +1,17 @@
+{
+  "name": "StormSync VIP — Forecasts & Alerts",
+  "short_name": "StormSync",
+  "description": "Real-time severe weather intelligence, AI briefings, and alerts for storm chasers.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#05010f",
+  "theme_color": "#0a0518",
+  "categories": ["weather", "utilities"],
+  "icons": [
+    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

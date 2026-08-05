@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "VIP Forecasts — Weather History"
+description = "A StormSync Media branded Weather History map module for the VIP Forecasts and Alerts app. Features an interactive MapLibre GL JS map with tornado tracks, damage points, damage areas, and NWS warning polygons. Data is fetched live from IEM and NOAA DAT APIs. Users can toggle between Tornado History and Warning History modes, filter layers, and select date ranges with quick-select buttons."
+version = "1.0.0"
+id = "artifacts/weather-history"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20814
+
+[services.development]
+run = "pnpm --filter @workspace/weather-history run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/weather-history", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/weather-history/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20814"
+BASE_PATH = "/"

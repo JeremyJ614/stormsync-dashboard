@@ -1,0 +1,12 @@
+{
+  "buildCommand": "cd github-repo && npm install && npm run build",
+  "outputDirectory": "github-repo/dist",
+  "installCommand": "echo skip-root-install",
+  "framework": null,
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

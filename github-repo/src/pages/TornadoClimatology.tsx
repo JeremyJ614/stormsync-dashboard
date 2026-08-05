@@ -158,7 +158,7 @@ export default function TornadoClimatology({ location }: Props) {
 
   const { data, isLoading, error } = useQuery<ClimoData>({
     queryKey: ["tornado-climo"],
-    queryFn: async () => { const r = await fetch("/data/tornadoClimo.json"); if (!r.ok) throw new Error("load failed"); return r.json(); },
+    queryFn: async () => { const base = import.meta.env.BASE_URL.replace(/\/$/, ""); const r = await fetch(`${base}/data/tornadoClimo.json`); if (!r.ok) throw new Error("load failed"); return r.json(); },
     staleTime: Infinity,
   });
 

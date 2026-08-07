@@ -225,7 +225,27 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     vals = convert(p.key, np.asarray(da.values, dtype="float32"))
     lats = np.asarray(ds.latitude.values)
     lons = np.asarray(ds.longitude.values)
-    lons = np.where(lons > 180, lons - 360, lons)
+
+    if lons.ndim == 1:
+        # GFS is a 1-D GLOBAL axis running 0 -> 359.75. Naively mapping it into
+        # -180..180 leaves it non-monotonic (…179.75, -180…), and pcolormesh
+        # smears garbage across a non-monotonic axis. Re-sort, carrying the data
+        # columns with it, then clip to CONUS so we rasterise ~36k points instead
+        # of the full 1.04M-point globe.
+        lons = np.where(lons > 180, lons - 360, lons)
+        order = np.argsort(lons)
+        lons = lons[order]
+        vals = vals[..., order]
+        keep_x = (lons >= -128) & (lons <= -64)
+        keep_y = (lats >= 20) & (lats <= 55)
+        if keep_x.any() and keep_y.any():
+            lons = lons[keep_x]
+            lats = lats[keep_y]
+            vals = vals[np.ix_(keep_y, keep_x)]
+    else:
+        # HRRR is a 2-D curvilinear CONUS grid; pcolormesh handles 2-D coords
+        # regardless of ordering, so it only needs the -180..180 mapping.
+        lons = np.where(lons > 180, lons - 360, lons)
 
     fig = plt.figure(figsize=(12.8, 7.6), dpi=100)
     fig.patch.set_facecolor(BG)

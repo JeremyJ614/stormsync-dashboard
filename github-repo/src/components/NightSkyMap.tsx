@@ -62,11 +62,11 @@ function clarityScore(cloud: number, humidity: number, precip: number): number {
 
 // Purple-focused color scale (brighter, more purple than blue)
 function clarityBucket(score: number): { label: string; fill: string; stroke: string } {
-  if (score >= 85) return { label: "PERFECT",   fill: "#fde047", stroke: "#ca8a04" };
-  if (score >= 70) return { label: "EXCELLENT", fill: "#e879f9", stroke: "#c026d3" };
-  if (score >= 55) return { label: "CLEAR",     fill: "#c084fc", stroke: "#9333ea" };
-  if (score >= 35) return { label: "FAIR",      fill: "#818cf8", stroke: "#4f46e5" };
-  return                   { label: "POOR",     fill: "#4c1d95", stroke: "#3b0764" };
+  if (score >= 85) return { label: "PRISTINE",   fill: "#fde047", stroke: "#ca8a04" };
+  if (score >= 70) return { label: "EXCELLENT",  fill: "#e879f9", stroke: "#c026d3" };
+  if (score >= 55) return { label: "CLEAR",      fill: "#c084fc", stroke: "#9333ea" };
+  if (score >= 35) return { label: "HAZY",       fill: "#818cf8", stroke: "#4f46e5" };
+  return                   { label: "WASHED OUT",fill: "#4c1d95", stroke: "#3b0764" };
 }
 
 // Aurora view-line latitude from Kp
@@ -82,18 +82,20 @@ function viewLineLat(kp: number): number {
   return KP_VIEW[KP_VIEW.length - 1][1];
 }
 
+// Each entry carries BOTH colors (map fill + outline) so the single unified
+// legend can show them side-by-side against the label.
 export const SKY_LEGEND = [
-  { label: "PERFECT",   color: "#fde047" },
-  { label: "EXCELLENT", color: "#e879f9" },
-  { label: "CLEAR",     color: "#c084fc" },
-  { label: "FAIR",      color: "#818cf8" },
-  { label: "POOR",      color: "#4c1d95" },
+  { label: "PRISTINE",   color: "#fde047", stroke: "#ca8a04", range: "85+" },
+  { label: "EXCELLENT",  color: "#e879f9", stroke: "#c026d3", range: "70-84" },
+  { label: "CLEAR",      color: "#c084fc", stroke: "#9333ea", range: "55-69" },
+  { label: "HAZY",       color: "#818cf8", stroke: "#4f46e5", range: "35-54" },
+  { label: "WASHED OUT", color: "#4c1d95", stroke: "#3b0764", range: "0-34" },
 ];
 
 export const AURORA_LEGEND = [
-  { label: "Overhead",   color: "#c084fc" },
-  { label: "Naked eye",  color: "#f472b6" },
-  { label: "Camera",     color: "#a855f7" },
+  { label: "OVERHEAD",    color: "#c084fc", stroke: "#7e22ce" },
+  { label: "NAKED EYE",   color: "#f472b6", stroke: "#be185d" },
+  { label: "CAMERA ONLY", color: "#a855f7", stroke: "#6b21a8" },
 ];
 
 type MapMode = "stargazing" | "aurora" | "both";

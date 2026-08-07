@@ -123,8 +123,10 @@ This is the one question that decides whether item #5 is a two-week build or a t
 | **B. Official NOAA MAG images** | Free, official, reliable — but only a **subset** (reflectivity, CAPE/CIN, helicity, heights/winds, temp/dewpoint). **No STP, SCP, 0–3km CAPE, MLCIN, LCL, lapse rate.** | Small build. Fastest path. NWS styling, not ours. |
 | **C. Third-party image sites** (Pivotal, TropicalTidbits, COD) | Has the full suite | ⚠️ Hotlinking their rendered images is against ToS for the main ones — I won't build on that. |
 
-**My recommendation:** **A**, scoped as a phased build — start with the ~8 highest-value severe params on HRRR CONUS, prove the pipeline, then expand to the full list + GFS + regions. If you want it live sooner, **B now / A later** is a legitimate staging plan.
-**I need your pick before Phase 4 starts.** Everything else in this plan proceeds without it.
+### ✅ DECIDED (2026-08-07) — **Staged: B now → A later**
+- **Phase 4a:** ship a working HRRR + GFS viewer on **official NOAA MAG imagery** (reflectivity, CAPE/CIN, helicity, heights/winds, temperature, dewpoint), with the real UI: model subtabs, parameter groups, region zooms, animation, scrubber, legend, download/share.
+- **Phase 4b (later):** build our own GRIB→PNG renderer to add the parameters MAG doesn't publish — **0–3km AGL CAPE, MLCIN, LCL, 700–500mb lapse rate, Supercell Composite, STP** — and restyle everything in StormSync dark.
+- Viewer is built **source-agnostic** from day one (a product/frame provider interface) so 4b swaps the image source in without a rewrite. Any parameter not yet available is shown as "coming soon" rather than hidden, so the full list stays visible as the target.
 
 ---
 

@@ -72,6 +72,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },
   { id: "/game", label: "Forecast Game" },
+  { id: "/trivia", label: "Daily Trivia" },
   { id: "/faq", label: "FAQ", alwaysOn: true },
   { id: "/contact", label: "Contact", alwaysOn: true },
 ];

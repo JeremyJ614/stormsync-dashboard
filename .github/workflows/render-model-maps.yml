@@ -43,6 +43,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: pip
+          # Our requirements live under scripts/, not at the repo root; without
+          # this setup-python fails instantly with "no file matched".
+          cache-dependency-path: scripts/requirements-render.txt
 
       - name: System libs for cartopy / eccodes
         run: |

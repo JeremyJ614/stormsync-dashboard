@@ -65,6 +65,9 @@ class Param:
     levels: list
     var: str | None = None      # cfgrib variable name override
     legend: list = field(default_factory=list)
+    # True  -> values under levels[0] mean "nothing here", draw them transparent
+    # False -> the low end is meaningful (temperature, dew point, negative CIN)
+    mask_below: bool = True
 
 
 def refl_cmap():
@@ -103,7 +106,7 @@ HRRR_PARAMS = [
           [10, 20, 30, 40, 50, 60, 70, 80, 90, 100]),
     Param("dpt2m", "2 m Dew Point", "Surface & Precipitation",
           ":DPT:2 m above ground:", "°F", "dewp",
-          [30, 40, 45, 50, 55, 60, 65, 70, 75, 80]),
+          [30, 40, 45, 50, 55, 60, 65, 70, 75, 80], mask_below=False),
 ]
 
 GFS_PARAMS = [
@@ -112,7 +115,7 @@ GFS_PARAMS = [
           [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000]),
     Param("cin", "Surface CIN", "Severe Weather",
           ":CIN:surface:", "J/kg", "cin",
-          [-300, -200, -150, -100, -75, -50, -25, -10]),
+          [-300, -200, -150, -100, -75, -50, -25, -10], mask_below=False),
     Param("pwat", "Precipitable Water", "Upper Air",
           ":PWAT:entire atmosphere", "in", "pwat",
           [0.25, 0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5]),
@@ -121,7 +124,7 @@ GFS_PARAMS = [
           [8, 12, 16, 20, 24, 28, 32, 40]),
     Param("dpt2m", "2 m Dew Point", "Surface & Precipitation",
           ":DPT:2 m above ground:", "°F", "dewp",
-          [30, 40, 45, 50, 55, 60, 65, 70, 75, 80]),
+          [30, 40, 45, 50, 55, 60, 65, 70, 75, 80], mask_below=False),
     Param("gust", "Surface Wind Gusts", "Surface & Precipitation",
           ":GUST:surface:", "mph", "wind",
           [10, 20, 30, 40, 50, 60, 70, 80]),
@@ -237,9 +240,16 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     # A fixed ListedColormap (e.g. the 14-stop reflectivity ramp) can be short of
     # that, which raises "ncolors must equal or exceed the number of bins", so
     # resample every colormap to exactly the bin count it needs.
-    nbins = (len(p.levels) - 1) + 2
-    cmap = CMAPS[p.cmap].resampled(nbins)
-    norm = BoundaryNorm(p.levels, ncolors=nbins, extend="both")
+    # Below the first level usually means "nothing here" (no echo, no CAPE, no
+    # rotation). Left unmasked, BoundaryNorm's "under" colour floods the whole
+    # map with the first ramp colour - which painted every frame solid cyan.
+    extend = "both" if not p.mask_below else "max"
+    if p.mask_below:
+        vals = np.where(vals < p.levels[0], np.nan, vals)
+    nbins = (len(p.levels) - 1) + (2 if extend == "both" else 1)
+    cmap = CMAPS[p.cmap].resampled(nbins).copy()
+    cmap.set_bad(alpha=0.0)          # NaN -> fully transparent
+    norm = BoundaryNorm(p.levels, ncolors=nbins, extend=extend)
     mesh = ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
                          transform=ccrs.PlateCarree(), shading="auto", zorder=1)
 

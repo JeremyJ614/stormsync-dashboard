@@ -233,8 +233,13 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor=LAND, zorder=0)
     ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor=BG, zorder=0)
 
-    cmap = CMAPS[p.cmap]
-    norm = BoundaryNorm(p.levels, ncolors=cmap.N, extend="both")
+    # BoundaryNorm with extend="both" needs (len(levels) - 1) + 2 colour bins.
+    # A fixed ListedColormap (e.g. the 14-stop reflectivity ramp) can be short of
+    # that, which raises "ncolors must equal or exceed the number of bins", so
+    # resample every colormap to exactly the bin count it needs.
+    nbins = (len(p.levels) - 1) + 2
+    cmap = CMAPS[p.cmap].resampled(nbins)
+    norm = BoundaryNorm(p.levels, ncolors=nbins, extend="both")
     mesh = ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
                          transform=ccrs.PlateCarree(), shading="auto", zorder=1)
 

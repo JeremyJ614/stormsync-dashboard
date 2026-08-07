@@ -49,6 +49,7 @@ const Contact = lazy(() => import("./pages/Contact"));
 const SevereWeatherHistory = lazy(() => import("./pages/SevereWeatherHistory"));
 const Loyalty = lazy(() => import("./pages/Loyalty"));
 const ForecastGame = lazy(() => import("./pages/ForecastGame"));
+const Trivia = lazy(() => import("./pages/Trivia"));
 const ThunderstormOutlook = lazy(() => import("./pages/ThunderstormOutlook"));
 const HurricaneTracker = lazy(() => import("./pages/HurricaneTracker"));
 const TropicalHistory = lazy(() => import("./pages/TropicalHistory"));
@@ -121,6 +122,7 @@ function AppInner() {
         <Route path="/mosquito" component={() => <PW name="Mosquito Index"><Gated path="/mosquito"><MosquitoIndex location={location} /></Gated></PW>} />
         <Route path="/lightning-globe" component={() => <PW name="Lightning Density"><Gated path="/lightning-globe"><LightningHeatGlobe /></Gated></PW>} />
         <Route path="/loyalty" component={() => <PW name="Loyalty"><Gated path="/loyalty"><Loyalty /></Gated></PW>} />
+        <Route path="/trivia" component={() => <PW name="Daily Trivia"><Gated path="/trivia"><Trivia /></Gated></PW>} />
         <Route path="/game" component={() => <PW name="Forecast Game"><Gated path="/game"><ForecastGame /></Gated></PW>} />
 
         <Route component={NotFound} />

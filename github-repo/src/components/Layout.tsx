@@ -79,6 +79,7 @@ const NAV_SECTIONS = [
     label: "Everything Else",
     items: [
       { label: "Forecast Game",     path: "/game",     icon: Gamepad2 },
+      { label: "Daily Trivia",      path: "/trivia",   icon: Brain },
       { label: "Loyalty Dashboard", path: "/loyalty",  icon: Trophy },
       { label: "Weather Glossary",  path: "/glossary", icon: BookOpen },
       { label: "FAQ",               path: "/faq",      icon: HelpCircle },

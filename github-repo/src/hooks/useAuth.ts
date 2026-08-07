@@ -37,7 +37,10 @@ export interface BadgeDef {
   group: "Role" | "Tier" | "Achievement";
 }
 
-export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = [
+// `adminOnly` modules are visible and reachable ONLY for admins — they are hidden
+// from every non-admin (not shown as "locked"), and excluded from the purchasable
+// bundle/add-on lists in the billing admin so they can never be sold.
+export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; adminOnly?: boolean }[] = [
   { id: "/", label: "Home", alwaysOn: true },
   { id: "/dashboard", label: "Dashboard" },
   { id: "/forecast", label: "Forecast" },
@@ -57,15 +60,14 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean }[] = 
   { id: "/sswxcon", label: "SSWXCon Score" },
   { id: "/mosquito", label: "Mosquito Index" },
   { id: "/moon", label: "Moon & Astronomy" },
-  { id: "/skygazing", label: "Star & Skygazing" },
-  { id: "/aurora", label: "Aurora Forecast" },
+  { id: "/aurora", label: "Aurora & Star Gazing" },
   { id: "/lightning-globe", label: "Lightning Density" },
   { id: "/rotation", label: "Radar & MRMS" },
   { id: "/climatology", label: "Tornado Climatology" },
   { id: "/wpi", label: "Weather Pattern AI" },
   { id: "/duel", label: "AI Forecast Duel" },
   { id: "/glossary", label: "Weather Glossary" },
-  { id: "/chasing", label: "Storm Chasing" },
+  { id: "/chasing", label: "Storm Chasing", adminOnly: true },
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },
   { id: "/game", label: "Forecast Game" },
@@ -261,6 +263,7 @@ export function useAuth() {
 export function hasModuleAccess(user: User | null, path: string): boolean {
   if (HIDDEN_MODULES.has(path)) return false; // parked pre-launch (see HIDDEN_MODULES)
   const mod = ALL_MODULES.find((m) => m.id === path);
+  if (mod?.adminOnly) return !!user?.isAdmin; // admin-only: hidden from everyone else
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
   return user.enabledModules.includes(path);

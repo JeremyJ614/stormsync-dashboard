@@ -10,8 +10,8 @@
   "theme_color": "#0a0518",
   "categories": ["weather", "utilities"],
   "icons": [
-    { "src": "/logo.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "/logo.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "/sswx-mark.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/sswx-mark.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/sswx-mark.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

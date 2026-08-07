@@ -33,17 +33,22 @@ interface ClimoData {
 
 const EF_COLOR: Record<number, string> = { 0: "#86efac", 1: "#fde047", 2: "#f59e0b", 3: "#f97316", 4: "#ef4444", 5: "#d946ef" };
 
-// Density color ramp by count (descending thresholds).
+// Density color ramp, keyed on a cell's share of the grid maximum so the same
+// ramp reads correctly for both the all-tornado and EF2+ grids (whose absolute
+// counts differ by ~4x). Descending fractional thresholds.
 const GRID_RAMP: [number, string][] = [
-  [200, "#d946ef"], [100, "#ef4444"], [50, "#f97316"], [25, "#fde047"],
-  [12, "#22c55e"], [6, "#06b6d4"], [3, "#2563eb"], [1, "#1e3a5f"],
+  [0.70, "#d946ef"], [0.45, "#ef4444"], [0.30, "#f97316"], [0.20, "#fde047"],
+  [0.12, "#22c55e"], [0.06, "#06b6d4"], [0.02, "#2563eb"], [0, "#1e3a5f"],
 ];
-function gridColor(n: number): string {
-  for (const [t, c] of GRID_RAMP) if (n >= t) return c;
+function gridColor(n: number, max: number): string {
+  const f = max > 0 ? n / max : 0;
+  for (const [t, c] of GRID_RAMP) if (f >= t) return c;
   return "#1e3a5f";
 }
 
 // ─── Shared Leaflet map for density grids + tracks ───────────────────────────
+const GRID_RES = 0.25; // density bin size in degrees (matches tornadoClimo.json densityRes)
+
 function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
   mode: "grid" | "tracks";
   grid?: [number, number, number][];
@@ -86,9 +91,18 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
     if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
     const group = L.layerGroup();
     if (mode === "grid" && grid) {
+      // Cells are binned at GRID_RES° (0.25° ≈ 17mi). Drawn as soft circle markers
+      // rather than hard rectangles so the field reads as a smooth heatmap instead
+      // of a blocky mosaic; radius/opacity scale with count.
+      const max = grid.reduce((m, g) => (g[2] > m ? g[2] : m), 1);
       for (const [lat, lon, n] of grid) {
-        L.rectangle([[lat, lon], [lat + 1, lon + 1]], { stroke: false, fillColor: gridColor(n), fillOpacity: 0.6 })
-          .bindTooltip(`${n} tornadoes`, { sticky: true }).addTo(group);
+        const t = Math.sqrt(n / max); // sqrt keeps low counts visible
+        L.circleMarker([lat + GRID_RES / 2, lon + GRID_RES / 2], {
+          radius: 3 + t * 7,
+          stroke: false,
+          fillColor: gridColor(n, max),
+          fillOpacity: 0.28 + t * 0.5,
+        }).bindTooltip(`${n} tornado${n === 1 ? "" : "es"}`, { sticky: true }).addTo(group);
       }
     } else if (mode === "tracks" && tracks) {
       let drawn = 0;
@@ -179,7 +193,7 @@ export default function TornadoClimatology({ location }: Props) {
   }, [data]);
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
+    <div className="p-4 md:p-6 space-y-5 max-w-full overflow-x-hidden">
       <div className="flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -209,7 +223,7 @@ export default function TornadoClimatology({ location }: Props) {
       </div>
 
       {/* Subtabs */}
-      <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1">
+      <div className="flex gap-2 overflow-x-auto pb-1 px-1 -mx-1 max-w-full">
         {NEW_TABS.map(t => {
           const Icon = t.icon;
           return (
@@ -229,7 +243,7 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "annual" && (
             <>
               <h3 className="text-sm font-semibold mb-3">U.S. Tornadoes per Year ({m!.minYear}–{m!.maxYear})</h3>
-              <ResponsiveContainer width="100%" height={260}>
+              <ResponsiveContainer width="99%" height={260}>
                 <BarChart data={data.byYear.map(([y, n]) => ({ y, n }))}>
                   <XAxis dataKey="y" tick={{ fontSize: 9, fill: "#6b7280" }} tickLine={false} interval={9} />
                   <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -247,7 +261,7 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "monthly" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Average Tornadoes by Month</h3>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="99%" height={240}>
                 <BarChart data={data.monthlyAvg.map((v, i) => ({ mo: MONTHS[i], v }))}>
                   <XAxis dataKey="mo" tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -264,7 +278,7 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "region" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Tornado Season Timing by Region</h3>
-              <ResponsiveContainer width="100%" height={280}>
+              <ResponsiveContainer width="99%" height={280}>
                 <LineChart data={regionLineData}>
                   <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -282,7 +296,7 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "ytd" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Climatological Average — Cumulative Through the Year</h3>
-              <ResponsiveContainer width="100%" height={240}>
+              <ResponsiveContainer width="99%" height={240}>
                 <LineChart data={data.cumAvgByMonth.map((v, i) => ({ mo: MONTHS[i], v }))}>
                   <XAxis dataKey="mo" tick={{ fontSize: 11, fill: "#6b7280" }} tickLine={false} />
                   <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -385,7 +399,7 @@ export default function TornadoClimatology({ location }: Props) {
             <div className="grid md:grid-cols-2 gap-5">
               <div>
                 <h3 className="text-sm font-semibold mb-3">Path Length (miles)</h3>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={data.pathLenBins.map(([label, n]) => ({ label, n }))}>
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -396,7 +410,7 @@ export default function TornadoClimatology({ location }: Props) {
               </div>
               <div>
                 <h3 className="text-sm font-semibold mb-3">Path Width (yards)</h3>
-                <ResponsiveContainer width="100%" height={220}>
+                <ResponsiveContainer width="99%" height={220}>
                   <BarChart data={data.pathWidBins.map(([label, n]) => ({ label, n }))}>
                     <XAxis dataKey="label" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
                     <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -412,7 +426,7 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "casualties" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Tornado Fatalities by Year</h3>
-              <ResponsiveContainer width="100%" height={220}>
+              <ResponsiveContainer width="99%" height={220}>
                 <BarChart data={data.casualtiesByYear.map(([y, f]) => ({ y, f }))}>
                   <XAxis dataKey="y" tick={{ fontSize: 9, fill: "#6b7280" }} tickLine={false} interval={9} />
                   <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} />
@@ -485,10 +499,10 @@ export default function TornadoClimatology({ location }: Props) {
           {EF_SCALE.map(e => (
             <div key={e.scale} className="flex items-center gap-3">
               <div className="w-10 text-xs font-bold shrink-0" style={{ color: e.color }}>{e.scale}</div>
-              <div className="text-xs text-muted-foreground w-24 shrink-0">{e.winds}</div>
+              <div className="text-xs text-muted-foreground w-16 sm:w-24 shrink-0">{e.winds}</div>
               <div className="flex-1 bg-muted rounded-full h-2"><div className="h-2 rounded-full" style={{ width: e.pct, backgroundColor: e.color, minWidth: 4 }} /></div>
               <div className="text-xs text-muted-foreground w-10 text-right shrink-0">{e.pct}</div>
-              <div className="text-xs text-muted-foreground hidden md:block w-36 shrink-0">{e.desc}</div>
+              <div className="text-xs text-muted-foreground hidden md:block w-36 shrink-0 min-w-0">{e.desc}</div>
             </div>
           ))}
         </div>

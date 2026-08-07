@@ -17,6 +17,7 @@ import { useAuth, hasModuleAccess } from "../hooks/useAuth";
 import { SavedLocations } from "./SavedLocations";
 import { NotificationBell } from "./NotificationBell";
 const logoUrl = "/logo.png";
+const markUrl = "/sswx-mark.png"; // dripping-skull brand mark (transparent PNG)
 
 // ─── Navigation structure ────────────────────────────────────────────────────
 const NAV_SECTIONS = [
@@ -59,8 +60,7 @@ const NAV_SECTIONS = [
     label: "Astro Panel",
     items: [
       { label: "Moon & Astronomy",   path: "/moon",      icon: Moon },
-      { label: "Star Gazing Outlook",path: "/skygazing", icon: Star },
-      { label: "Aurora & Space Data",path: "/aurora",    icon: Sparkles },
+      { label: "Aurora & Star Gazing", path: "/aurora", icon: Sparkles },
     ],
   },
   {
@@ -218,25 +218,22 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
       >
         {/* Logo row */}
         <div className="flex items-center gap-3 px-[15px] py-3 border-b border-[rgba(204,204,255,0.09)] min-h-[58px]">
-          <div
-            className="w-[32px] h-[32px] rounded-[8px] flex-shrink-0 flex items-center justify-center text-[12px] font-extrabold text-[#CCCCFF] border border-[rgba(204,204,255,0.28)]"
-            style={{
-              background: "linear-gradient(135deg, rgba(204,204,255,0.10), rgba(204,204,255,0.26))",
-              boxShadow: "0 0 16px rgba(204,204,255,0.12)",
-              fontFamily: "'Raleway', sans-serif",
-              letterSpacing: "-0.03em",
-            }}
-          >
-            SS
-          </div>
+          <img
+            src={markUrl}
+            alt="StormSync"
+            width={32}
+            height={32}
+            className="w-[32px] h-[32px] flex-shrink-0 object-contain"
+            style={{ filter: "drop-shadow(0 0 10px rgba(155,80,220,0.45))" }}
+          />
           <div
             className={cn(
               "overflow-hidden whitespace-nowrap transition-all duration-300",
               sidebarExpanded ? "opacity-100 w-[160px]" : "opacity-0 w-0",
             )}
           >
-            <div className="text-[13px] font-bold text-[#F1F4FF] leading-tight" style={{ fontFamily: "'Raleway', sans-serif" }}>
-              StormSync
+            <div className="text-[13px] font-bold text-[#F1F4FF] leading-tight tracking-[0.06em]" style={{ fontFamily: "'Raleway', sans-serif" }}>
+              STORMSYNC
             </div>
             <div className="text-[9px] text-[#A3A3CC] tracking-[0.08em] uppercase mt-[1px]">
               VIP Forecast Group

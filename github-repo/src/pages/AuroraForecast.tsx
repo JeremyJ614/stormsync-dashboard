@@ -34,11 +34,11 @@ function skygazingScore(cloud: number, humidity: number, precip: number): number
   return Math.max(0, Math.round(100 - cloud * 0.85 - Math.max(0, humidity - 50) * 0.15 - (precip > 0 ? 40 : 0)));
 }
 function skygazingLabel(score: number): { text: string; color: string } {
-  if (score >= 85) return { text: "PERFECT",   color: "#fde047" };
-  if (score >= 70) return { text: "EXCELLENT", color: "#e879f9" };
-  if (score >= 55) return { text: "CLEAR",     color: "#c084fc" };
-  if (score >= 35) return { text: "FAIR",      color: "#818cf8" };
-  return                   { text: "POOR",     color: "#4c1d95" };
+  if (score >= 85) return { text: "PRISTINE",   color: "#fde047" };
+  if (score >= 70) return { text: "EXCELLENT",  color: "#e879f9" };
+  if (score >= 55) return { text: "CLEAR",      color: "#c084fc" };
+  if (score >= 35) return { text: "HAZY",       color: "#818cf8" };
+  return                   { text: "WASHED OUT",color: "#4c1d95" };
 }
 
 // ─── SWPC data hooks ──────────────────────────────────────────────────────────
@@ -162,7 +162,7 @@ export default function AuroraForecast({ location }: Props) {
               background: "linear-gradient(90deg,#c084fc,#f472b6)",
               WebkitBackgroundClip: "text",
               WebkitTextFillColor: "transparent",
-            }}>Night Sky</h2>
+            }}>Aurora &amp; Star Gazing</h2>
           </div>
           <p className="text-sm text-muted-foreground mt-0.5">
             {location.name} · Stargazing &amp; aurora outlook
@@ -234,20 +234,38 @@ export default function AuroraForecast({ location }: Props) {
           )}
         </div>
 
-        {/* Legend strip below map */}
-        <div className="px-4 pb-3 flex flex-wrap gap-x-4 gap-y-1.5">
-          {(tab === "aurora" || tab === "both") && AURORA_LEGEND.map(l => (
-            <div key={l.label} className="flex items-center gap-1.5 text-xs">
-              <div className="w-5 h-[2px]" style={{ background: l.color }} />
-              <span className="text-muted-foreground">{l.label}</span>
+        {/* ── Single unified legend: sky clarity + aurora view lines, always shown.
+               Every row carries BOTH of its map colors (fill + outline) beside the label. ── */}
+        <div className="px-4 pb-3 space-y-2">
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Sky Clarity</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {SKY_LEGEND.map(l => (
+                <div key={l.label} className="flex items-center gap-1.5 text-xs">
+                  <span className="flex items-center gap-[3px]">
+                    <span className="w-3 h-3 rounded-sm" style={{ background: l.color }} />
+                    <span className="w-3 h-3 rounded-sm" style={{ background: l.stroke }} />
+                  </span>
+                  <span className="text-muted-foreground">{l.label}</span>
+                  <span className="text-[10px] text-muted-foreground/60 tabular-nums">{l.range}</span>
+                </div>
+              ))}
             </div>
-          ))}
-          {(tab === "stargazing" || tab === "both") && SKY_LEGEND.map(l => (
-            <div key={l.label} className="flex items-center gap-1.5 text-xs">
-              <div className="w-3 h-3 rounded-sm" style={{ background: l.color }} />
-              <span className="text-muted-foreground">{l.label}</span>
+          </div>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground mb-1">Aurora Visibility</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+              {AURORA_LEGEND.map(l => (
+                <div key={l.label} className="flex items-center gap-1.5 text-xs">
+                  <span className="flex items-center gap-[3px]">
+                    <span className="w-3 h-3 rounded-sm" style={{ background: l.color }} />
+                    <span className="w-3 h-3 rounded-sm" style={{ background: l.stroke }} />
+                  </span>
+                  <span className="text-muted-foreground">{l.label}</span>
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
         </div>
 
         <div className="px-4 pb-3 text-xs text-muted-foreground">

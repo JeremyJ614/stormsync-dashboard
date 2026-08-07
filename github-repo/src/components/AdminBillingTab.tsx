@@ -175,7 +175,8 @@ function TierBundlesCard() {
   useEffect(() => { getTierModuleConfig().then(setCfg); }, []);
   if (!cfg) return <LoadingRow />;
 
-  const purchasable = ALL_MODULES.filter(m => !m.alwaysOn && !HIDDEN_MODULES.has(m.id));
+  // admin-only modules are never sellable (see ALL_MODULES.adminOnly)
+  const purchasable = ALL_MODULES.filter(m => !m.alwaysOn && !m.adminOnly && !HIDDEN_MODULES.has(m.id));
 
   const setChoosable = (tier: TierKey, v: number) => setCfg({ ...cfg, choosableCount: { ...cfg.choosableCount, [tier]: v } });
   const toggleBundled = (tier: "basic" | "vip", moduleId: string) => {
@@ -326,7 +327,7 @@ function AddonRow({ row, onSaved, onDeleted }: { row: ModuleAddonPrice; onSaved:
 }
 
 function AddAddonRow({ existingIds, onDone }: { existingIds: string[]; onDone: () => void }) {
-  const options = ALL_MODULES.filter(m => !m.alwaysOn && !HIDDEN_MODULES.has(m.id) && !existingIds.includes(m.id));
+  const options = ALL_MODULES.filter(m => !m.alwaysOn && !m.adminOnly && !HIDDEN_MODULES.has(m.id) && !existingIds.includes(m.id));
   const [moduleId, setModuleId] = useState(options[0]?.id ?? "");
   const [label, setLabel] = useState(options[0]?.label ?? "");
   const [err, setErr] = useState<string | null>(null);

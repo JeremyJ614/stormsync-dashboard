@@ -1,0 +1,9 @@
+# Phase 4 model-map renderer. Pinned loosely so security fixes land, but the
+# majors are fixed because cartopy/cfgrib break across them.
+requests>=2.32,<3
+numpy>=1.26,<3
+xarray>=2024.1
+cfgrib>=0.9.11
+eccodes>=1.7
+matplotlib>=3.8,<4
+cartopy>=0.23,<0.25

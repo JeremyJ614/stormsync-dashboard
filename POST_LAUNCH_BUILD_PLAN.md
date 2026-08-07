@@ -111,7 +111,7 @@ Full redesign + working layer set (one active overlay at a time per 4c — no st
 
 ---
 
-## PHASE 4 — Model Runs (HRRR + GFS) 🔴 **[#5]**
+## PHASE 4 — Model Runs (HRRR + GFS)  ✅ SHIPPED **[#5]**
 
 **Structure (5a, confirmed):** HRRR subtab + GFS subtab; each with **Upper Air**, **Surface & Precipitation**, and **Severe Weather** parameter groups; region zooms; animated frames + scrubber + download/share. The existing page already has the viewer scaffolding (player, scrubber, legend, download) — it crashes only because it fetches Max Velocity's private endpoint `data.maxvelocitywx.com/api/hrrr`, which we cannot use.
 
@@ -129,7 +129,23 @@ This is the one question that decides whether item #5 is a two-week build or a t
 | **B. Official NOAA MAG images** | Free, official, reliable — but only a **subset** (reflectivity, CAPE/CIN, helicity, heights/winds, temp/dewpoint). **No STP, SCP, 0–3km CAPE, MLCIN, LCL, lapse rate.** | Small build. Fastest path. NWS styling, not ours. |
 | **C. Third-party image sites** (Pivotal, TropicalTidbits, COD) | Has the full suite | ⚠️ Hotlinking their rendered images is against ToS for the main ones — I won't build on that. |
 
-### ⛔ BLOCKED (2026-08-07) — **Option B is not viable; MAG images are not fetchable**
+### ✅ RESOLVED (2026-08-07) — built on NOAA Open Data + byte-range GRIB
+
+Jeremy surfaced the AWS Open Data buckets. Decisive fact, measured live: each
+GRIB2 file ships a `.idx` byte-offset index, so an HTTP Range request pulls only
+the records we need — **0.21 MB of a 140 MB file** for composite reflectivity,
+**7.71 MB for all 8 HRRR params** at one forecast hour. That removes the
+bandwidth/compute objection: no paid worker, no Zarr mirror.
+
+**Of the two proposals, #1 was right and #2 solved a non-problem** — its premise
+("do not download full GRIB2 files") is already satisfied by #1's byte-range
+approach, and its "free Render cron job" does not exist (Render cron jobs are paid).
+
+**One real flaw in #1, corrected:** its cron was hourly. This repo is *private*
+(2,000 free Actions min/month); hourly is ~5,000 min/month. Shipped at
+**4 runs/day ≈ 840 min/month (42% of the allowance)**.
+
+### ⛔ (superseded) earlier blocker — NOAA MAG images are not fetchable
 
 Probed before building, precisely because the current broken page is what happens
 when a viewer is built against a source that was never verified (it targets Max

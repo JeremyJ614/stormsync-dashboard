@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import "leaflet/dist/leaflet.css";
+import { createHeatLayer } from "../components/ClimoHeatLayer";
 import type { Location } from "../hooks/useLocation";
 import {
   Tornado, ExternalLink, Info, Database, Flame, BarChart3, Map as MapIcon,
@@ -33,17 +34,31 @@ interface ClimoData {
 
 const EF_COLOR: Record<number, string> = { 0: "#86efac", 1: "#fde047", 2: "#f59e0b", 3: "#f97316", 4: "#ef4444", 5: "#d946ef" };
 
-// Density color ramp, keyed on a cell's share of the grid maximum so the same
-// ramp reads correctly for both the all-tornado and EF2+ grids (whose absolute
-// counts differ by ~4x). Descending fractional thresholds.
-const GRID_RAMP: [number, string][] = [
-  [0.70, "#d946ef"], [0.45, "#ef4444"], [0.30, "#f97316"], [0.20, "#fde047"],
-  [0.12, "#22c55e"], [0.06, "#06b6d4"], [0.02, "#2563eb"], [0, "#1e3a5f"],
+// Density heat gradient (position 0..1 -> rgb). Cool -> hot, tuned for the dark basemap.
+const HEAT_GRADIENT: [number, number[]][] = [
+  [0.00, [ 30,  58,  95]],
+  [0.20, [ 37,  99, 235]],
+  [0.38, [  6, 182, 212]],
+  [0.55, [ 34, 197,  94]],
+  [0.70, [253, 224,  71]],
+  [0.84, [249, 115,  22]],
+  [0.93, [239,  68,  68]],
+  [1.00, [217,  70, 239]],
 ];
-function gridColor(n: number, max: number): string {
-  const f = max > 0 ? n / max : 0;
-  for (const [t, c] of GRID_RAMP) if (f >= t) return c;
-  return "#1e3a5f";
+
+/** Legend rows in real tornado counts, derived from the grid's own maximum. */
+export function heatLegend(max: number): { label: string; color: string }[] {
+  const stops = [1, 0.72, 0.48, 0.3, 0.17, 0.08];
+  const rows = stops.map((f) => {
+    const g = HEAT_GRADIENT;
+    let a = g[0], b = g[g.length - 1];
+    for (let i = 0; i < g.length - 1; i++) if (f >= g[i][0] && f <= g[i + 1][0]) { a = g[i]; b = g[i + 1]; break; }
+    const t = (f - a[0]) / ((b[0] - a[0]) || 1);
+    const rgb = [0, 1, 2].map((k) => Math.round(a[1][k] + (b[1][k] - a[1][k]) * t));
+    return { label: `${Math.max(1, Math.round(max * f * f))}+`, color: `rgb(${rgb.join(",")})` };
+  });
+  // collapse rows that round to the same count (small grids compress the low end)
+  return rows.filter((r, i) => i === 0 || r.label !== rows[i - 1].label);
 }
 
 // ─── Shared Leaflet map for density grids + tracks ───────────────────────────
@@ -91,19 +106,9 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
     if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
     const group = L.layerGroup();
     if (mode === "grid" && grid) {
-      // Cells are binned at GRID_RES° (0.25° ≈ 17mi). Drawn as soft circle markers
-      // rather than hard rectangles so the field reads as a smooth heatmap instead
-      // of a blocky mosaic; radius/opacity scale with count.
-      const max = grid.reduce((m, g) => (g[2] > m ? g[2] : m), 1);
-      for (const [lat, lon, n] of grid) {
-        const t = Math.sqrt(n / max); // sqrt keeps low counts visible
-        L.circleMarker([lat + GRID_RES / 2, lon + GRID_RES / 2], {
-          radius: 3 + t * 7,
-          stroke: false,
-          fillColor: gridColor(n, max),
-          fillOpacity: 0.28 + t * 0.5,
-        }).bindTooltip(`${n} tornado${n === 1 ? "" : "es"}`, { sticky: true }).addTo(group);
-      }
+      // Continuous canvas heat field (see ClimoHeatLayer) — scales with zoom and
+      // tiles the ground, unlike screen-space markers.
+      createHeatLayer(L, grid, { cellDeg: GRID_RES, gradient: HEAT_GRADIENT, spread: 1.35, maxOpacity: 0.8 }).addTo(group);
     } else if (mode === "tracks" && tracks) {
       let drawn = 0;
       for (const [slat, slon, elat, elon, mag, yr] of tracks) {
@@ -320,12 +325,12 @@ export default function TornadoClimatology({ location }: Props) {
                 <ClimoMap mode="grid" grid={data.densityGrid} />
                 <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
                   <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">Tornadoes / cell</div>
-                  {GRID_RAMP.slice().reverse().map(([t, c]) => (
-                    <div key={t} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: c }} /><span className="text-[10px] text-white">{t}+</span></div>
+                  {heatLegend(Math.max(...data.densityGrid.map(g => g[2]))).map(l => (
+                    <div key={l.label} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: l.color }} /><span className="text-[10px] text-white">{l.label}</span></div>
                   ))}
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground mt-2">Counts are aggregated into 1° latitude/longitude cells by touchdown point. Tornado Alley and Dixie Alley light up clearly.</p>
+              <p className="text-xs text-muted-foreground mt-2">Counts are aggregated into 0.25° (~17 mi) cells by touchdown point and smoothed into a continuous density field. Tornado Alley and Dixie Alley light up clearly.</p>
             </>
           )}
 
@@ -336,8 +341,8 @@ export default function TornadoClimatology({ location }: Props) {
                 <ClimoMap mode="grid" grid={data.densityGridEF2} />
                 <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
                   <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">EF2+ / cell</div>
-                  {GRID_RAMP.slice().reverse().map(([t, c]) => (
-                    <div key={t} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: c }} /><span className="text-[10px] text-white">{t}+</span></div>
+                  {heatLegend(Math.max(...data.densityGridEF2.map(g => g[2]))).map(l => (
+                    <div key={l.label} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: l.color }} /><span className="text-[10px] text-white">{l.label}</span></div>
                   ))}
                 </div>
               </div>

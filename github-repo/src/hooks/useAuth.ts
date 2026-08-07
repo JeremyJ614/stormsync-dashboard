@@ -1,6 +1,7 @@
 import { useCallback, useSyncExternalStore } from "react";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { logger } from "../lib/logger";
+import { navOverrideFor } from "../lib/navConfig";
 
 export type Tier = 1 | 2 | 3 | 4;
 
@@ -263,7 +264,10 @@ export function useAuth() {
 export function hasModuleAccess(user: User | null, path: string): boolean {
   if (HIDDEN_MODULES.has(path)) return false; // parked pre-launch (see HIDDEN_MODULES)
   const mod = ALL_MODULES.find((m) => m.id === path);
-  if (mod?.adminOnly) return !!user?.isAdmin; // admin-only: hidden from everyone else
+  // Admin-managed sidebar config (P-2.1) overrides the code registry when loaded.
+  const nav = navOverrideFor(path);
+  if (nav?.adminOnly || mod?.adminOnly) return !!user?.isAdmin;
+  if (nav && !nav.visible && !user?.isAdmin) return false; // hidden by an admin
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
   return user.enabledModules.includes(path);

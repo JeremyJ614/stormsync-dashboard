@@ -725,8 +725,15 @@ export default function HurricaneTracker() {
         {/* ── SST legend (shown on SST tab) ── */}
         {activeTab === "sst" && (
           <div className="bg-card border border-border rounded-xl p-4">
-            <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-              Sea Surface Temperature — MUR JPL SST via NASA GIBS
+            <div className="flex items-baseline justify-between gap-2 flex-wrap mb-3">
+              <div className="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                Sea Surface Temperature — MUR JPL SST via NASA GIBS
+              </div>
+              {/* The GIBS MUR product lags ~1-3 days, so state the analysis date
+                  explicitly rather than implying it is "now". */}
+              <div className="text-[10px] text-muted-foreground/80 tabular-nums">
+                Analysis valid <span className="text-foreground font-semibold">{sstDate()}</span> · updated daily
+              </div>
             </div>
             <div className="flex gap-2 items-end">
               {SST_SCALE.map(sw => (

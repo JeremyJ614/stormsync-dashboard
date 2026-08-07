@@ -207,19 +207,24 @@ async function fetchWindRadii(stormId: string): Promise<GeoJSON.FeatureCollectio
     const r50 = block.match(/<nhc:Wind50Radii[^>]*>([\s\S]*?)<\/nhc:Wind50Radii>/);
     const r64 = block.match(/<nhc:Wind64Radii[^>]*>([\s\S]*?)<\/nhc:Wind64Radii>/);
 
-    function parseQuadrant(s: string | undefined): RadiiQuadrant | null {
-      if (!s) return null;
-      const ne = parseInt(s[1]?.match(/<nhc:NE[^>]*>(\d+)/)?.[1] ?? "0");
-      const se = parseInt(s[1]?.match(/<nhc:SE[^>]*>(\d+)/)?.[1] ?? "0");
-      const sw = parseInt(s[1]?.match(/<nhc:SW[^>]*>(\d+)/)?.[1] ?? "0");
-      const nw = parseInt(s[1]?.match(/<nhc:NW[^>]*>(\d+)/)?.[1] ?? "0");
-      return { ne, se, sw, nw };
+    // Takes the RegExpMatchArray from the Wind*Radii block and reads the four
+    // quadrant radii out of its captured inner XML. (This previously declared the
+    // parameter as `string` and was fed a match array through an `as unknown`
+    // cast — it happened to work, but the types were lying and one refactor away
+    // from silently returning zeros.) An all-zero quadrant means "no radii
+    // reported at this threshold", so return null rather than a degenerate polygon.
+    function parseQuadrant(m: RegExpMatchArray | null): RadiiQuadrant | null {
+      const inner = m?.[1];
+      if (!inner) return null;
+      const num = (tag: string) => parseInt(inner.match(new RegExp(`<nhc:${tag}[^>]*>(\\d+)`))?.[1] ?? "0") || 0;
+      const q = { ne: num("NE"), se: num("SE"), sw: num("SW"), nw: num("NW") };
+      return (q.ne || q.se || q.sw || q.nw) ? q : null;
     }
 
     const features: GeoJSON.Feature[] = [];
-    const q34 = parseQuadrant(r34 as unknown as string | undefined);
-    const q50 = parseQuadrant(r50 as unknown as string | undefined);
-    const q64 = parseQuadrant(r64 as unknown as string | undefined);
+    const q34 = parseQuadrant(r34);
+    const q50 = parseQuadrant(r50);
+    const q64 = parseQuadrant(r64);
 
     if (q34) features.push(windRadiiPolygon(lat, lonVal, q34, 34, "#fbbf24"));
     if (q50) features.push(windRadiiPolygon(lat, lonVal, q50, 50, "#f97316"));

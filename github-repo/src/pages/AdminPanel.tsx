@@ -11,6 +11,7 @@ import {
 import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
+import { AdminNavTab } from "../components/AdminNavTab";
 import AdminBillingTab from "../components/AdminBillingTab";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
@@ -21,7 +22,7 @@ import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
 import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus } from "lucide-react";
 
-type Tab = "users" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "faq" | "billing" | "settings";
+type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "faq" | "billing" | "settings";
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -56,6 +57,7 @@ export default function AdminPanel() {
       <div className="flex gap-1 border-b border-border flex-wrap">
         {([
           { id: "users", label: "Users", icon: Users },
+          { id: "nav", label: "Sidebar & Modules", icon: ListOrdered },
           { id: "modules", label: "Module Access", icon: Settings },
           { id: "badges", label: "Badges", icon: Award },
           { id: "signups", label: "Signups", icon: ClipboardList },
@@ -79,6 +81,7 @@ export default function AdminPanel() {
       </div>
 
       {tab === "users" && <UsersTab badgeDefs={badgeDefs} />}
+      {tab === "nav" && <AdminNavTab />}
       {tab === "modules" && <ModulesTab />}
       {tab === "badges" && <BadgesTab badgeDefs={badgeDefs} reloadBadges={reloadBadges} />}
       {tab === "signups" && <SignupsTab />}

@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, type ReactNode, useMemo } from "react";
+import { useState, useEffect, useRef, type ReactNode, useMemo, useSyncExternalStore } from "react";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
+import { subscribeNav, getNavSnapshot, getNavServerSnapshot } from "../lib/navConfig";
+import type { LucideIcon } from "lucide-react";
 import {
   LayoutDashboard, CalendarDays, MessageSquare, Zap, Layers,
   Brain, Swords, BookOpen, FlaskConical,
@@ -13,7 +15,7 @@ import {
 } from "lucide-react";
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
-import { useAuth, hasModuleAccess } from "../hooks/useAuth";
+import { useAuth, hasModuleAccess, ALL_MODULES } from "../hooks/useAuth";
 import { SavedLocations } from "./SavedLocations";
 import { NotificationBell } from "./NotificationBell";
 const logoUrl = "/logo.png";
@@ -86,6 +88,11 @@ const NAV_SECTIONS = [
 ];
 
 const ALL_NAV_ITEMS = NAV_SECTIONS.flatMap(s => s.items);
+
+// Icon lookup so DB-driven modules keep their icon; unknown ids fall back.
+const ICON_BY_PATH: Record<string, LucideIcon> = Object.fromEntries(
+  ALL_NAV_ITEMS.map(i => [i.path, i.icon as LucideIcon]),
+);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LayoutProps {
@@ -184,12 +191,34 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   // Close sidebar on route change
   useEffect(() => { setSidebarExpanded(false); }, [pathname]);
 
+  // Sidebar structure comes from the admin-managed DB config (P-2.1); until it
+  // loads (or if it fails) we render the hardcoded NAV_SECTIONS so the sidebar
+  // is never blank.
+  const navCfg = useSyncExternalStore(subscribeNav, getNavSnapshot, getNavServerSnapshot);
+
   const visibleSections = useMemo(() => {
-    return NAV_SECTIONS.map(sec => ({
-      ...sec,
-      items: sec.items.filter(item => hasModuleAccess(user, item.path)),
-    })).filter(sec => sec.items.length > 0);
-  }, [user]);
+    if (!navCfg.loaded || navCfg.sections.length === 0) {
+      return NAV_SECTIONS.map(sec => ({
+        ...sec,
+        items: sec.items.filter(item => hasModuleAccess(user, item.path)),
+      })).filter(sec => sec.items.length > 0);
+    }
+    const known = new Set(ALL_MODULES.map(m => m.id));
+    return [...navCfg.sections]
+      .sort((a, b) => a.sortOrder - b.sortOrder)
+      .map(sec => ({
+        label: sec.name,
+        items: navCfg.modules
+          .filter(m => m.sectionId === sec.id && known.has(m.moduleId) && hasModuleAccess(user, m.moduleId))
+          .sort((a, b) => a.sortOrder - b.sortOrder)
+          .map(m => ({
+            label: m.label ?? ALL_MODULES.find(x => x.id === m.moduleId)?.label ?? m.moduleId,
+            path: m.moduleId,
+            icon: ICON_BY_PATH[m.moduleId] ?? Layers,
+          })),
+      }))
+      .filter(sec => sec.items.length > 0);
+  }, [user, navCfg]);
 
   const currentNav = ALL_NAV_ITEMS.find((n) => n.path === pathname);
 
@@ -418,7 +447,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
       </aside>
 
       {/* ── Main content — always offset by collapsed sidebar width ── */}
-      <div className="flex-1 ml-[62px] flex flex-col min-h-screen">
+      <div className="flex-1 min-w-0 ml-[62px] flex flex-col min-h-screen">
 
         {/* Header */}
         <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border">
@@ -504,7 +533,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
           </div>
         </header>
 
-        <main className="flex-1 overflow-auto">{children}</main>
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">{children}</main>
       </div>
     </div>
   );

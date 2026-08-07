@@ -13,7 +13,7 @@ _Created 2026-08-07 · from Jeremy's 15-item post-launch list · answers capture
 
 ---
 
-## PHASE 0 — Foundations
+## PHASE 0 — Foundations  ✅ P-0.1 SHIPPED (P-0.2 lands with Phase 5)
 _Unblocks later phases. Small, no visible change._
 
 ### P-0.1 — Module registry: `adminOnly` concept 🟢 **[#7, #12]**
@@ -34,7 +34,7 @@ Existing AI = `storm-engine` edge fn, Gemini `2.5-flash` w/ Anthropic fallback, 
 
 ---
 
-## PHASE 1 — Visual & quick wins
+## PHASE 1 — Visual & quick wins  ✅ SHIPPED
 
 ### P-1.1 — Sidebar logo 🟢 **[#15]**
 Replace the CSS `SS` badge + wordmark block (`Layout.tsx:220-245`) with the dripping skull icon.
@@ -64,7 +64,7 @@ Full rebuild of `SplashScreen.tsx`: geometric, state-of-the-art, single "wow" an
 
 ---
 
-## PHASE 2 — Admin control plane
+## PHASE 2 — Admin control plane  ✅ SHIPPED
 
 ### P-2.1 — Sidebar & Module Manager 🟢 **[#11]**
 Today `NAV_SECTIONS` (Layout.tsx) and `ALL_MODULES` (useAuth.ts) are hardcoded arrays. Move to DB.
@@ -72,6 +72,12 @@ Today `NAV_SECTIONS` (Layout.tsx) and `ALL_MODULES` (useAuth.ts) are hardcoded a
 - New admin tab **"Sidebar & Modules"**: drag-to-reorder modules, drag between sections, create/rename/delete/reorder sections, rename modules, toggle visibility, mark admin-only.
 - Layout + routing read from DB with the hardcoded arrays as fallback (never blank sidebar).
 - Confirmed scope: **order + sections + rename + visibility ("all of it")**.
+- **Shipped:** `nav_sections` + `nav_modules` tables (public read / admin write RLS), seeded from the old hardcoded arrays; `navConfig.ts` sync store so `hasModuleAccess` stays synchronous; Layout renders from DB with the hardcoded arrays as fallback; admin tab **"Sidebar & Modules"** with drag-and-drop *and* arrow reordering, section CRUD, per-module rename, visibility and admin-only toggles, plus a "Sync new modules" button for future additions.
+
+### P-2.2 — Climatology follow-up fix ✅ SHIPPED (bundled per Jeremy's request)
+- **Real root cause of the width bug** (my first pass missed it): `Layout.tsx`'s shell wrapper `div.flex-1 ml-[62px]` and `<main>` are flex items **without `min-w-0`**, so their default `min-width:auto` refused to shrink below content min-content width — one wide descendant stretched the **entire app shell to 1480px on a 390px viewport**. This affected every page, not just Climatology. Verified with a headless-browser probe: `documentElement.scrollWidth` 1542 → **390**.
+- **Density/EF2+ maps** replaced with a proper canvas heat layer (`ClimoHeatLayer.ts`): accumulating radial blobs + palette colorisation, blob radius derived from the true ground size of a 0.25° cell so it scales with zoom. The previous `circleMarker` pass rendered a screen-space polka-dot matrix.
+- Legends now show **real tornado counts** (derived from each grid's max) instead of the internal ramp values.
 
 ---
 

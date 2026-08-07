@@ -1,0 +1,82 @@
+name: Render model maps
+
+# Phase 4 — HRRR/GFS map frames for the Model Runs viewer.
+#
+# CADENCE IS DELIBERATE. This repo is private, so GitHub Actions gives 2,000 free
+# minutes/month. A run costs roughly 7 minutes (index + byte-range pulls, ~144
+# renders, upload). Four runs a day is ~840 min/month (42% of the allowance);
+# hourly would be ~5,000 min/month and blow through it in under two weeks.
+#
+# The renderer never downloads whole GRIB files — it reads each file's .idx and
+# issues HTTP Range requests for just the records it needs (measured: 0.21 MB of
+# a 140 MB file for composite reflectivity).
+
+on:
+  schedule:
+    # HRRR at 01/07/13/19Z — ~40 min after the 00/06/12/18Z runs land on AWS.
+    - cron: "40 1,7,13,19 * * *"
+    # GFS is slower to publish; give it ~3.5 h after cycle time.
+    - cron: "30 3,9,15,21 * * *"
+  workflow_dispatch:
+    inputs:
+      model:
+        description: "Model to render"
+        type: choice
+        options: [hrrr, gfs, both]
+        default: both
+      max_fhr:
+        description: "Last forecast hour"
+        default: "18"
+
+concurrency:
+  group: render-model-maps
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: System libs for cartopy / eccodes
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq libgeos-dev libproj-dev proj-bin libeccodes0
+
+      - name: Install Python deps
+        run: pip install -q -r scripts/requirements-render.txt
+
+      # Which model this invocation renders. Scheduled runs are keyed off the
+      # cron expression that triggered them; manual runs use the input.
+      - name: Decide model
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            if [ "${{ github.event.schedule }}" = "40 1,7,13,19 * * *" ]; then
+              echo "model=hrrr" >> $GITHUB_OUTPUT
+            else
+              echo "model=gfs" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "model=${{ inputs.model || 'both' }}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Render HRRR
+        if: steps.pick.outputs.model == 'hrrr' || steps.pick.outputs.model == 'both'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/render_maps.py --model hrrr --max-fhr ${{ inputs.max_fhr || 18 }} --step 1
+
+      - name: Render GFS
+        if: steps.pick.outputs.model == 'gfs' || steps.pick.outputs.model == 'both'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/render_maps.py --model gfs --max-fhr 48 --step 3

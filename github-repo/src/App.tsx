@@ -94,7 +94,7 @@ function AppInner() {
         <Route path="/dashboard" component={() => <PW name="Dashboard"><Gated path="/dashboard"><Dashboard location={location} /></Gated></PW>} />
         <Route path="/forecast" component={() => <PW name="Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
         <Route path="/discussion" component={() => <PW name="Forecast Discussion"><Gated path="/discussion"><ForecastDiscussion location={location} /></Gated></PW>} />
-        <Route path="/comparator" component={() => <PW name="Run Comparator"><Gated path="/comparator"><ForecastRunComparator location={location} /></Gated></PW>} />
+        <Route path="/comparator" component={() => <PW name="Model Runs"><Gated path="/comparator"><ForecastRunComparator /></Gated></PW>} />
         <Route path="/spc" component={() => <PW name="SPC Outlook"><Gated path="/spc"><SPCOutlook location={location} /></Gated></PW>} />
         <Route path="/thunder" component={() => <PW name="Thunderstorm Probability"><Gated path="/thunder"><ThunderstormOutlook /></Gated></PW>} />
         {/* Tropical history must come before /hurricane to ensure exact-match priority */}

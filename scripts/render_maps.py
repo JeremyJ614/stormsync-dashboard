@@ -176,20 +176,29 @@ def fetch_record(url: str, rows: list[dict], match: str) -> bytes | None:
 
 
 def open_grib(buf: bytes) -> xr.Dataset | None:
+    """Decode one GRIB record into an eagerly-loaded Dataset.
+
+    cfgrib/xarray are LAZY: open_dataset only reads headers, and the real values
+    are pulled from the file the first time `.values` is touched. Deleting the
+    temp file before that raises FileNotFoundError deep inside the render call,
+    so we force everything into memory with .load() while the file still exists.
+    (One GRIB record is a couple of MB — safe to hold.)
+    """
     with tempfile.NamedTemporaryFile(suffix=".grib2", delete=False) as f:
         f.write(buf)
         path = f.name
     try:
-        return xr.open_dataset(path, engine="cfgrib",
-                               backend_kwargs={"indexpath": ""})
+        with xr.open_dataset(path, engine="cfgrib", backend_kwargs={"indexpath": ""}) as ds:
+            return ds.load()
     except Exception as e:  # noqa: BLE001
         print(f"    ! grib decode failed: {e}", file=sys.stderr)
         return None
     finally:
-        try:
-            os.unlink(path)
-        except OSError:
-            pass
+        for p in (path, path + ".idx", path + ".923a8.idx"):
+            try:
+                os.unlink(p)
+            except OSError:
+                pass
 
 
 # ── rendering ────────────────────────────────────────────────────────────────

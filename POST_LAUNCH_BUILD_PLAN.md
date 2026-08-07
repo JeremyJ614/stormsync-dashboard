@@ -129,7 +129,37 @@ This is the one question that decides whether item #5 is a two-week build or a t
 | **B. Official NOAA MAG images** | Free, official, reliable — but only a **subset** (reflectivity, CAPE/CIN, helicity, heights/winds, temp/dewpoint). **No STP, SCP, 0–3km CAPE, MLCIN, LCL, lapse rate.** | Small build. Fastest path. NWS styling, not ours. |
 | **C. Third-party image sites** (Pivotal, TropicalTidbits, COD) | Has the full suite | ⚠️ Hotlinking their rendered images is against ToS for the main ones — I won't build on that. |
 
-### ✅ DECIDED (2026-08-07) — **Staged: B now → A later**
+### ⛔ BLOCKED (2026-08-07) — **Option B is not viable; MAG images are not fetchable**
+
+Probed before building, precisely because the current broken page is what happens
+when a viewer is built against a source that was never verified (it targets Max
+Velocity's private `data.maxvelocitywx.com/api/hrrr`).
+
+| Check | Result |
+|---|---|
+| `mag.ncep.noaa.gov/` root (browser UA) | **200** — site reachable |
+| `mag.ncep.noaa.gov/data/**` — every model/cycle/area/param combo tried | **403, 199 B** on all of them |
+| MAG page JS path builder | `data/{model}/{cycle}/{model}_{area}_{fhr}_{param}.gif` — extracted, but no combination resolves |
+| Headless browser load of the MAG guidance page | `ERR_CONNECTION_RESET` — could not read a real `<img src>` |
+| SPC mesoanalysis `exper/mesoanalysis/new/s19/*.gif` | **404** on every param (incl. the page's own `blank.gif`) |
+
+`/data/` returns a uniform 403 body rather than a 404, which reads as
+directory-level hotlink protection. **No working MAG image URL was obtained, so
+Phase 4a cannot be built on it.**
+
+### Sources that ARE reachable (verified this session)
+| Source | Status | Notes |
+|---|---|---|
+| **NOMADS GRIB filter** (`nomads.ncep.noaa.gov/cgi-bin/filter_hrrr_2d.pl`) | **200** | Raw HRRR/GFS data — the input for Option A (render our own). Gives every parameter on the list. |
+| College of DuPage (`weather.cod.edu`) | **200** | Has HRRR/GFS severe params, but it's a third-party educational site — hotlinking their renders needs their OK. |
+| NDFD graphical (`graphical.weather.gov`) | **200** | Official, but only basic fields (MaxT etc.) — none of the severe suite. |
+
+### 🔴 NEEDS JEREMY'S DECISION before Phase 4 resumes
+1. **Option A — render our own from NOMADS** (my original recommendation). Only path that delivers the full requested parameter list in StormSync styling. Needs a scheduled GRIB→PNG worker + image storage; real compute/storage cost.
+2. **Ask College of DuPage for permission** to use their rendered images, then build the viewer against them (fast, but dependent on a third party saying yes).
+3. **Descope** — drop the severe suite and ship a viewer on the basic official fields only.
+
+### (superseded) previous decision — Staged: B now → A later
 - **Phase 4a:** ship a working HRRR + GFS viewer on **official NOAA MAG imagery** (reflectivity, CAPE/CIN, helicity, heights/winds, temperature, dewpoint), with the real UI: model subtabs, parameter groups, region zooms, animation, scrubber, legend, download/share.
 - **Phase 4b (later):** build our own GRIB→PNG renderer to add the parameters MAG doesn't publish — **0–3km AGL CAPE, MLCIN, LCL, 700–500mb lapse rate, Supercell Composite, STP** — and restyle everything in StormSync dark.
 - Viewer is built **source-agnostic** from day one (a product/frame provider interface) so 4b swaps the image source in without a rewrite. Any parameter not yet available is shown as "coming soon" rather than hidden, so the full list stays visible as the target.

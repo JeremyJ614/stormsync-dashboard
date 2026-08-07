@@ -4,7 +4,7 @@
 
 CREATE TABLE IF NOT EXISTS public.tropical_storms (
   id                  TEXT PRIMARY KEY,            -- e.g. "AL012026"
-  name                TEXT NOT NULL,               -- e.g. "Hurricane Arthur"
+  name                TEXT NOT NULL,               -- bare storm name, e.g. "Arthur" (status lives in peak_intensity/final_status)
   year                INTEGER NOT NULL,
   basin               TEXT NOT NULL DEFAULT 'Atlantic',
   peak_intensity      TEXT,                        -- "Tropical Storm", "Category 1 Hurricane", etc.
@@ -55,7 +55,7 @@ INSERT INTO public.tropical_storms (
   last_advisory_num, final_status, track_points, archived_at
 ) VALUES (
   'AL012026',
-  'Post-Tropical Cyclone Arthur',
+  'Arthur',
   2026,
   'Atlantic',
   'Tropical Storm',
@@ -89,7 +89,7 @@ INSERT INTO public.tropical_storms (
   last_advisory_num, final_status, track_points, archived_at
 ) VALUES (
   'AL022026',
-  'Remnants of Bertha',
+  'Bertha',
   2026,
   'Atlantic',
   'Tropical Depression',

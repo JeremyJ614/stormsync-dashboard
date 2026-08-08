@@ -187,24 +187,33 @@ export async function getSevenDayPattern(): Promise<PatternDay[]> {
 export interface SeasonTile {
   id: string; label: string; value: string; sub: string; tone: "neutral" | "up" | "down" | "hot";
 }
-interface CountRow { report_date: string; tornado: number; hail: number; wind: number }
+interface CountRow {
+  report_date: string; tornado: number; hail: number; wind: number;
+  state_tornadoes: Record<string, number> | null;
+  max_hail_in: number | null; max_hail_place: string | null;
+  max_gust_kt: number | null; max_gust_place: string | null;
+}
+const KT_TO_MPH = 1.15078;
 
 const MONTHS = ["January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December"];
 const n = (x: number) => x.toLocaleString();
 
-export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingSince: string | null; days: number }> {
-  if (!isSupabaseConfigured) return { tiles: [], trackingSince: null, days: 0 };
+export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingSince: string | null; days: number; pendingDetail: number }> {
+  if (!isSupabaseConfigured) return { tiles: [], trackingSince: null, days: 0, pendingDetail: 0 };
   const year = new Date().getUTCFullYear();
   const { data, error } = await supabase
-    .from("daily_report_counts").select("report_date,tornado,hail,wind")
+    .from("daily_report_counts")
+    .select("report_date,tornado,hail,wind,state_tornadoes,max_hail_in,max_hail_place,max_gust_kt,max_gust_place")
     .gte("report_date", `${year}-01-01`).order("report_date");
-  if (error) { logger.error("season stats failed", { scope: "pattern", error }); return { tiles: [], trackingSince: null, days: 0 }; }
+  if (error) { logger.error("season stats failed", { scope: "pattern", error }); return { tiles: [], trackingSince: null, days: 0, pendingDetail: 0 }; }
 
   const rows = (data ?? []) as CountRow[];
-  if (rows.length === 0) return { tiles: [], trackingSince: null, days: 0 };
+  if (rows.length === 0) return { tiles: [], trackingSince: null, days: 0, pendingDetail: 0 };
 
-  const sum = (k: keyof Omit<CountRow, "report_date">) => rows.reduce((s, r) => s + (r[k] ?? 0), 0);
+  // Only the three count columns are summable — the detail columns on CountRow
+  // are strings/objects, so keep this key type narrow rather than Omit-ing.
+  const sum = (k: "tornado" | "hail" | "wind") => rows.reduce((s, r) => s + (r[k] ?? 0), 0);
   const torn = sum("tornado"), hail = sum("hail"), wind = sum("wind");
   const total = torn + hail + wind;
 
@@ -235,10 +244,39 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
   const avgPerActive = activeDays > 0 ? Math.round(total / activeDays) : 0;
   const tornShare = total > 0 ? ((torn / total) * 100).toFixed(1) : "0.0";
 
+  // Season leader by state — summed across every day's per-state map, so a state
+  // that never leads a single day but places consistently still ranks correctly.
+  const stateTotals = new Map<string, number>();
+  for (const r of rows) {
+    for (const [st, c] of Object.entries(r.state_tornadoes ?? {})) {
+      stateTotals.set(st, (stateTotals.get(st) ?? 0) + (Number(c) || 0));
+    }
+  }
+  const topState = [...stateTotals.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  // Season superlatives — the single largest hail stone and strongest measured
+  // gust of the year, with where they happened.
+  const bigHail = rows
+    .filter((r) => r.max_hail_in != null)
+    .sort((a, b) => (b.max_hail_in ?? 0) - (a.max_hail_in ?? 0))[0];
+  const bigGust = rows
+    .filter((r) => r.max_gust_kt != null)
+    .sort((a, b) => (b.max_gust_kt ?? 0) - (a.max_gust_kt ?? 0))[0];
+
+  // Rows written before the detail columns existed have no superlatives yet;
+  // say so rather than showing a confidently wrong "—".
+  const pendingDetail = rows.filter((r) => r.max_hail_in == null && r.max_gust_kt == null
+    && Object.keys(r.state_tornadoes ?? {}).length === 0).length;
+
+  // NOTE ON LABELS: the ledger begins when SSWX started tracking, not on Jan 1 —
+  // for 2026 that is May, so the entire spring tornado peak is outside it.
+  // Labelling these "2026" would overstate coverage by a wide margin, so every
+  // cumulative tile says "tracked" and the section header prints the start date.
+  const since = rows[0].report_date;
   const tiles: SeasonTile[] = [
-    { id: "torn", label: `Tornado reports ${year}`, value: n(torn), sub: `${tornShare}% of all reports`, tone: "hot" },
-    { id: "hail", label: `Hail reports ${year}`, value: n(hail), sub: "1in+ hail, SPC logged", tone: "neutral" },
-    { id: "wind", label: `Wind reports ${year}`, value: n(wind), sub: "58mph+ / damage", tone: "neutral" },
+    { id: "torn", label: "Tornado reports tracked", value: n(torn), sub: `${tornShare}% of all reports`, tone: "hot" },
+    { id: "hail", label: "Hail reports tracked", value: n(hail), sub: "1in+ hail, SPC logged", tone: "neutral" },
+    { id: "wind", label: "Wind reports tracked", value: n(wind), sub: "58mph+ / damage", tone: "neutral" },
     { id: "total", label: "All severe reports", value: n(total), sub: `across ${n(rows.length)} tracked days`, tone: "neutral" },
     { id: "busiest", label: "Busiest day", value: n(busiest.total),
       sub: busiest.report_date, tone: "hot" },
@@ -254,7 +292,16 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
     { id: "avg", label: "Avg per active day", value: n(avgPerActive), sub: "reports nationwide", tone: "neutral" },
     { id: "quiet", label: "Current quiet streak", value: `${quietStreak}d`,
       sub: quietStreak === 0 ? "reports logged today" : "days with zero reports", tone: quietStreak > 3 ? "down" : "neutral" },
+    { id: "topstate", label: "Top tornado state",
+      value: topState ? topState[0] : "—",
+      sub: topState ? `${n(topState[1])} reports since ${since}` : "no data yet", tone: "hot" },
+    { id: "bighail", label: "Largest hail",
+      value: bigHail?.max_hail_in != null ? `${bigHail.max_hail_in}"` : "—",
+      sub: bigHail?.max_hail_place ? `${bigHail.max_hail_place} · ${bigHail.report_date}` : "no data yet", tone: "hot" },
+    { id: "biggust", label: "Peak wind gust",
+      value: bigGust?.max_gust_kt != null ? `${Math.round(bigGust.max_gust_kt * KT_TO_MPH)} mph` : "—",
+      sub: bigGust?.max_gust_place ? `${bigGust.max_gust_place} · ${bigGust.report_date}` : "no data yet", tone: "hot" },
   ];
 
-  return { tiles, trackingSince: rows[0].report_date, days: rows.length };
+  return { tiles, trackingSince: rows[0].report_date, days: rows.length, pendingDetail };
 }

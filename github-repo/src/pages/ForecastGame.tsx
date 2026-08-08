@@ -12,22 +12,18 @@ import { geocodeLocation } from "../utils/weatherApi";
 import usStatesAlbers from "../data/usStatesAlbers.json";
 import {
   Gamepad2, Search, Trophy, Calendar, Crown, Target, Info,
-  ExternalLink, Zap, Tornado, Lock, Layers, RotateCcw, CheckCircle2,
+  ExternalLink, Zap, Tornado, Lock, Layers, RotateCcw, CheckCircle2, Timer,
 } from "lucide-react";
 
 type Tab = "play" | "leaderboard";
-/** Which pin a map click currently drops. */
 type PinMode = "severe" | "tornado";
 
 const US_STATES = (usStatesAlbers as { states: { name: string; d: string }[] }).states;
-
-// us-atlas albers-USA projection size (matches api-server /api/us-states)
 const MAP_W = 975;
 const MAP_H = 610;
 
 // Inverse Albers USA approximation: a calibrated affine fit mapping projected
-// (x,y) back to (lon,lat) for the contiguous US — accurate to ~15-25 mi, which
-// is well inside the 25 mi bullseye band.
+// (x,y) back to (lon,lat) — accurate to ~15-25 mi, well inside the 25 mi bullseye.
 const CITIES_CAL: { name: string; lat: number; lon: number; x: number; y: number }[] = [
   { name: "Seattle",       lat: 47.61, lon: -122.33, x: 137, y: 116 },
   { name: "Los Angeles",   lat: 34.05, lon: -118.24, x: 207, y: 357 },
@@ -39,7 +35,7 @@ const CITIES_CAL: { name: string; lat: number; lon: number; x: number; y: number
   { name: "Atlanta",       lat: 33.75, lon:  -84.39, x: 715, y: 384 },
   { name: "Oklahoma City", lat: 35.47, lon:  -97.52, x: 521, y: 372 },
 ];
-function solveAffine(): { a: number; b: number; c: number; d: number; e: number; f: number } {
+function solveAffine() {
   let sX = 0, sY = 0, sLon = 0, sLat = 0, sXLon = 0, sXLat = 0, sYLon = 0, sYLat = 0;
   let sLonLon = 0, sLatLat = 0, sLonLat = 0;
   const n = CITIES_CAL.length;
@@ -50,8 +46,6 @@ function solveAffine(): { a: number; b: number; c: number; d: number; e: number;
     sLonLon += c.lon * c.lon; sLatLat += c.lat * c.lat; sLonLat += c.lon * c.lat;
   }
   const A = [[n, sLon, sLat], [sLon, sLonLon, sLonLat], [sLat, sLonLat, sLatLat]];
-  const bx = [sX, sXLon, sXLat];
-  const by = [sY, sYLon, sYLat];
   function solve3(M: number[][], v: number[]): number[] {
     const m = M.map((r, i) => [...r, v[i]]);
     for (let i = 0; i < 3; i++) {
@@ -71,22 +65,22 @@ function solveAffine(): { a: number; b: number; c: number; d: number; e: number;
     }
     return x;
   }
-  const [a, b, c] = solve3(A, bx);
-  const [d, e, f] = solve3(A, by);
+  const [a, b, c] = solve3(A, [sX, sXLon, sXLat]);
+  const [d, e, f] = solve3(A, [sY, sYLon, sYLat]);
   return { a, b, c, d, e, f };
 }
 const AFFINE = solveAffine();
-
-function project(lon: number, lat: number): { x: number; y: number } {
+function project(lon: number, lat: number) {
   const { a, b, c, d, e, f } = AFFINE;
   return { x: a + b * lon + c * lat, y: d + e * lon + f * lat };
 }
-function unproject(x: number, y: number): { lat: number; lon: number } {
+function unproject(x: number, y: number) {
   const { a, b, c, d, e, f } = AFFINE;
   const det = b * f - c * e;
-  const lon = (f * (x - a) - c * (y - d)) / det;
-  const lat = (-e * (x - a) + b * (y - d)) / det;
-  return { lat, lon };
+  return {
+    lon: (f * (x - a) - c * (y - d)) / det,
+    lat: (-e * (x - a) + b * (y - d)) / det,
+  };
 }
 
 const GAME_CITIES: { name: string; lat: number; lon: number }[] = [
@@ -107,12 +101,11 @@ const GAME_CITIES: { name: string; lat: number; lon: number }[] = [
 ];
 
 // ── Overlays ────────────────────────────────────────────────────────────────
-// All four are SPC GeoJSON products, so they run through the SAME affine as the
-// basemap and land in the right place. (SPC's mesoanalysis STP / 3km-CAPE
-// fields are raster GIFs on a Lambert Conformal grid with no georeference
-// published, so they cannot be aligned to this albersUsa SVG — the probability
-// vectors are both correctly placed AND more directly useful here: tornado
-// probability is exactly what the 🌪 pin is guessing at.)
+// All four are SPC GeoJSON, so they run through the SAME affine as the basemap
+// and land in the right place. SPC's mesoanalysis STP / 3km-CAPE fields are
+// Lambert Conformal rasters with no published georeference and cannot be
+// aligned to this albersUsa SVG — the probability vectors are both correctly
+// placed AND more useful: tornado probability is what the 🌪 pin is guessing at.
 const CAT_RANK: Record<string, number> = { TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5 };
 const CAT_COLORS: Record<string, string> = {
   TSTM: "#84CC16", MRGL: "#48a832", SLGT: "#f7e98e",
@@ -126,19 +119,14 @@ const CAT_MEANING: Record<string, string> = {
   MDT: "Moderate — widespread, intense severe.",
   HIGH: "High — a severe/tornado outbreak.",
 };
-// SPC's own probability ramp.
 const PROB_COLORS: { p: number; color: string }[] = [
   { p: 0.02, color: "#008B00" }, { p: 0.05, color: "#8B4726" }, { p: 0.10, color: "#FFC800" },
   { p: 0.15, color: "#FF0000" }, { p: 0.30, color: "#FF00FF" }, { p: 0.45, color: "#912CEE" },
   { p: 0.60, color: "#104E8B" },
 ];
-const probColor = (p: number) =>
-  [...PROB_COLORS].reverse().find((s) => p >= s.p)?.color ?? "#008B00";
+const probColor = (p: number) => [...PROB_COLORS].reverse().find((s) => p >= s.p)?.color ?? "#008B00";
 
-interface OverlayDef {
-  id: string; label: string; product: string; kind: "cat" | "prob";
-  pin: PinMode | "both"; blurb: string;
-}
+interface OverlayDef { id: string; label: string; product: string; kind: "cat" | "prob"; pin: PinMode | "both"; blurb: string }
 const OVERLAYS: OverlayDef[] = [
   { id: "cat",  label: "Categorical", product: "day1otlk_cat",  kind: "cat",  pin: "both",
     blurb: "SPC Day 1 categorical risk — the overall severe threat." },
@@ -150,10 +138,9 @@ const OVERLAYS: OverlayDef[] = [
     blurb: "Probability of large hail within 25 mi of a point." },
 ];
 
-interface Poly { d: string; color: string; rank: number; label: string }
+interface Poly { d: string; color: string; rank: number }
 interface OverlayData { polys: Poly[]; legend: { label: string; color: string; code: string }[] }
 
-/** Project one SPC GeoJSON product into SVG paths + a de-duplicated legend. */
 function buildOverlay(geo: unknown, kind: "cat" | "prob"): OverlayData {
   const d = geo as { features?: { properties?: Record<string, string>; geometry?: { type?: string; coordinates?: number[][][] | number[][][][] } }[] };
   const polys: Poly[] = [];
@@ -163,30 +150,22 @@ function buildOverlay(geo: unknown, kind: "cat" | "prob"): OverlayData {
   for (const f of d.features ?? []) {
     const code = f.properties?.LABEL ?? "";
     let color: string, rank: number, label: string;
-
     if (kind === "cat") {
-      if (!CAT_COLORS[code]) continue;                 // skip anything not a risk category
-      color = CAT_COLORS[code];
-      rank = CAT_RANK[code] ?? 0;
-      label = f.properties?.LABEL2 || code;
+      if (!CAT_COLORS[code]) continue;
+      color = CAT_COLORS[code]; rank = CAT_RANK[code] ?? 0; label = f.properties?.LABEL2 || code;
     } else {
       const p = parseFloat(code);
       // SPC ships non-numeric rows in the probability files (e.g. "CIG1" in the
-      // hail product, "" in sigtorn). parseFloat gives NaN — drop them rather
-      // than painting a bogus polygon.
+      // hail product). parseFloat gives NaN — drop rather than paint garbage.
       if (Number.isNaN(p)) continue;
-      color = probColor(p);
-      rank = p;
-      label = `${Math.round(p * 100)}%`;
+      color = probColor(p); rank = p; label = `${Math.round(p * 100)}%`;
     }
-
     if (!seen.has(label)) { seen.add(label); legend.push({ label, color, code }); }
 
     const g = f.geometry;
     const rings: number[][][][] =
       g?.type === "Polygon" ? [g.coordinates as number[][][]]
-      : g?.type === "MultiPolygon" ? (g.coordinates as number[][][][])
-      : [];
+      : g?.type === "MultiPolygon" ? (g.coordinates as number[][][][]) : [];
     for (const poly of rings) {
       let path = "";
       for (const ring of poly) {
@@ -196,15 +175,33 @@ function buildOverlay(geo: unknown, kind: "cat" | "prob"): OverlayData {
         });
         path += "Z";
       }
-      polys.push({ d: path, color, rank, label });
+      polys.push({ d: path, color, rank });
     }
   }
-  polys.sort((a, b) => a.rank - b.rank);   // strongest category/probability on top
+  polys.sort((a, b) => a.rank - b.rank);
   legend.sort((a, b) => (parseFloat(b.code) || (CAT_RANK[b.code] ?? 0)) - (parseFloat(a.code) || (CAT_RANK[a.code] ?? 0)));
   return { polys, legend };
 }
 
 const fmt = (n: number) => n.toLocaleString();
+
+/** Time remaining until the 00 UTC scoring cut-off. */
+function useLockCountdown(): string {
+  const [s, setS] = useState("");
+  useEffect(() => {
+    const tick = () => {
+      const now = new Date();
+      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
+      const ms = next.getTime() - now.getTime();
+      const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000);
+      setS(`${h}h ${String(m).padStart(2, "0")}m`);
+    };
+    tick();
+    const id = setInterval(tick, 30_000);
+    return () => clearInterval(id);
+  }, []);
+  return s;
+}
 
 export default function ForecastGame() {
   const { user } = useAuth();
@@ -212,16 +209,14 @@ export default function ForecastGame() {
 
   const [severePin, setSeverePin] = useState<Pin | null>(null);
   const [tornadoPin, setTornadoPin] = useState<Pin | null>(null);
-  const [quietDay, setQuietDay] = useState(false);      // explicit "no tornadoes" call
+  const [quietDay, setQuietDay] = useState(false);
   const [mode, setMode] = useState<PinMode>("severe");
 
   const [cityQuery, setCityQuery] = useState("");
   const [searching, setSearching] = useState(false);
   const [err, setErr] = useState("");
   const [locked, setLocked] = useState(false);
-  const [mine, setMine] = useState<GameGuess | null>(null);
   const [lastScored, setLastScored] = useState<{ date: string; guess: GameGuess } | null>(null);
-
   const [gameBoard, setGameBoard] = useState<LeaderRow[]>([]);
   const [winners, setWinners] = useState<WinnerRow[]>([]);
 
@@ -232,9 +227,8 @@ export default function ForecastGame() {
   const svgRef = useRef<SVGSVGElement>(null);
   const today = new Date().toISOString().slice(0, 10);
   const yyyymm = today.slice(0, 7);
+  const countdown = useLockCountdown();
 
-  // Fetch every SPC overlay once, in parallel. A product that fails just leaves
-  // its tab empty rather than taking the page down.
   useEffect(() => {
     let cancelled = false;
     Promise.all(OVERLAYS.map(async (o) => {
@@ -243,13 +237,10 @@ export default function ForecastGame() {
         if (!r.ok) return [o.id, { polys: [], legend: [] }] as const;
         return [o.id, buildOverlay(await r.json(), o.kind)] as const;
       } catch { return [o.id, { polys: [], legend: [] }] as const; }
-    })).then((entries) => {
-      if (!cancelled) setOverlays(Object.fromEntries(entries));
-    });
+    })).then((entries) => { if (!cancelled) setOverlays(Object.fromEntries(entries)); });
     return () => { cancelled = true; };
   }, []);
 
-  // Load my locked picks + boards.
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -260,7 +251,7 @@ export default function ForecastGame() {
       ]);
       if (cancelled) return;
       if (g) {
-        setMine(g); setLocked(true);
+        setLocked(true);
         setSeverePin(g.severe); setTornadoPin(g.tornado); setQuietDay(g.tornado === null);
       }
       setLastScored(last); setGameBoard(lb); setWinners(wn);
@@ -268,7 +259,6 @@ export default function ForecastGame() {
     return () => { cancelled = true; };
   }, [user, today, yyyymm]);
 
-  // Switching to the tornado overlay implies you're about to place that pin.
   function pickOverlay(id: string) {
     setOverlayId(id);
     const o = OVERLAYS.find((x) => x.id === id);
@@ -277,13 +267,13 @@ export default function ForecastGame() {
 
   function handleMapClick(e: React.MouseEvent<SVGSVGElement>) {
     if (!svgRef.current || locked) return;
-    if (mode === "tornado" && quietDay) return;        // quiet-day call means no pin
+    if (mode === "tornado" && quietDay) return;
     const rect = svgRef.current.getBoundingClientRect();
     const x = ((e.clientX - rect.left) / rect.width) * MAP_W;
     const y = ((e.clientY - rect.top) / rect.height) * MAP_H;
     const { lat, lon } = unproject(x, y);
     const pin: Pin = { lat, lon, label: `${lat.toFixed(2)}, ${lon.toFixed(2)}` };
-    if (mode === "severe") { setSeverePin(pin); setMode("tornado"); }  // advance to pin 2
+    if (mode === "severe") { setSeverePin(pin); setMode("tornado"); }
     else setTornadoPin(pin);
     setErr("");
   }
@@ -310,16 +300,8 @@ export default function ForecastGame() {
       userId: user.id, userName: user.name, date: today,
       severe: severePin, tornado: quietDay ? null : tornadoPin,
     });
-    if (res.ok) {
-      setLocked(true);
-      setMine({
-        severe: severePin, tornado: quietDay ? null : tornadoPin,
-        severePoints: null, tornadoPoints: null, points: null, scoredAt: null,
-      });
-    } else {
-      setErr(res.error);
-      if (res.error.includes("already")) setLocked(true);
-    }
+    if (res.ok) setLocked(true);
+    else { setErr(res.error); if (res.error.includes("already")) setLocked(true); }
   }
 
   function resetPins() {
@@ -334,6 +316,13 @@ export default function ForecastGame() {
   const sevPt = useMemo(() => severePin ? project(severePin.lon, severePin.lat) : null, [severePin]);
   const torPt = useMemo(() => tornadoPin && !quietDay ? project(tornadoPin.lon, tornadoPin.lat) : null, [tornadoPin, quietDay]);
 
+  const myRank = user ? gameBoard.findIndex((r) => r.userId === user.id) + 1 : 0;
+  const myPoints = user ? gameBoard.find((r) => r.userId === user.id)?.points ?? 0 : 0;
+  const myPlays = user ? gameBoard.find((r) => r.userId === user.id)?.games ?? 0 : 0;
+
+  // Step 1 severe → step 2 tornado → step 3 lock.
+  const step = locked ? 3 : !severePin ? 0 : (!tornadoPin && !quietDay) ? 1 : 2;
+
   if (!user) {
     return (
       <div className="p-6 text-center space-y-3">
@@ -345,146 +334,187 @@ export default function ForecastGame() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-5">
-      <style>{GAME_CSS}</style>
+    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-4">
+      <style>{CSS}</style>
 
-      <div className="flex items-center gap-2">
-        <Gamepad2 className="w-6 h-6 text-primary" />
-        <h1 className="text-2xl font-bold tracking-wide uppercase">Forecast Game</h1>
+      {/* ── Hero ── */}
+      <div className="relative overflow-hidden rounded-2xl border border-border bg-card">
+        <div className="sswx-fg-hero" aria-hidden="true" />
+        <div className="relative p-4 md:p-5">
+          <div className="flex items-center gap-2">
+            <Gamepad2 className="w-5 h-5 text-primary" />
+            <h1 className="text-xl md:text-2xl font-black tracking-wide uppercase">Forecast Game</h1>
+            {!locked && (
+              <span className="ml-auto flex items-center gap-1.5 text-[11px] font-bold text-yellow-300 bg-yellow-400/10 border border-yellow-400/30 rounded-full px-2.5 py-1">
+                <Timer className="w-3 h-3" /> {countdown} to lock
+              </span>
+            )}
+            {locked && (
+              <span className="ml-auto flex items-center gap-1.5 text-[11px] font-bold text-emerald-300 bg-emerald-400/10 border border-emerald-400/30 rounded-full px-2.5 py-1">
+                <CheckCircle2 className="w-3 h-3" /> Locked in
+              </span>
+            )}
+          </div>
+          <p className="text-xs md:text-sm text-muted-foreground mt-1.5 max-w-2xl">
+            Two calls a day: where the worst <span className="text-yellow-300 font-semibold">severe weather</span> hits,
+            and where a <span className="text-red-400 font-semibold">tornado</span> touches down.
+          </p>
+
+          {/* stat strip */}
+          <div className="grid grid-cols-3 gap-2 mt-4">
+            {[
+              { k: "Rank", v: myRank > 0 ? `#${myRank}` : "—", s: monthName.split(" ")[0] },
+              { k: "Points", v: fmt(myPoints), s: "this month" },
+              { k: "Rounds", v: fmt(myPlays), s: "played" },
+            ].map((x) => (
+              <div key={x.k} className="rounded-xl bg-muted/25 border border-border/70 px-3 py-2">
+                <div className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{x.k}</div>
+                <div className="text-lg font-black tabular-nums leading-tight">{x.v}</div>
+                <div className="text-[9px] text-muted-foreground">{x.s}</div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
-      <p className="text-sm text-muted-foreground">
-        Two calls a day: where the worst <span className="text-yellow-300 font-semibold">severe weather</span> hits,
-        and where a <span className="text-red-400 font-semibold">tornado</span> touches down. Scoring runs after
-        00 UTC against the day's SPC storm reports.
-      </p>
 
-      <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
-        <button onClick={() => setTab("play")} className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "play" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}><Target className="w-4 h-4" /> Play Today</button>
-        <button onClick={() => setTab("leaderboard")} className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "leaderboard" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}><Trophy className="w-4 h-4" /> Leaderboard</button>
+      {/* ── Tabs ── */}
+      <div className="relative bg-card border border-border rounded-2xl p-1.5">
+        <div className="sswx-fg-pill" style={{ left: tab === "play" ? "6px" : "calc(50% + 0px)" }} />
+        <div className="relative grid grid-cols-2">
+          {([["play", "Play Today", Target], ["leaderboard", "Leaderboard", Trophy]] as const).map(([id, label, Icon]) => (
+            <button key={id} onClick={() => setTab(id)}
+              className={`relative z-10 py-2.5 rounded-xl text-sm font-bold flex items-center justify-center gap-2 transition-colors ${
+                tab === id ? "text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
+              <Icon className="w-4 h-4" /> {label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {tab === "play" && (
         <div className="space-y-4">
-          {/* ── Yesterday's result ── */}
+          {/* ── Last round ── */}
           {lastScored && (
-            <div className="bg-gradient-to-r from-card to-primary/5 border border-primary/30 rounded-xl p-3.5">
-              <div className="flex items-center gap-2 mb-2">
+            <div className="relative overflow-hidden rounded-2xl border border-primary/30 bg-gradient-to-r from-primary/10 to-transparent p-3.5">
+              <div className="flex items-center gap-2 mb-2.5">
                 <CheckCircle2 className="w-4 h-4 text-primary" />
-                <span className="text-sm font-semibold">Your last round — {lastScored.date}</span>
-                <span className="ml-auto text-lg font-extrabold tabular-nums text-primary">
-                  {fmt(lastScored.guess.points ?? 0)} pts
+                <span className="text-sm font-bold">Last round · {lastScored.date}</span>
+                <span className="ml-auto text-2xl font-black tabular-nums text-primary sswx-fg-pop">
+                  {fmt(lastScored.guess.points ?? 0)}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg bg-yellow-400/10 border border-yellow-400/25 px-2.5 py-2">
-                  <div className="flex items-center gap-1.5 text-yellow-300 font-semibold"><Zap className="w-3 h-3" /> Severe pin</div>
-                  <div className="text-muted-foreground mt-0.5">{fmt(lastScored.guess.severePoints ?? 0)} pts</div>
+                <div className="rounded-xl bg-yellow-400/10 border border-yellow-400/25 px-2.5 py-2">
+                  <div className="flex items-center gap-1.5 text-yellow-300 font-bold"><Zap className="w-3 h-3" /> Severe</div>
+                  <div className="text-base font-black tabular-nums">{fmt(lastScored.guess.severePoints ?? 0)}</div>
                 </div>
-                <div className="rounded-lg bg-red-500/10 border border-red-500/25 px-2.5 py-2">
-                  <div className="flex items-center gap-1.5 text-red-400 font-semibold"><Tornado className="w-3 h-3" /> {lastScored.guess.tornado ? "Tornado pin" : "Quiet-day call"}</div>
-                  <div className="text-muted-foreground mt-0.5">{fmt(lastScored.guess.tornadoPoints ?? 0)} pts</div>
+                <div className="rounded-xl bg-red-500/10 border border-red-500/25 px-2.5 py-2">
+                  <div className="flex items-center gap-1.5 text-red-400 font-bold">
+                    <Tornado className="w-3 h-3" /> {lastScored.guess.tornado ? "Tornado" : "Quiet call"}
+                  </div>
+                  <div className="text-base font-black tabular-nums">{fmt(lastScored.guess.tornadoPoints ?? 0)}</div>
                 </div>
               </div>
             </div>
           )}
 
+          {/* ── Step rail ── */}
+          <div className="flex items-center gap-1.5 px-1">
+            {["Severe pin", "Tornado pin", "Lock in"].map((label, i) => (
+              <div key={label} className="flex-1 flex items-center gap-1.5">
+                <div className={`flex-1 h-1.5 rounded-full transition-colors ${
+                  step > i ? "bg-primary" : step === i ? "bg-primary/45" : "bg-muted/40"}`} />
+                <span className={`text-[9px] font-bold uppercase tracking-wider whitespace-nowrap ${
+                  step > i ? "text-primary" : step === i ? "text-foreground" : "text-muted-foreground/60"}`}>
+                  {label}
+                </span>
+              </div>
+            ))}
+          </div>
+
           {/* ── Pin selector ── */}
           <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
             <div className="grid grid-cols-2 gap-2">
-              <button
-                onClick={() => !locked && setMode("severe")}
-                disabled={locked}
-                className={`rounded-xl px-3 py-2.5 border text-left transition-all disabled:opacity-70 ${
+              <button onClick={() => !locked && setMode("severe")} disabled={locked}
+                className={`sswx-fg-card group rounded-2xl px-3 py-3 border text-left transition-all disabled:opacity-80 ${
                   mode === "severe" && !locked
-                    ? "border-yellow-400/70 bg-yellow-400/10 ring-1 ring-yellow-400/40"
+                    ? "border-yellow-400/70 bg-yellow-400/[0.09] ring-1 ring-yellow-400/40 sswx-fg-glow-y"
                     : "border-border bg-muted/20 hover:border-yellow-400/40"}`}>
-                <div className="flex items-center gap-1.5 text-yellow-300 text-xs font-bold uppercase tracking-wider">
-                  <Zap className="w-3.5 h-3.5" /> Severe pin
+                <div className="flex items-center gap-1.5 text-yellow-300 text-[10px] font-black uppercase tracking-widest">
+                  <Zap className="w-3.5 h-3.5" /> Severe
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-1 truncate">
+                <div className={`text-xs mt-1.5 truncate font-semibold ${severePin ? "text-foreground" : "text-muted-foreground"}`}>
                   {severePin ? severePin.label : "Not placed"}
                 </div>
               </button>
 
-              <button
-                onClick={() => !locked && setMode("tornado")}
-                disabled={locked}
-                className={`rounded-xl px-3 py-2.5 border text-left transition-all disabled:opacity-70 ${
+              <button onClick={() => !locked && setMode("tornado")} disabled={locked}
+                className={`sswx-fg-card group rounded-2xl px-3 py-3 border text-left transition-all disabled:opacity-80 ${
                   mode === "tornado" && !locked
-                    ? "border-red-500/70 bg-red-500/10 ring-1 ring-red-500/40"
+                    ? "border-red-500/70 bg-red-500/[0.09] ring-1 ring-red-500/40 sswx-fg-glow-r"
                     : "border-border bg-muted/20 hover:border-red-500/40"}`}>
-                <div className="flex items-center gap-1.5 text-red-400 text-xs font-bold uppercase tracking-wider">
-                  <Tornado className="w-3.5 h-3.5" /> Tornado pin
+                <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-black uppercase tracking-widest">
+                  <Tornado className="w-3.5 h-3.5" /> Tornado
                 </div>
-                <div className="text-[11px] text-muted-foreground mt-1 truncate">
-                  {quietDay ? "Calling a quiet day" : tornadoPin ? tornadoPin.label : "Not placed"}
+                <div className={`text-xs mt-1.5 truncate font-semibold ${quietDay || tornadoPin ? "text-foreground" : "text-muted-foreground"}`}>
+                  {quietDay ? "Quiet day called" : tornadoPin ? tornadoPin.label : "Not placed"}
                 </div>
               </button>
             </div>
 
-            {/* quiet-day call */}
-            <label className={`flex items-center gap-2 text-xs rounded-lg px-3 py-2 border cursor-pointer ${
-              quietDay ? "bg-sky-500/10 border-sky-500/40 text-sky-200" : "bg-muted/20 border-border text-muted-foreground"} ${locked ? "opacity-70 pointer-events-none" : ""}`}>
+            <label className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 border cursor-pointer transition-colors ${
+              quietDay ? "bg-sky-500/10 border-sky-500/40 text-sky-200" : "bg-muted/20 border-border text-muted-foreground hover:border-sky-500/30"} ${locked ? "opacity-70 pointer-events-none" : ""}`}>
               <input type="checkbox" className="accent-sky-400" checked={quietDay} disabled={locked}
                 onChange={(e) => { setQuietDay(e.target.checked); if (e.target.checked) setTornadoPin(null); }} />
-              <span>
-                <strong>No tornadoes anywhere today.</strong> Skip the 🌪 pin — worth{" "}
-                <strong className="text-sky-300">+{QUIET_DAY_BONUS}</strong> if the day verifies with zero tornado reports.
-              </span>
+              <span><strong>No tornadoes anywhere today.</strong> Worth <strong className="text-sky-300">+{QUIET_DAY_BONUS}</strong> if it verifies with zero.</span>
             </label>
 
-            {/* search + actions */}
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="flex-1 min-w-[200px] flex items-center gap-2 bg-muted/30 border border-border rounded-lg px-3 py-2">
-                <Search className="w-4 h-4 text-muted-foreground" />
+              <div className="flex-1 min-w-[190px] flex items-center gap-2 bg-muted/30 border border-border rounded-xl px-3 py-2">
+                <Search className="w-4 h-4 text-muted-foreground shrink-0" />
                 <input value={cityQuery} onChange={(e) => setCityQuery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === "Enter") searchCity(); }}
-                  disabled={locked}
+                  onKeyDown={(e) => { if (e.key === "Enter") searchCity(); }} disabled={locked}
                   placeholder={`Search a city for the ${mode === "severe" ? "⚡ severe" : "🌪 tornado"} pin…`}
-                  className="bg-transparent outline-none text-sm flex-1 disabled:opacity-60" />
+                  className="bg-transparent outline-none text-sm flex-1 min-w-0 disabled:opacity-60" />
               </div>
               <button onClick={searchCity} disabled={searching || locked}
-                className="px-3 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold disabled:opacity-50">
+                className="px-3 py-2 rounded-xl bg-primary/20 border border-primary/40 text-primary text-sm font-bold disabled:opacity-50">
                 {searching ? "…" : "Place"}
               </button>
               {!locked && (severePin || tornadoPin) && (
                 <button onClick={resetPins} title="Clear both pins"
-                  className="px-3 py-2 rounded-lg bg-muted/30 border border-border text-muted-foreground text-sm font-semibold hover:text-foreground">
+                  className="px-3 py-2 rounded-xl bg-muted/30 border border-border text-muted-foreground hover:text-foreground">
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
               )}
               <button onClick={submit} disabled={!severePin || locked || (!quietDay && !tornadoPin)}
-                className="px-3 py-2 rounded-lg bg-yellow-400/20 border border-yellow-400/40 text-yellow-300 text-sm font-semibold disabled:opacity-50 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5" /> {locked ? "Locked In" : "Lock In Picks"}
+                className={`px-4 py-2 rounded-xl text-sm font-black flex items-center gap-1.5 transition-all border ${
+                  !severePin || locked || (!quietDay && !tornadoPin)
+                    ? "bg-muted/25 border-border text-muted-foreground opacity-60"
+                    : "bg-yellow-400/20 border-yellow-400/50 text-yellow-200 sswx-fg-ready"}`}>
+                <Lock className="w-3.5 h-3.5" /> {locked ? "Locked" : "Lock In"}
               </button>
             </div>
 
             {err && <div className="text-xs text-red-400">{err}</div>}
-
-            {locked && (
-              <div className="text-xs rounded-lg px-3 py-2 bg-yellow-400/10 border border-yellow-400/30 text-yellow-200">
-                🔒 Today's picks are locked. Scoring runs tonight after 00 UTC against the day's SPC storm reports.
-              </div>
-            )}
             {!locked && (
               <div className="text-xs text-muted-foreground">
-                {mode === "severe"
-                  ? "Click the map (or search) to drop your ⚡ severe pin."
+                {mode === "severe" ? "Tap the map (or search) to drop your ⚡ severe pin."
                   : quietDay ? "Quiet day called — no 🌪 pin needed. Lock in when ready."
                   : "Now drop your 🌪 tornado pin."}
               </div>
             )}
 
-            {/* ── Overlay switcher ── */}
-            <div className="flex items-center gap-1.5 flex-wrap pt-1">
-              <Layers className="w-3.5 h-3.5 text-muted-foreground" />
+            {/* overlay switcher */}
+            <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+              <Layers className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
               {OVERLAYS.map((o) => {
                 const empty = (overlays[o.id]?.polys.length ?? 0) === 0;
                 return (
                   <button key={o.id} onClick={() => pickOverlay(o.id)}
-                    className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border transition-colors ${
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all ${
                       overlayId === o.id
-                        ? "bg-primary/20 border-primary/50 text-primary"
+                        ? "bg-primary/20 border-primary/50 text-primary scale-105"
                         : "bg-muted/20 border-border text-muted-foreground hover:text-foreground"}`}>
                     {o.label}{empty && <span className="opacity-50"> ·0</span>}
                   </button>
@@ -494,26 +524,31 @@ export default function ForecastGame() {
             <p className="text-[11px] text-muted-foreground">{activeDef.blurb}</p>
 
             {/* ── Map ── */}
-            <div className="relative bg-black rounded-xl overflow-hidden border border-border">
+            <div className="relative bg-black rounded-2xl overflow-hidden border border-border">
               <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={handleMapClick}
                 className={`w-full h-auto ${locked ? "cursor-default" : "cursor-crosshair"}`}>
                 <defs>
-                  <linearGradient id="sswx-game-bg" x1="0" x2="0" y1="0" y2="1">
-                    <stop offset="0%" stopColor="#050818" />
-                    <stop offset="100%" stopColor="#0a0f24" />
-                  </linearGradient>
+                  <radialGradient id="sswx-fg-bg" cx="50%" cy="40%" r="75%">
+                    <stop offset="0%" stopColor="#101a33" />
+                    <stop offset="100%" stopColor="#04060f" />
+                  </radialGradient>
+                  <filter id="sswx-fg-blur"><feGaussianBlur stdDeviation="7" /></filter>
                 </defs>
-                <rect width={MAP_W} height={MAP_H} fill="url(#sswx-game-bg)" />
+                <rect width={MAP_W} height={MAP_H} fill="url(#sswx-fg-bg)" />
 
                 {US_STATES.map((s, i) => (
-                  <path key={i} d={s.d} fill="#141d2e" stroke="#2a3852" strokeWidth={0.8}>
+                  <path key={i} d={s.d} fill="#141d2e" stroke="#2c3b57" strokeWidth={0.8}>
                     <title>{s.name}</title>
                   </path>
                 ))}
 
+                {/* soft glow pass under the crisp polygons — reads as weather, not vector art */}
+                <g filter="url(#sswx-fg-blur)" opacity={0.5} pointerEvents="none">
+                  {active.polys.map((p, i) => <path key={`b${overlayId}${i}`} d={p.d} fill={p.color} fillOpacity={0.5} />)}
+                </g>
                 {active.polys.map((p, i) => (
-                  <path key={`${overlayId}-${i}`} d={p.d} fill={p.color} fillOpacity={0.3}
-                    stroke={p.color} strokeOpacity={0.8} strokeWidth={0.9} pointerEvents="none" />
+                  <path key={`${overlayId}-${i}`} d={p.d} fill={p.color} fillOpacity={0.22}
+                    stroke={p.color} strokeOpacity={0.9} strokeWidth={1} pointerEvents="none" />
                 ))}
 
                 {GAME_CITIES.map((ci) => {
@@ -527,40 +562,37 @@ export default function ForecastGame() {
                   );
                 })}
 
-                {/* ⚡ severe pin */}
                 {sevPt && (
-                  <g pointerEvents="none">
-                    <circle cx={sevPt.x} cy={sevPt.y} r={16} fill="none" stroke="#fde047" strokeWidth={2} opacity={0.65}>
-                      <animate attributeName="r" from="16" to="30" dur="1.5s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" from="0.65" to="0" dur="1.5s" repeatCount="indefinite" />
+                  <g pointerEvents="none" className="sswx-fg-drop">
+                    <circle cx={sevPt.x} cy={sevPt.y} r={16} fill="none" stroke="#fde047" strokeWidth={2} opacity={0.7}>
+                      <animate attributeName="r" from="14" to="34" dur="1.6s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite" />
                     </circle>
-                    <circle cx={sevPt.x} cy={sevPt.y} r={12} fill="#fde047" stroke="#000" strokeWidth={1.5} />
+                    <circle cx={sevPt.x} cy={sevPt.y} r={13} fill="#fde047" stroke="#1a1400" strokeWidth={2} />
                     <path d={boltPath(sevPt.x, sevPt.y)} fill="#1a1400" />
                   </g>
                 )}
-
-                {/* 🌪 tornado pin */}
                 {torPt && (
-                  <g pointerEvents="none">
-                    <circle cx={torPt.x} cy={torPt.y} r={16} fill="none" stroke="#f87171" strokeWidth={2} opacity={0.65}>
-                      <animate attributeName="r" from="16" to="30" dur="1.5s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" from="0.65" to="0" dur="1.5s" repeatCount="indefinite" />
+                  <g pointerEvents="none" className="sswx-fg-drop">
+                    <circle cx={torPt.x} cy={torPt.y} r={16} fill="none" stroke="#f87171" strokeWidth={2} opacity={0.7}>
+                      <animate attributeName="r" from="14" to="34" dur="1.6s" repeatCount="indefinite" />
+                      <animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite" />
                     </circle>
-                    <circle cx={torPt.x} cy={torPt.y} r={12} fill="#ef4444" stroke="#000" strokeWidth={1.5} />
+                    <circle cx={torPt.x} cy={torPt.y} r={13} fill="#ef4444" stroke="#2a0505" strokeWidth={2} />
                     <path d={funnelPath(torPt.x, torPt.y)} fill="#2a0505" />
                   </g>
                 )}
 
                 <text x={20} y={28} fill="#64748b" fontSize={11} fontFamily="monospace">
-                  {locked ? "PICKS LOCKED" : mode === "severe" ? "CLICK TO PLACE ⚡ SEVERE PIN" : quietDay ? "QUIET DAY CALLED" : "CLICK TO PLACE 🌪 TORNADO PIN"}
+                  {locked ? "PICKS LOCKED" : mode === "severe" ? "TAP TO PLACE ⚡ SEVERE PIN"
+                    : quietDay ? "QUIET DAY CALLED" : "TAP TO PLACE 🌪 TORNADO PIN"}
                 </text>
               </svg>
 
-              {/* overlay legend */}
               {active.legend.length > 0 && (
                 <div className="absolute bottom-2 left-2 flex flex-wrap gap-1 max-w-[92%]">
                   {active.legend.map((l) => (
-                    <span key={l.label} className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider border backdrop-blur-sm"
+                    <span key={l.label} className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border backdrop-blur-sm"
                       style={{ background: l.color + "33", color: l.color, borderColor: l.color + "80" }}>{l.label}</span>
                   ))}
                 </div>
@@ -568,9 +600,9 @@ export default function ForecastGame() {
             </div>
           </div>
 
-          {/* ── Scouting report ── */}
-          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2"><Target className="w-4 h-4 text-primary" /> Scouting Report</h3>
+          {/* ── Scouting ── */}
+          <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+            <h3 className="text-sm font-bold flex items-center gap-2"><Target className="w-4 h-4 text-primary" /> Scouting Report</h3>
             {brief?.headline && (
               <p className="text-xs text-muted-foreground leading-relaxed">
                 <span className="text-primary font-semibold">National picture: </span>{brief.headline}
@@ -591,68 +623,55 @@ export default function ForecastGame() {
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                No SPC severe risk areas today — a quiet day. Your ⚡ pin still banks {SEVERE_MISS} pts,
-                and calling "no tornadoes" is worth {QUIET_DAY_BONUS}.
+                No SPC risk areas today. Your ⚡ pin still banks {SEVERE_MISS} pts, and calling "no tornadoes" is worth {QUIET_DAY_BONUS}.
               </p>
             )}
-            <p className="text-[11px] text-primary/90">
-              🎯 Switch to <strong>Tornado %</strong> to aim the 🌪 pin, and <strong>Wind %</strong> / <strong>Hail %</strong> for the ⚡ pin.
-            </p>
           </div>
 
-          {/* ── Scoring rules ── */}
-          <div className="bg-card border border-border rounded-xl p-4 space-y-3">
-            <h3 className="text-sm font-semibold flex items-center gap-2"><Info className="w-4 h-4 text-primary" /> Scoring</h3>
-
+          {/* ── Scoring ── */}
+          <div className="bg-card border border-border rounded-2xl p-4 space-y-3">
+            <h3 className="text-sm font-bold flex items-center gap-2"><Info className="w-4 h-4 text-primary" /> Scoring</h3>
             <div className="grid md:grid-cols-2 gap-3">
-              <div className="rounded-lg border border-yellow-400/25 bg-yellow-400/[0.06] p-3">
-                <div className="flex items-center gap-1.5 text-yellow-300 text-xs font-bold uppercase tracking-wider mb-2">
+              <div className="rounded-xl border border-yellow-400/25 bg-yellow-400/[0.06] p-3">
+                <div className="flex items-center gap-1.5 text-yellow-300 text-[10px] font-black uppercase tracking-widest mb-2">
                   <Zap className="w-3.5 h-3.5" /> Severe pin
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2">Distance to the nearest storm report of any kind (tornado, hail or wind).</p>
+                <p className="text-[11px] text-muted-foreground mb-2">Nearest storm report of any kind.</p>
                 <ul className="text-xs space-y-1">
                   {SEVERE_BANDS.map((b) => (
                     <li key={b.within} className="flex justify-between tabular-nums">
-                      <span className="text-muted-foreground">{b.label} (≤ {b.within} mi)</span>
-                      <strong>{fmt(b.points)}</strong>
+                      <span className="text-muted-foreground">{b.label} (≤{b.within} mi)</span><strong>{fmt(b.points)}</strong>
                     </li>
                   ))}
-                  <li className="flex justify-between tabular-nums">
-                    <span className="text-muted-foreground">Anything else</span><strong>{SEVERE_MISS}</strong>
-                  </li>
+                  <li className="flex justify-between tabular-nums"><span className="text-muted-foreground">Anything else</span><strong>{SEVERE_MISS}</strong></li>
                 </ul>
               </div>
-
-              <div className="rounded-lg border border-red-500/25 bg-red-500/[0.06] p-3">
-                <div className="flex items-center gap-1.5 text-red-400 text-xs font-bold uppercase tracking-wider mb-2">
+              <div className="rounded-xl border border-red-500/25 bg-red-500/[0.06] p-3">
+                <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-black uppercase tracking-widest mb-2">
                   <Tornado className="w-3.5 h-3.5" /> Tornado pin
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2">Distance to the nearest <em>tornado</em> report only — harder, so it pays more.</p>
+                <p className="text-[11px] text-muted-foreground mb-2">Nearest <em>tornado</em> report only — harder, pays more.</p>
                 <ul className="text-xs space-y-1">
                   {TORNADO_BANDS.map((b) => (
                     <li key={b.within} className="flex justify-between tabular-nums">
-                      <span className="text-muted-foreground">{b.label} (≤ {b.within} mi)</span>
-                      <strong>{fmt(b.points)}</strong>
+                      <span className="text-muted-foreground">{b.label} (≤{b.within} mi)</span><strong>{fmt(b.points)}</strong>
                     </li>
                   ))}
-                  <li className="flex justify-between tabular-nums">
-                    <span className="text-sky-300">Correct quiet-day call</span><strong className="text-sky-300">{QUIET_DAY_BONUS}</strong>
-                  </li>
+                  <li className="flex justify-between tabular-nums"><span className="text-sky-300">Correct quiet-day call</span><strong className="text-sky-300">{QUIET_DAY_BONUS}</strong></li>
                 </ul>
               </div>
             </div>
-
             <p className="text-[10px] text-muted-foreground/70">
-              Your daily score is both pins added together, and it feeds the same week/month/year board as Daily Trivia.
-              Scoring is computed server-side from SPC storm reports — never from the browser.
+              Both pins are added together and feed the same week/month/year board as Daily Trivia.
+              Scoring is computed server-side from SPC storm reports — never in your browser.
             </p>
           </div>
 
           <div className="grid md:grid-cols-2 gap-3">
-            <Link href="/spc" className="bg-card border border-border rounded-xl p-3 hover:border-primary/40 transition-colors flex items-center gap-2">
+            <Link href="/spc" className="bg-card border border-border rounded-2xl p-3 hover:border-primary/40 transition-colors flex items-center gap-2">
               <ExternalLink className="w-4 h-4 text-primary" /> <span className="text-sm">Check today's SPC Outlook</span>
             </Link>
-            <Link href="/discussion" className="bg-card border border-border rounded-xl p-3 hover:border-primary/40 transition-colors flex items-center gap-2">
+            <Link href="/discussion" className="bg-card border border-border rounded-2xl p-3 hover:border-primary/40 transition-colors flex items-center gap-2">
               <ExternalLink className="w-4 h-4 text-primary" /> <span className="text-sm">Read the NWS Forecast Discussion</span>
             </Link>
           </div>
@@ -661,43 +680,42 @@ export default function ForecastGame() {
 
       {tab === "leaderboard" && (
         <div className="space-y-5">
-          {/* Combined board (Forecast Game + Trivia) */}
           <Leaderboard meId={user.id} />
 
           <div className="bg-card border border-border rounded-2xl p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-bold flex items-center gap-2 mb-3">
               <Trophy className="w-4 h-4 text-yellow-400" /> Forecast Game only — {monthName}
             </h2>
-            {gameBoard.length === 0 && <p className="text-sm text-muted-foreground">No rounds scored yet this month. Be the first.</p>}
-            <div className="space-y-2">
+            {gameBoard.length === 0 && <p className="text-sm text-muted-foreground">No rounds scored yet this month.</p>}
+            <div className="space-y-1.5">
               {gameBoard.slice(0, 10).map((row, i) => (
-                <div key={row.userId} className={`flex items-center gap-3 p-3 rounded-lg ${row.userId === user.id ? "bg-primary/10" : "bg-muted/20"}`}>
-                  <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm ${
+                <div key={row.userId} className={`flex items-center gap-3 p-2.5 rounded-xl ${row.userId === user.id ? "bg-primary/10" : "bg-muted/20"}`}>
+                  <div className={`w-7 h-7 rounded-full grid place-items-center font-black text-xs ${
                     i === 0 ? "bg-yellow-400/20 text-yellow-300" : i === 1 ? "bg-gray-400/20 text-gray-300"
                     : i === 2 ? "bg-orange-700/20 text-orange-300" : "bg-muted/40 text-muted-foreground"}`}>
-                    {i === 0 ? <Crown className="w-4 h-4" /> : `#${i + 1}`}
+                    {i === 0 ? <Crown className="w-3.5 h-3.5" /> : i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{row.name}</div>
-                    <div className="text-xs text-muted-foreground">{row.games} round{row.games === 1 ? "" : "s"}</div>
+                    <div className="text-sm font-semibold truncate">{row.name}</div>
+                    <div className="text-[10px] text-muted-foreground">{row.games} round{row.games === 1 ? "" : "s"}</div>
                   </div>
-                  <div className="text-lg font-bold tabular-nums text-primary">{fmt(row.points)}</div>
+                  <div className="text-base font-black tabular-nums text-primary">{fmt(row.points)}</div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="bg-card border border-border rounded-2xl p-5">
-            <h2 className="text-sm font-semibold flex items-center gap-2 mb-3"><Calendar className="w-4 h-4 text-primary" /> Monthly Champions</h2>
-            {winners.length === 0 && <p className="text-sm text-muted-foreground">No champions crowned yet. Will it be you?</p>}
+            <h2 className="text-sm font-bold flex items-center gap-2 mb-3"><Calendar className="w-4 h-4 text-primary" /> Monthly Champions</h2>
+            {winners.length === 0 && <p className="text-sm text-muted-foreground">No champions crowned yet.</p>}
             <div className="space-y-1.5">
               {winners.map((w) => (
-                <div key={w.month} className="flex items-center justify-between p-2.5 bg-muted/20 rounded-lg">
-                  <div className="text-sm font-medium">{w.month}</div>
+                <div key={w.month} className="flex items-center justify-between p-2.5 bg-muted/20 rounded-xl">
+                  <div className="text-sm font-semibold">{w.month}</div>
                   <div className="flex items-center gap-2">
                     <Crown className="w-3.5 h-3.5 text-yellow-400" />
-                    <span className="text-sm font-semibold">{w.userName}</span>
-                    <span className="text-xs text-muted-foreground">({fmt(w.points)} pts)</span>
+                    <span className="text-sm font-bold">{w.userName}</span>
+                    <span className="text-xs text-muted-foreground">({fmt(w.points)})</span>
                   </div>
                 </div>
               ))}
@@ -709,23 +727,42 @@ export default function ForecastGame() {
   );
 }
 
-/** A small lightning bolt centred on (cx, cy), drawn inside the ⚡ pin disc. */
+/** Lightning bolt centred on (cx, cy), drawn inside the ⚡ pin disc. */
 function boltPath(cx: number, cy: number): string {
-  const s = 0.55;
+  const s = 0.6;
   const p = (dx: number, dy: number) => `${(cx + dx * s).toFixed(1)},${(cy + dy * s).toFixed(1)}`;
   return `M${p(2, -11)}L${p(-7, 2)}L${p(-1, 2)}L${p(-3, 11)}L${p(7, -2)}L${p(1, -2)}Z`;
 }
-/** A small funnel centred on (cx, cy), drawn inside the 🌪 pin disc. */
+/** Funnel centred on (cx, cy), drawn inside the 🌪 pin disc. */
 function funnelPath(cx: number, cy: number): string {
-  const s = 0.55;
+  const s = 0.6;
   const p = (dx: number, dy: number) => `${(cx + dx * s).toFixed(1)},${(cy + dy * s).toFixed(1)}`;
   return `M${p(-10, -9)}L${p(10, -9)}L${p(6, -3)}L${p(-6, -3)}Z ` +
          `M${p(-6, -1)}L${p(6, -1)}L${p(3, 5)}L${p(-3, 5)}Z ` +
          `M${p(-3, 7)}L${p(3, 7)}L${p(1, 12)}L${p(-1, 12)}Z`;
 }
 
-const GAME_CSS = `
-@media (prefers-reduced-motion: reduce){
+const CSS = `
+.sswx-fg-hero{position:absolute;inset:0;pointer-events:none;
+  background:
+    radial-gradient(60% 120% at 15% 0%, rgba(253,224,71,.10), transparent 60%),
+    radial-gradient(50% 120% at 85% 10%, rgba(239,68,68,.10), transparent 60%);}
+.sswx-fg-pill{position:absolute;top:6px;bottom:6px;width:calc(50% - 6px);border-radius:.75rem;
+  background:linear-gradient(135deg,hsl(var(--primary)),hsl(var(--primary)/.75));
+  transition:left .3s cubic-bezier(.22,1,.36,1);z-index:0}
+.sswx-fg-glow-y{box-shadow:0 0 0 1px rgba(253,224,71,.25),0 6px 22px -8px rgba(253,224,71,.55)}
+.sswx-fg-glow-r{box-shadow:0 0 0 1px rgba(239,68,68,.25),0 6px 22px -8px rgba(239,68,68,.55)}
+.sswx-fg-ready{animation:sswx-fg-pulse 2.2s ease-in-out infinite}
+@keyframes sswx-fg-pulse{
+  0%,100%{box-shadow:0 0 0 0 rgba(253,224,71,.35)}
+  50%{box-shadow:0 0 0 7px rgba(253,224,71,0)}}
+.sswx-fg-drop{animation:sswx-fg-plant .42s cubic-bezier(.2,1.5,.4,1) both;transform-origin:center}
+@keyframes sswx-fg-plant{from{opacity:0;transform:translateY(-16px) scale(.5)}to{opacity:1;transform:none}}
+.sswx-fg-pop{display:inline-block;animation:sswx-fg-popin .55s cubic-bezier(.16,1.6,.3,1) both}
+@keyframes sswx-fg-popin{from{opacity:0;transform:scale(.6)}to{opacity:1;transform:none}}
+@media (prefers-reduced-motion:reduce){
+  .sswx-fg-pill{transition:none}
+  .sswx-fg-ready,.sswx-fg-drop,.sswx-fg-pop{animation:none!important;opacity:1!important;transform:none!important}
   svg animate{display:none}
 }
 `;

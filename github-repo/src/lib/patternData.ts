@@ -13,6 +13,7 @@
  */
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
+import { getDatSeason, expectedToDate } from "./datStats";
 
 // ── Regions ─────────────────────────────────────────────────────────────────
 // Each region is sampled on a coarse lat/lon grid; a risk polygon "covers" the
@@ -268,15 +269,18 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
   const pendingDetail = rows.filter((r) => r.max_hail_in == null && r.max_gust_kt == null
     && Object.keys(r.state_tornadoes ?? {}).length === 0).length;
 
-  // NOTE ON LABELS: the ledger begins when SSWX started tracking, not on Jan 1 —
-  // for 2026 that is May, so the entire spring tornado peak is outside it.
-  // Labelling these "2026" would overstate coverage by a wide margin, so every
-  // cumulative tile says "tracked" and the section header prints the start date.
+  // LABELS: only claim the calendar year when the ledger actually covers it.
+  // The ledger was backfilled to Jan 1, so "2026" is now truthful - but if a
+  // future year starts mid-season this falls back to "tracked" rather than
+  // silently overstating coverage (which it did when data began in May and the
+  // whole spring tornado peak sat outside the total).
   const since = rows[0].report_date;
+  const fullYear = since <= `${year}-01-07`;
+  const span = fullYear ? String(year) : "tracked";
   const tiles: SeasonTile[] = [
-    { id: "torn", label: "Tornado reports tracked", value: n(torn), sub: `${tornShare}% of all reports`, tone: "hot" },
-    { id: "hail", label: "Hail reports tracked", value: n(hail), sub: "1in+ hail, SPC logged", tone: "neutral" },
-    { id: "wind", label: "Wind reports tracked", value: n(wind), sub: "58mph+ / damage", tone: "neutral" },
+    { id: "torn", label: `Tornado reports ${span}`, value: n(torn), sub: `${tornShare}% of all reports`, tone: "hot" },
+    { id: "hail", label: `Hail reports ${span}`, value: n(hail), sub: "1in+ hail, SPC logged", tone: "neutral" },
+    { id: "wind", label: `Wind reports ${span}`, value: n(wind), sub: "58mph+ / damage", tone: "neutral" },
     { id: "total", label: "All severe reports", value: n(total), sub: `across ${n(rows.length)} tracked days`, tone: "neutral" },
     { id: "busiest", label: "Busiest day", value: n(busiest.total),
       sub: busiest.report_date, tone: "hot" },
@@ -294,7 +298,7 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
       sub: quietStreak === 0 ? "reports logged today" : "days with zero reports", tone: quietStreak > 3 ? "down" : "neutral" },
     { id: "topstate", label: "Top tornado state",
       value: topState ? topState[0] : "—",
-      sub: topState ? `${n(topState[1])} reports since ${since}` : "no data yet", tone: "hot" },
+      sub: topState ? `${n(topState[1])} reports ${span}` : "no data yet", tone: "hot" },
     { id: "bighail", label: "Largest hail",
       value: bigHail?.max_hail_in != null ? `${bigHail.max_hail_in}"` : "—",
       sub: bigHail?.max_hail_place ? `${bigHail.max_hail_place} · ${bigHail.report_date}` : "no data yet", tone: "hot" },
@@ -304,4 +308,65 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
   ];
 
   return { tiles, trackingSince: rows[0].report_date, days: rows.length, pendingDetail };
+}
+
+// ── Survey-based season tiles (DAT) ─────────────────────────────────────────
+/**
+ * The four stats that need SURVEYED tornado data rather than raw SPC reports:
+ * strongest tornado, days with EF3+, fatalities, and percent of normal.
+ *
+ * Kept in a separate call from getSeasonStats because DAT is an external
+ * service — if it is slow or down, the report-count tiles still render.
+ */
+export async function getSurveyTiles(): Promise<SeasonTile[]> {
+  const year = new Date().getUTCFullYear();
+  const d = await getDatSeason(year);
+  if (!d) return [];
+
+  const tiles: SeasonTile[] = [];
+
+  if (d.strongest) {
+    const s = d.strongest;
+    const bits = [s.date, s.lengthMi != null ? `${s.lengthMi} mi path` : null, s.wfo ? `NWS ${s.wfo}` : null]
+      .filter(Boolean).join(" · ");
+    tiles.push({ id: "strongest", label: `Strongest tornado ${year}`, value: s.ef, sub: bits, tone: "hot" });
+  }
+
+  tiles.push({
+    id: "ef3days", label: "Days with EF3+", value: n(d.ef3PlusDays),
+    // 17 EF3+ tracks fell on 14 days in 2026 - an outbreak day can hold several,
+    // so the day count and the track count are genuinely different numbers.
+    sub: `${n(d.ef3PlusCount)} tracks surveyed`, tone: d.ef3PlusDays > 0 ? "hot" : "neutral",
+  });
+
+  tiles.push({
+    id: "fatalities", label: `Tornado fatalities ${year}`, value: n(d.fatalities),
+    sub: `${n(d.injuries)} injuries · NWS surveys`, tone: d.fatalities > 0 ? "up" : "neutral",
+  });
+
+  // Percent of normal. Compared against DAT's SURVEYED count, never against raw
+  // SPC reports - reports contain duplicates for one tornado, which would
+  // inflate this against a confirmed-tornado climatology.
+  // tornadoClimo.json is a public asset fetched at runtime (it is ~2MB and does
+  // not belong in the bundle), so read cumAvgByMonth the same way the
+  // Climatology page does rather than importing it.
+  let expected: number | null = null;
+  try {
+    const base = import.meta.env.BASE_URL.replace(/\/$/, "");
+    const r = await fetch(`${base}/data/tornadoClimo.json`);
+    if (r.ok) {
+      const cum = ((await r.json()) as { cumAvgByMonth?: number[] }).cumAvgByMonth;
+      if (cum) expected = expectedToDate(cum, new Date());
+    }
+  } catch { /* percent-of-normal tile is simply omitted */ }
+  if (expected && expected > 0 && d.surveyed > 0) {
+    const pct = Math.round((d.surveyed / expected) * 100);
+    tiles.push({
+      id: "vsnormal", label: "vs. average pace", value: `${pct}%`,
+      sub: `${n(d.surveyed)} surveyed vs ~${n(Math.round(expected))} normal`,
+      tone: pct >= 100 ? "up" : "down",
+    });
+  }
+
+  return tiles;
 }

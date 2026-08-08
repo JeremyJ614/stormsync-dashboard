@@ -316,6 +316,12 @@ function DaylightMap({
   const monthIdxRef = useRef(monthIdx);
   const [popup, setPopup] = useState<PopupData | null>(null);
   const [popupMonth, setPopupMonth] = useState(monthIdx);
+  // Leaflet is imported dynamically, so the map does not exist during the first
+  // render pass. The choropleth effect below bails out when the map is missing,
+  // which meant the bands were never drawn until something changed monthIdx -
+  // i.e. the map looked empty until you clicked a month. This flag re-runs that
+  // effect the moment the map is actually ready.
+  const [mapReady, setMapReady] = useState(false);
 
   useEffect(() => { monthIdxRef.current = monthIdx; }, [monthIdx]);
 
@@ -342,6 +348,7 @@ function DaylightMap({
       });
       markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
       mapRef.current = map;
+      setMapReady(true);   // triggers the initial choropleth draw
 
       map.on("click", async (e: { latlng: { lat: number; lng: number } }) => {
         const { lat: clat, lng: clon } = e.latlng;
@@ -384,10 +391,15 @@ function DaylightMap({
         }).addTo(g);
       }
     });
-  }, [monthIdx, year]);
+  }, [monthIdx, year, mapReady]);
 
   return (
-    <div className="relative rounded-xl overflow-hidden border border-[rgba(204,204,255,0.12)]" style={{ height: 420 }}>
+    // `isolate` creates a stacking context around the map. Leaflet gives its own
+    // controls z-index values up to 1000, and these overlays sat at z-[999];
+    // without a stacking context both competed globally and painted straight
+    // over the app sidebar (z-40) whenever it was expanded. Isolating means
+    // nothing inside the map can ever escape above the app chrome again.
+    <div className="relative isolate rounded-xl overflow-hidden border border-[rgba(204,204,255,0.12)]" style={{ height: 420 }}>
       {/* Month toggle strip */}
       <div className="absolute top-2 left-0 right-0 z-[999] flex justify-center pointer-events-none">
         <div className="flex gap-0.5 pointer-events-auto bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-1.5 py-1 border border-[rgba(204,204,255,0.13)]">

@@ -101,6 +101,96 @@ async function countCsv(url: string): Promise<number> {
   } catch { return 0; }
 }
 
+// ── SPC storm-report detail parsing ─────────────────────────────────────────
+// Report CSVs are `Time,<metric>,Location,County,State,Lat,Lon,Comments` where
+// <metric> is F_Scale / Size / Speed. Every field we want sits BEFORE Comments,
+// which is the only field that can contain commas, so a naive split is safe.
+//
+// Two real quirks, both observed in live files:
+//   • SPC repeats the header row mid-file when it concatenates sources.
+//   • Size/Speed are frequently the literal string "UNK" (damage-only reports).
+interface CsvRow { get(col: string): string }
+
+async function fetchCsvRows(url: string): Promise<CsvRow[]> {
+  try {
+    const r = await fetch(url, { headers: { "User-Agent": UA } });
+    if (!r.ok) return [];
+    const lines = (await r.text()).trim().split(/\r?\n/).filter((l) => l.length > 0);
+    if (lines.length < 2) return [];
+    const header = lines[0].split(",").map((h) => h.trim());
+    const out: CsvRow[] = [];
+    for (const line of lines.slice(1)) {
+      const c = line.split(",");
+      if ((c[0] ?? "").trim() === "Time") continue;   // repeated header block
+      out.push({ get: (col) => (c[header.indexOf(col)] ?? "").trim() });
+    }
+    return out;
+  } catch { return []; }
+}
+
+/** Parse a numeric cell, treating SPC's "UNK"/blank as absent. */
+function num(v: string): number | null {
+  if (!v || /^unk$/i.test(v)) return null;
+  const f = parseFloat(v);
+  return Number.isFinite(f) ? f : null;
+}
+const place = (r: CsvRow) => [r.get("Location"), r.get("State")].filter(Boolean).join(", ") || null;
+
+export interface DayDetail {
+  /** {state: tornado report count} for this day. The yearly "top state" rollup
+   *  sums these — a per-day winner alone would undercount a state that places
+   *  second every day but leads the season. */
+  state_tornadoes: Record<string, number>;
+  top_state: string | null;
+  top_state_tornadoes: number | null;
+  max_hail_in: number | null;
+  max_hail_place: string | null;
+  max_gust_kt: number | null;
+  max_gust_place: string | null;
+}
+
+/** Per-day superlatives for one SPC report date (YYMMDD). */
+async function fetchDayDetail(yymmdd: string): Promise<DayDetail> {
+  const [torn, hail, wind] = await Promise.all([
+    fetchCsvRows(`${SPC}/climo/reports/${yymmdd}_rpts_torn.csv`),
+    fetchCsvRows(`${SPC}/climo/reports/${yymmdd}_rpts_hail.csv`),
+    fetchCsvRows(`${SPC}/climo/reports/${yymmdd}_rpts_wind.csv`),
+  ]);
+
+  // Most tornado reports in a single state that day.
+  const byState = new Map<string, number>();
+  for (const r of torn) {
+    const st = r.get("State");
+    if (st) byState.set(st, (byState.get(st) ?? 0) + 1);
+  }
+  const top = [...byState.entries()].sort((a, b) => b[1] - a[1])[0];
+
+  // Size is HUNDREDTHS of an inch (100 = 1.00").
+  let maxHail: { v: number; where: string | null } | null = null;
+  for (const r of hail) {
+    const s = num(r.get("Size"));
+    if (s === null) continue;
+    if (!maxHail || s > maxHail.v) maxHail = { v: s, where: place(r) };
+  }
+
+  let maxGust: { v: number; where: string | null } | null = null;
+  for (const r of wind) {
+    const s = num(r.get("Speed"));
+    if (s === null) continue;      // damage-only report, no measured gust
+    if (!maxGust || s > maxGust.v) maxGust = { v: s, where: place(r) };
+  }
+
+  return {
+    state_tornadoes: Object.fromEntries(byState),
+    top_state: top?.[0] ?? null,
+    top_state_tornadoes: top?.[1] ?? null,
+    max_hail_in: maxHail ? Math.round(maxHail.v) / 100 : null,
+    max_hail_place: maxHail?.where ?? null,
+    max_gust_kt: maxGust ? Math.round(maxGust.v) : null,
+    max_gust_place: maxGust?.where ?? null,
+  };
+}
+
 interface SourceData {
   day1: { categories: string[]; max_category: string | null; tornado_prob_max: number; wind_prob_max: number; hail_prob_max: number };
   day2: { categories: string[]; max_category: string | null };
@@ -400,15 +490,48 @@ function deterministicPeriodNarrative(p: PeriodAgg): { headline: string; summary
 }
 
 // Orchestrates the history update. Best-effort and never throws.
-async function updateHistory(src: SourceData): Promise<{ model: string | null }> {
+// How many days' superlatives to backfill per run. The ledger predates these
+// columns, so `details_at is null` is the work queue; bounding it keeps one
+// invocation inside its time budget and the backlog drains over a few nights.
+const DETAIL_BACKFILL_PER_RUN = 25;
+
+async function backfillDetails(): Promise<number> {
+  const { data } = await admin
+    .from("daily_report_counts").select("report_date")
+    .is("details_at", null)
+    .order("report_date", { ascending: false })
+    .limit(DETAIL_BACKFILL_PER_RUN);
+  const dates = (data ?? []).map((r: { report_date: string }) => r.report_date);
+  for (const grp of chunk(dates, 5)) {
+    await Promise.all(grp.map(async (d) => {
+      const detail = await fetchDayDetail(d.slice(2).replace(/-/g, ""));
+      await admin.from("daily_report_counts")
+        .update({ ...detail, details_at: new Date().toISOString() })
+        .eq("report_date", d);
+    }));
+  }
+  return dates.length;
+}
+
+async function updateHistory(src: SourceData): Promise<{ model: string | null; detailsBackfilled: number }> {
   const today = new Date();
-  // 1) Record today's live counts.
+  const todayStr = isoDate(today);
+  // 1) Record today's live counts AND superlatives. Today's row is rewritten on
+  //    every run because reports keep landing through the day.
+  const todayDetail = await fetchDayDetail(todayStr.slice(2).replace(/-/g, ""));
   await admin.from("daily_report_counts").upsert(
-    { report_date: isoDate(today), tornado: src.reports_today.tornado, hail: src.reports_today.hail, wind: src.reports_today.wind, updated_at: new Date().toISOString() },
+    {
+      report_date: todayStr,
+      tornado: src.reports_today.tornado, hail: src.reports_today.hail, wind: src.reports_today.wind,
+      ...todayDetail, details_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
     { onConflict: "report_date" },
   );
   // 2) Fill any recent gaps from the SPC archive.
   await backfillCounts();
+  // 2b) Fill superlatives for days recorded before those columns existed.
+  const detailsBackfilled = await backfillDetails();
   // 3) Aggregate the four periods from the ledger.
   const yearStart = isoDate(new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1)));
   const { data } = await admin.from("daily_report_counts").select("report_date,tornado,hail,wind").gte("report_date", yearStart).order("report_date");
@@ -430,7 +553,7 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null }>
       updated_at: now,
     }, { onConflict: "period" });
   }
-  return { model };
+  return { model, detailsBackfilled };
 }
 
 // ── U-20 Forecast Game scoring (two-pin, P-5.1) ─────────────────────────────────

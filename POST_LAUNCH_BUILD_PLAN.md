@@ -211,7 +211,26 @@ New module, **shares the Forecast Game points + leaderboard** (same weekly/month
 - **Admin tab — Trivia:** write your own questions, assign to a **specific date**, choose to **override question 1, override question 2, or add as a 3rd**, plus a bank of drafts. Preview + regenerate-today.
 - **Per-question point override** — default scale set by me, and **you can change the points on any and every question** (global default + per-question value).
 
-### P-5.3 — Weather Patterns AI 🟡 **[#14]** — ⚠️ PARTIALLY SHIPPED (PR #62)
+### P-5.3 — Weather Patterns AI 🟡 **[#14]** — ⚠️ PARTIALLY SHIPPED (PR #62, extended)
+
+**UPDATE:** the three "cheap group" stats are now shipped too — **top tornado state**,
+**largest hail** and **peak wind gust**. `daily_report_counts` gained per-report detail
+columns, the engine parses State / Size / Speed from the SPC report CSVs, and all 99
+historical days were backfilled. Verified against live data: top states IL=123, IN=80,
+IA=49; largest hail 4.50″ @ Ryan, IA (2026-08-07); peak gust 151 mph @ Holabird, SD
+(2026-06-28).
+
+Two correctness details worth recording:
+- Per-day *top* state cannot answer the **yearly** question (a state that never leads a
+  single day still accumulates), so the full per-day `{state: count}` map is stored and
+  summed. Storing only the winner would have undercounted.
+- Cumulative tiles now say **"tracked"**, not "2026". The ledger starts 2026-05-02, so
+  labelling a total as the calendar year would omit the entire spring tornado peak.
+
+**Still not shipped (4 of the original 10):** strongest tornado + days with EF3+ (need EF
+ratings from DAT/NCEI, which lag surveys by weeks), tornado fatalities YTD (no
+authoritative feed), costliest month (NCEI damage data, long lag), YTD vs average (needs
+a climatological normals baseline). These need data sources the app does not ingest.
 
 **Shipped:** the 7-day regional breakdown (7 regions × 7 days, SPC Day 1-3 categorical +
 Day 4-8 probabilistic, region hit computed by real point-in-polygon), and 11 season tiles
@@ -252,13 +271,34 @@ backfill. 3 / 4 / 5 / 9 / 10 need data sources this app does not currently inges
 
 ## PHASE 6 — Reconciliation & content _(must be last)_
 
-### P-6.1 — Billing sync 🟢 **[#12]**
+### P-6.1 — Billing sync ✅ SHIPPED **[#12]**
+_Verified by diffing the module registry against `module_addon_prices`: **1 missing**
+(`/trivia`, unpriced), **2 stale** (`/skygazing` deleted in P-1.2, `/chasing` admin-only
+since P-1.3 and therefore never sellable). Also found the Aurora merge never reached
+billing — the row still read "Aurora Forecast". All fixed; both sides now 28/28 with zero
+drift. `stripe-checkout` (v3, JWT-verified) and `stripe-webhook` (v3, unverified — correct,
+Stripe cannot send a JWT) are both deployed and ACTIVE, resolving the open question._
 Corrected understanding: **there is no fixed per-tier module list** — every tier can pick nearly any module; tiers control **how many** modules you get and **add-on pricing**.
 - Reconcile the module registry after all additions/removals: new modules (**Trivia**, rebuilt **Model Runs**) get add-on prices and are selectable; **removed** (`/skygazing`) and **admin-only** (`/chasing`) IDs purged from `bundledModules` / `module_addon_prices`.
 - Verify `choosableCount` per tier is still right, and that the renamed **Aurora & Star Gazing** carries the correct ID/label everywhere.
 - Confirm the `stripe-checkout` edge function is actually deployed (it wasn't in the function listing).
 
-### P-6.2 — FAQ + Module Guide full fill-in 🟢 **[#10]**
+### P-6.2 — FAQ + Module Guide full fill-in ✅ SHIPPED **[#10]**
+_All 32 visible modules now have an accurate guide entry (3–5 sections each, none empty);
+previously 30, with `/hurricane`, `/trivia` and `/faq` missing entirely and `/skygazing`
+lingering after deletion._
+
+_Two entries were not merely thin but **factually wrong**: `/comparator` was described as a
+"City Comparator — compare up to 4 cities" (it is the HRRR/GFS Model Runs viewer) and
+`/wpi` as a "Weather Performance Index — model verification scoring" (it is Weather Pattern
+AI). `/game` still described a single pin, and `/aurora` made no mention of the merge._
+
+_Two General FAQ answers were also wrong and are rewritten: **"How are tiers structured?"**
+described fixed per-tier module lists (tiers actually control how many modules and add-on
+pricing), and **"Is my data shared?"** claimed data is "stored locally on your device" with
+sync "on the roadmap" — untrue since the move to Supabase, and a privacy statement, so it
+mattered. Radar's substitution note and the Pattern AI "AI never supplies a number" caveat
+are stated in the guide rather than hidden._
 Structure and admin editor stay exactly as-is; I write **complete, accurate content for every module and every FAQ entry**, reflecting the final post-plan state (new Radar layers, Model Runs, Trivia, merged Aurora, redesigned game, alerts/tiers, PWA).
 
 ---

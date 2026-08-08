@@ -226,6 +226,13 @@ export default function WeatherPatternIndex(_: Props) {
             <p className="text-[10px] text-muted-foreground/80">
               Every figure here is counted from SPC storm reports in our own ledger — the AI on this page
               writes the narrative only, never the numbers.
+              {(season.data?.pendingDetail ?? 0) > 0 && (
+                <> {" "}<span className="text-yellow-300/90">
+                  {season.data!.pendingDetail} earlier day{season.data!.pendingDetail === 1 ? "" : "s"} predate
+                  per-report detail and aren't yet counted toward top state / largest hail / peak gust — the
+                  engine backfills 25 a night.
+                </span></>
+              )}
             </p>
           </>
         )}

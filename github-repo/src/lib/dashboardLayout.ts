@@ -6,6 +6,10 @@
 export const DASHBOARD_WIDGETS = [
   "hero", "alerts", "stats", "today", "sevenDay", "sunMoon", "windCompass",
   "swti", "tempChart", "precipChart", "nwsOffice",
+  // Added for the relaunch. getLayout() appends anything missing from a saved
+  // layout, so existing members pick these up without losing their arrangement.
+  "cloudCover", "visibility", "humidityPressure",
+  "aqi", "sswxcon", "ingredients", "timing", "moon", "mosquito",
 ] as const;
 export type WidgetId = (typeof DASHBOARD_WIDGETS)[number];
 
@@ -21,6 +25,15 @@ export const WIDGET_LABELS: Record<WidgetId, string> = {
   tempChart: "Temperature trend",
   precipChart: "Precip probability",
   nwsOffice: "NWS office info",
+  cloudCover: "Cloud cover",
+  visibility: "Visibility",
+  humidityPressure: "Humidity, pressure & dew point",
+  aqi: "Air quality (AQI)",
+  sswxcon: "SSWXCon score",
+  ingredients: "Storm ingredients",
+  timing: "Storm timing",
+  moon: "Moon & astronomy",
+  mosquito: "Mosquito index",
 };
 
 export interface DashboardLayout { order: WidgetId[]; hidden: WidgetId[] }

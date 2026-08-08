@@ -4,7 +4,7 @@ import type { RiskOverview } from "../lib/dailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { PageSkeleton } from "../components/WeatherSkeleton";
 import {
-  getSevenDayPattern, getSeasonStats, REGIONS,
+  getSevenDayPattern, getSeasonStats, getSurveyTiles, REGIONS,
   CAT_LABEL, CAT_COLOR, type PatternDay, type SeasonTile,
 } from "../lib/patternData";
 import { Brain, AlertTriangle, CalendarRange, BarChart3, TrendingUp, TrendingDown, Loader2, Flame } from "lucide-react";
@@ -138,6 +138,11 @@ export default function WeatherPatternIndex(_: Props) {
   const season = useQuery({
     queryKey: ["seasonStats"], queryFn: getSeasonStats, staleTime: 30 * 60_000,
   });
+  // Separate query: DAT is an external service, so if it is slow or down the
+  // report-count tiles still render rather than the whole section stalling.
+  const survey = useQuery({
+    queryKey: ["surveyTiles"], queryFn: getSurveyTiles, staleTime: 60 * 60_000,
+  });
 
   const anyRisk = (week.data ?? []).some((d) =>
     REGIONS.some((r) => d.cells[r.id]?.rank > 0));
@@ -222,7 +227,19 @@ export default function WeatherPatternIndex(_: Props) {
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
               {season.data!.tiles.map((t) => <Tile key={t.id} t={t} />)}
+              {(survey.data ?? []).map((t) => <Tile key={t.id} t={t} />)}
             </div>
+            {survey.isLoading && (
+              <p className="text-[10px] text-muted-foreground/70 flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin" /> loading survey-based stats (EF ratings, casualties)…
+              </p>
+            )}
+            {!survey.isLoading && (survey.data?.length ?? 0) === 0 && (
+              <p className="text-[10px] text-muted-foreground/70">
+                Survey-based stats (strongest tornado, EF3+ days, fatalities) are unavailable right now —
+                the NOAA Damage Assessment Toolkit did not respond.
+              </p>
+            )}
             <p className="text-[10px] text-muted-foreground/80">
               Every figure here is counted from SPC storm reports in our own ledger — the AI on this page
               writes the narrative only, never the numbers.

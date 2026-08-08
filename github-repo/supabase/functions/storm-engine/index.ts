@@ -34,7 +34,6 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // chain, newest-usable first, and allow an env override without a redeploy.
 const GEMINI_MODELS = (Deno.env.get("GEMINI_MODELS") ?? "gemini-flash-latest,gemini-2.0-flash,gemini-2.5-flash")
   .split(",").map((m) => m.trim()).filter(Boolean);
-const GEMINI_MODEL = GEMINI_MODELS[0];
 const GEMINI_URL = (model: string, key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
@@ -159,36 +158,64 @@ function parseJSON(text: string): Record<string, unknown> | null {
   return null;
 }
 
+/**
+ * One Gemini attempt with a specific model.
+ *
+ * `tryNext` says whether the NEXT model in the chain is worth attempting. It is
+ * true only for failures that are about this model or this moment — retired
+ * (404), rate-limited (429), server-side (5xx), or a transport error. A model
+ * that answered but answered badly (safety block, unparseable JSON) means the
+ * request itself is the problem, so walking the chain would just repeat it.
+ */
+async function geminiOnce(
+  model: string, system: string, user: string, schemaGemini: unknown,
+): Promise<{ ok: true; data: Record<string, unknown>; model: string } | { ok: false; error: string; tryNext: boolean }> {
+  try {
+    const r = await fetch(GEMINI_URL(model, GEMINI_API_KEY), {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        system_instruction: { parts: [{ text: system }] },
+        contents: [{ role: "user", parts: [{ text: user }] }],
+        generationConfig: { responseMimeType: "application/json", responseSchema: schemaGemini, temperature: 0.7, maxOutputTokens: 8192 },
+      }),
+    });
+    if (!r.ok) {
+      const tryNext = r.status === 404 || r.status === 429 || r.status >= 500;
+      return { ok: false, error: `${r.status}: ${(await r.text()).slice(0, 200)}`, tryNext };
+    }
+    const data = await r.json() as {
+      promptFeedback?: { blockReason?: string };
+      candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];
+    };
+    if (data.promptFeedback?.blockReason) return { ok: false, error: `blocked: ${data.promptFeedback.blockReason}`, tryNext: false };
+    const cand = data.candidates?.[0];
+    if (cand?.finishReason && cand.finishReason !== "STOP" && cand.finishReason !== "MAX_TOKENS") {
+      return { ok: false, error: `finishReason ${cand.finishReason}`, tryNext: false };
+    }
+    const text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
+    const parsed = text ? parseJSON(text) : null;
+    if (!parsed) return { ok: false, error: "returned invalid JSON", tryNext: false };
+    return { ok: true, data: parsed, model };
+  } catch (e) {
+    return { ok: false, error: String(e instanceof Error ? e.message : e), tryNext: true };
+  }
+}
+
 // schemaGemini uses UPPERCASE OpenAPI-subset types; schemaAnthropic uses JSON-Schema.
 async function aiJSON(system: string, user: string, schemaGemini: unknown, schemaAnthropic: unknown): Promise<AIRun> {
   if (GEMINI_API_KEY) {
-    try {
-      const r = await fetch(GEMINI_URL(GEMINI_MODEL, GEMINI_API_KEY), {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          system_instruction: { parts: [{ text: system }] },
-          contents: [{ role: "user", parts: [{ text: user }] }],
-          generationConfig: { responseMimeType: "application/json", responseSchema: schemaGemini, temperature: 0.7, maxOutputTokens: 8192 },
-        }),
-      });
-      if (!r.ok) return { ok: false, error: `gemini ${r.status}: ${(await r.text()).slice(0, 300)}` };
-      const data = await r.json() as {
-        promptFeedback?: { blockReason?: string };
-        candidates?: { finishReason?: string; content?: { parts?: { text?: string }[] } }[];
-      };
-      if (data.promptFeedback?.blockReason) return { ok: false, error: `gemini blocked: ${data.promptFeedback.blockReason}` };
-      const cand = data.candidates?.[0];
-      if (cand?.finishReason && cand.finishReason !== "STOP" && cand.finishReason !== "MAX_TOKENS") {
-        return { ok: false, error: `gemini finishReason ${cand.finishReason}` };
-      }
-      const text = cand?.content?.parts?.map((p) => p.text ?? "").join("") ?? "";
-      const parsed = text ? parseJSON(text) : null;
-      if (!parsed) return { ok: false, error: "gemini returned invalid JSON" };
-      return { ok: true, data: parsed, model: GEMINI_MODEL };
-    } catch (e) {
-      return { ok: false, error: String(e instanceof Error ? e.message : e) };
+    // Actually walk the chain. Pinning one model is what silently reduced every
+    // nightly brief to the deterministic SPC template when gemini-2.5-flash was
+    // retired — a single retirement must never take the brief down again.
+    const tried: string[] = [];
+    for (const model of GEMINI_MODELS) {
+      const res = await geminiOnce(model, system, user, schemaGemini);
+      if (res.ok) return res;
+      tried.push(`${model} -> ${res.error}`);
+      if (!res.tryNext) break;
     }
+    return { ok: false, error: `gemini failed (${tried.length}/${GEMINI_MODELS.length} tried) — ${tried.join(" | ")}` };
   }
   if (ANTHROPIC_API_KEY) {
     try {

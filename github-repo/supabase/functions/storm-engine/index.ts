@@ -433,9 +433,21 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null }>
   return { model };
 }
 
-// ── U-20 Forecast Game scoring ───────────────────────────────────────────────────
-// Distance-banded points: closest guess to any storm report wins. Tornado reports
-// grant a bonus band. Runs once nightly for the just-completed (yesterday) round.
+// ── U-20 Forecast Game scoring (two-pin, P-5.1) ─────────────────────────────────
+// Each round has TWO calls, scored independently and summed:
+//   ⚡ severe pin  — distance to the nearest storm report of ANY kind
+//   🌪 tornado pin — distance to the nearest TORNADO report only (harder → pays
+//                    more), OR a deliberate "no tornadoes today" call, which
+//                    pays QUIET_DAY_BONUS only if the day verifies with zero.
+//
+// These bands are duplicated in src/lib/gameDb.ts purely so the rules card can
+// render them. THIS copy is authoritative — scoring must never be computed from
+// anything the browser sends. Change one, change both.
+const SEVERE_BANDS: [number, number][] = [[25, 1000], [50, 750], [100, 500], [200, 250], [400, 100]];
+const SEVERE_MISS = 25;
+const TORNADO_BANDS: [number, number][] = [[25, 1500], [50, 1000], [100, 600], [200, 250]];
+const QUIET_DAY_BONUS = 400;
+
 interface ReportPt { lat: number; lon: number; kind: "torn" | "hail" | "wind" }
 function haversineMi(aLat: number, aLon: number, bLat: number, bLon: number): number {
   const R = 3958.8, toRad = (x: number) => (x * Math.PI) / 180;
@@ -463,16 +475,32 @@ async function fetchReportPoints(yymmdd: string): Promise<ReportPt[]> {
   }));
   return out;
 }
-function scoreGuess(lat: number, lon: number, pts: ReportPt[]): number {
-  if (pts.length === 0) return 0;
-  let best = Infinity, bestKind: ReportPt["kind"] = "wind";
+/** Miles from (lat,lon) to the closest report, or Infinity when there are none. */
+function nearestMi(lat: number, lon: number, pts: ReportPt[]): number {
+  let best = Infinity;
   for (const p of pts) {
     const d = haversineMi(lat, lon, p.lat, p.lon);
-    if (d < best) { best = d; bestKind = p.kind; }
+    if (d < best) best = d;
   }
-  let pts0 = best <= 25 ? 1000 : best <= 75 ? 600 : best <= 150 ? 300 : best <= 300 ? 100 : 25;
-  if (best <= 50 && bestKind === "torn") pts0 += 500; // tornado bullseye bonus
-  return pts0;
+  return best;
+}
+function bandPoints(dist: number, bands: [number, number][], miss: number): number {
+  for (const [within, pts] of bands) if (dist <= within) return pts;
+  return miss;
+}
+/** ⚡ pin — nearest report of any kind. A day with no reports at all still pays the floor. */
+function scoreSeverePin(lat: number, lon: number, all: ReportPt[]): number {
+  if (all.length === 0) return SEVERE_MISS;
+  return bandPoints(nearestMi(lat, lon, all), SEVERE_BANDS, SEVERE_MISS);
+}
+/**
+ * 🌪 pin — nearest TORNADO report. `pin === null` is the explicit quiet-day
+ * call: it pays only when the day really did verify with zero tornado reports.
+ */
+function scoreTornadoPin(pin: { lat: number; lon: number } | null, torn: ReportPt[]): number {
+  if (!pin) return torn.length === 0 ? QUIET_DAY_BONUS : 0;
+  if (torn.length === 0) return 0;   // called a tornado on a day with none
+  return bandPoints(nearestMi(pin.lat, pin.lon, torn), TORNADO_BANDS, 0);
 }
 // Loyalty point values for game placements (admin-configurable in app_config).
 async function loyaltyGameAwards(): Promise<number[]> {
@@ -506,19 +534,46 @@ async function rollupMonth(today: Date): Promise<void> {
     }
   }
 }
-async function scoreGame(): Promise<{ scored: number }> {
+interface GuessRow {
+  id: string; user_id: string; user_name: string;
+  lat: number; lon: number; tor_lat: number | null; tor_lon: number | null;
+}
+async function scoreGame(): Promise<{ scored: number; tornadoReports: number }> {
   const today = new Date();
   await rollupMonth(today); // runs even on a day with no new guesses
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
   const dateStr = isoDate(yest);
-  const { data: guesses } = await admin.from("game_guesses").select("id,lat,lon,points").eq("guess_date", dateStr).is("points", null);
-  if (!guesses || guesses.length === 0) return { scored: 0 };
-  const pts = await fetchReportPoints(dateStr.slice(2).replace(/-/g, ""));
-  for (const g of guesses as { id: string; lat: number; lon: number }[]) {
-    const score = scoreGuess(g.lat, g.lon, pts);
-    await admin.from("game_guesses").update({ points: score }).eq("id", g.id);
+  // `points is null` is the idempotency guard: a round is scored exactly once,
+  // so the game_points ledger below can never be double-credited.
+  const { data: guesses } = await admin
+    .from("game_guesses").select("id,user_id,user_name,lat,lon,tor_lat,tor_lon")
+    .eq("guess_date", dateStr).is("points", null);
+  if (!guesses || guesses.length === 0) return { scored: 0, tornadoReports: 0 };
+
+  const all = await fetchReportPoints(dateStr.slice(2).replace(/-/g, ""));
+  const torn = all.filter((p) => p.kind === "torn");
+  const now = new Date().toISOString();
+
+  for (const g of guesses as GuessRow[]) {
+    const severe = scoreSeverePin(g.lat, g.lon, all);
+    const tornado = scoreTornadoPin(
+      g.tor_lat !== null && g.tor_lon !== null ? { lat: g.tor_lat, lon: g.tor_lon } : null,
+      torn,
+    );
+    const total = severe + tornado;
+    await admin.from("game_guesses").update({
+      severe_points: severe, tornado_points: tornado, points: total, scored_at: now,
+    }).eq("id", g.id);
+
+    // Mirror into the shared ledger so the Forecast Game and Trivia total into
+    // one week/month/year board.
+    await admin.from("game_points").insert({
+      user_id: g.user_id, user_name: g.user_name, source: "forecast_game",
+      points: total, earned_on: dateStr,
+      detail: { severe_points: severe, tornado_points: tornado, quiet_day_call: g.tor_lat === null },
+    });
   }
-  return { scored: guesses.length };
+  return { scored: guesses.length, tornadoReports: torn.length };
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────────

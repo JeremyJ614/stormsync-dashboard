@@ -184,7 +184,13 @@ Phase 4a cannot be built on it.**
 
 ## PHASE 5 — Games & AI
 
-### P-5.1 — Forecast Game rebuild 🟢 **[#8]**
+### P-5.1 — Forecast Game rebuild ✅ SHIPPED (PR #62) **[#8]**
+_Overlay substitution: STP and 0–3km CAPE were checked and rejected. SPC's `stpc` field is a
+Lambert Conformal **raster** with no published georeference (and `3kcape` is not a valid param
+id — 404), so neither can be aligned to this page's albersUsa SVG; overlaying them would
+misregister the risk a player is pinning against. Shipped SPC **categorical / tornado % /
+wind % / hail %** GeoJSON instead — vector, correctly projected, and tornado probability is
+exactly what the 🌪 pin targets._
 _(Noted: the "0–3km CAPE overlay" never existed in this app — you were thinking of your other build. Treating this as a full redesign.)_
 - **Two pins per day**, matching your reference flow: **⚡ Most Severe Weather Expected** (lightning-bolt pin) and **🌪 Most Likely Tornado Location** (tornado pin), toggle chips + "tap to drop" hint + Lock In.
 - **Helper overlays** (tap to toggle): SPC Categorical · Tornado % · Hail % · Wind % · Sig-hatched · **STP** · **0–3km CAPE**.
@@ -194,7 +200,10 @@ _(Noted: the "0–3km CAPE overlay" never existed in this app — you were think
 - **Top-3 treatment:** distinct **gold / silver / bronze** cards with animation (shine/pulse/rank-shift), podium layout, rest as a clean ranked list.
 - State-of-the-art visual rebuild of both the game and the leaderboards.
 
-### P-5.2 — Trivia module 🟢 **[#9]**
+### P-5.2 — Trivia module ✅ SHIPPED (PR #62) **[#9]**
+_Admin editor delivered: own questions, any date, override slot 1/2 or add a 3rd, per-question
+point override, show/hide, delete. The "drafts bank" is the only sub-item not built — a draft is
+just an inactive future-dated question, which the editor already supports._
 New module, **shares the Forecast Game points + leaderboard** (same weekly/monthly/yearly boards and monthly crowning).
 - **2 questions/day**: one always **weather**, one **completely random** — the random one explicitly prompted to be *unique, fun, and detailed* (not generic trivia).
 - Multiple choice (4 options) for now; auto-graded; one attempt/day/question.
@@ -202,12 +211,42 @@ New module, **shares the Forecast Game points + leaderboard** (same weekly/month
 - **Admin tab — Trivia:** write your own questions, assign to a **specific date**, choose to **override question 1, override question 2, or add as a 3rd**, plus a bank of drafts. Preview + regenerate-today.
 - **Per-question point override** — default scale set by me, and **you can change the points on any and every question** (global default + per-question value).
 
-### P-5.3 — Weather Patterns AI 🟡 **[#14]**
+### P-5.3 — Weather Patterns AI 🟡 **[#14]** — ⚠️ PARTIALLY SHIPPED (PR #62)
+
+**Shipped:** the 7-day regional breakdown (7 regions × 7 days, SPC Day 1-3 categorical +
+Day 4-8 probabilistic, region hit computed by real point-in-polygon), and 11 season tiles
+computed from the `daily_report_counts` ledger. AI phrases the narrative only.
+
+**Honest gap — 7 of the 10 stats named below are NOT shipped.** Our ledger stores per-day
+*counts only*, so anything needing the underlying report rows or an outside dataset is absent:
+
+| # | Planned stat | Status | What it needs |
+|---|---|---|---|
+| 1 | US tornadoes this year | ✅ shipped | — |
+| 8 | Most active day | ✅ shipped | — |
+| — | (8 further tiles I added) | ✅ shipped | — |
+| 2 | Highest tornado count by state | ❌ | store the `state` column from SPC report CSVs |
+| 6 | Largest hail report | ❌ | store `size` from the hail CSV |
+| 7 | Peak wind gust | ❌ | store `speed` from the wind CSV |
+| 4 | Strongest tornado (EF + place) | ❌ | EF ratings — NOAA DAT / NCEI, surveys lag weeks |
+| 9 | Days with EF3+ | ❌ | same EF-rating source |
+| 5 | Tornado fatalities YTD | ❌ | no authoritative feed wired (engine already writes `deaths: null`) |
+| 3 | Costliest month | ❌ | damage $ — NCEI Storm Events, published on a long lag |
+| 10 | YTD vs average (% of normal) | ❌ | climatological normals baseline |
+
+2 / 6 / 7 are straightforwardly doable: a migration adding columns to `daily_report_counts`,
+an engine change to parse those fields instead of only counting rows, a redeploy, and a
+backfill. 3 / 4 / 5 / 9 / 10 need data sources this app does not currently ingest at all.
+**Not started — awaiting your call on scope.**
+
+<details><summary>Original spec</summary>
 - **7-day AI breakdown** (`GEMINI_KEY_PATTERNS`, generated nightly with the brief): week overview, **affected regions** (Plains · Midwest · Southeast · Northeast · West · South), biggest risks, and a **day-by-day** section — rendered as distinct, good-looking cards/sections, not one text blob.
 - **Season Stats tracker** (small section at the bottom), your 3 + 7 more I'm adding:
   1. US Tornadoes This Year · 2. Highest Tornado Count by State (+ which state) · 3. Costliest Month
   4. Strongest Tornado This Year (EF + location) · 5. Tornado Fatalities YTD · 6. Largest Hail Report (size + place) · 7. Peak Wind Gust Reported · 8. Most Active Day (date + report count) · 9. Days with EF3+ · 10. YTD vs Average (% of normal)
 - ⚠️ **Accuracy note (important):** these stats will be **computed from real SPC/NCEI data**, with Gemini used only to *phrase* them. If the AI were asked to recall the numbers it would confidently invent them — so the pipeline is data-first, AI-narration-second.
+
+</details>
 
 ---
 

@@ -12,6 +12,7 @@ import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/bad
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { AdminNavTab } from "../components/AdminNavTab";
+import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
@@ -20,9 +21,9 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus } from "lucide-react";
+import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain } from "lucide-react";
 
-type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "faq" | "billing" | "settings";
+type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "trivia" | "faq" | "billing" | "settings";
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -65,6 +66,7 @@ export default function AdminPanel() {
           { id: "inbox", label: "Contact Inbox", icon: Mail },
           { id: "alerts", label: "Alert Opt-ins", icon: BellRing },
           { id: "news", label: "SSWX News", icon: Newspaper },
+          { id: "trivia", label: "Daily Trivia", icon: Brain },
           { id: "faq", label: "FAQ & Guide", icon: HelpCircle },
           { id: "billing", label: "Billing", icon: DollarSign },
           { id: "settings", label: "Settings", icon: Settings },
@@ -89,6 +91,7 @@ export default function AdminPanel() {
       {tab === "inbox" && <InboxTab />}
       {tab === "alerts" && <AlertOptinsTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
+      {tab === "trivia" && <AdminTriviaTab />}
       {tab === "faq" && <FaqTab />}
       {tab === "billing" && <AdminBillingTab />}
       {tab === "settings" && <SettingsTab />}

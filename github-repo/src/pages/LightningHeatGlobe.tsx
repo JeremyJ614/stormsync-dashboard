@@ -1,7 +1,13 @@
 import { useEffect, useState } from "react";
-import { Zap, RefreshCw, Info, ExternalLink, Globe, MapPin } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Zap, RefreshCw, Info, ExternalLink, Globe, MapPin, BarChart3, Loader2, CalendarDays } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from "recharts";
+import type { Location } from "../hooks/useLocation";
+import { getLightningClimo, monthName } from "../lib/lightningClimo";
 
-type Tab = "us" | "global";
+interface Props { location: Location }
+
+type Tab = "us" | "global" | "climo";
 
 const LIGHTNING_FACTS = [
   { label: "Global flash rate", value: "~45 / sec", sub: "~1.4 billion strikes / year" },
@@ -19,7 +25,17 @@ const TOP_REGIONS = [
   { region: "Lake Okeechobee, Florida", rate: "~83 flashes / km² / yr", note: "highest in N. America" },
 ];
 
-export default function LightningHeatGlobe() {
+function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  return (
+    <div className="bg-card px-3 py-3 text-center">
+      <div className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{label}</div>
+      <div className="text-xl font-black text-yellow-400 tabular-nums mt-0.5">{value}</div>
+      <div className="text-[10px] text-muted-foreground">{sub}</div>
+    </div>
+  );
+}
+
+export default function LightningHeatGlobe({ location }: Props) {
   const [tab, setTab] = useState<Tab>("us");
   const [bust, setBust] = useState(() => Date.now());
   const [imgError, setImgError] = useState(false);
@@ -37,6 +53,15 @@ export default function LightningHeatGlobe() {
   }, [tab]);
 
   const glmSrc = `https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/1250x750.jpg?t=${bust}`;
+
+  // NCEI is slow and this never changes intra-session, so cache it hard.
+  const climo = useQuery({
+    queryKey: ["lightning-climo", location.lat.toFixed(2), location.lon.toFixed(2)],
+    queryFn: () => getLightningClimo(location.lat, location.lon),
+    enabled: tab === "climo",
+    staleTime: 24 * 60 * 60 * 1000,
+    retry: 1,
+  });
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -74,6 +99,10 @@ export default function LightningHeatGlobe() {
         <button onClick={() => setTab("global")}
           className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${tab === "global" ? "bg-primary/15 text-primary border border-primary/30" : "bg-card border border-border text-muted-foreground hover:border-primary/30"}`}>
           <Globe className="w-4 h-4" /> Global Real-Time (Blitzortung)
+        </button>
+        <button onClick={() => setTab("climo")}
+          className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${tab === "climo" ? "bg-primary/15 text-primary border border-primary/30" : "bg-card border border-border text-muted-foreground hover:border-primary/30"}`}>
+          <BarChart3 className="w-4 h-4" /> Lightning Climatology
         </button>
       </div>
 
@@ -167,6 +196,115 @@ export default function LightningHeatGlobe() {
         </div>
       )}
 
+      {tab === "climo" && (
+        <div className="space-y-4">
+          <div className="bg-card border border-border rounded-xl overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-yellow-400" />
+                <span className="text-sm font-semibold">Thunder-day climatology — {location.name}</span>
+              </div>
+              {climo.data && (
+                <span className="text-[11px] text-muted-foreground">
+                  NCEI station {climo.data.stationId} · {climo.data.sampleYears} yrs of record
+                </span>
+              )}
+            </div>
+
+            {climo.isLoading ? (
+              <div className="py-16 text-center">
+                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
+                <p className="text-xs text-muted-foreground mt-2">Pulling observed thunder days from NCEI…</p>
+              </div>
+            ) : !climo.data ? (
+              <div className="p-6 text-center space-y-2">
+                <div className="text-2xl">⛈️</div>
+                <p className="text-sm font-semibold">No thunder-day record near this location</p>
+                <p className="text-xs text-muted-foreground max-w-md mx-auto">
+                  Thunder days are logged by staffed first-order weather stations. Coverage is sparse outside
+                  major airports, so some locations have no nearby station with this element.
+                </p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 gap-px bg-border">
+                  <Stat label="Thunder days / yr" value={String(climo.data.annualAvg)} sub="annual average" />
+                  <Stat label="Peak month"
+                    value={climo.data.peakMonth !== null ? monthName(climo.data.peakMonth) : "—"}
+                    sub={climo.data.peakMonth !== null ? `${climo.data.monthly[climo.data.peakMonth].avgDays} days avg` : ""} />
+                  <Stat label="Storm season"
+                    value={`${climo.data.monthly.filter((m) => m.avgDays >= 2).length} mo`}
+                    sub="months averaging 2+ days" />
+                </div>
+
+                <div className="p-4 space-y-1">
+                  <div className="text-xs font-semibold flex items-center gap-1.5">
+                    <CalendarDays className="w-3.5 h-3.5 text-yellow-400" /> Average thunder days by month
+                  </div>
+                  <ResponsiveContainer width="100%" height={190}>
+                    <BarChart data={climo.data.monthly.map((m) => ({ name: monthName(m.month), days: m.avgDays }))}>
+                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                      <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} width={26} />
+                      <Tooltip contentStyle={{ background: "#0a0a18", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
+                        formatter={(v: number) => [`${v} days`, "Average"]} />
+                      <Bar dataKey="days" radius={[4, 4, 0, 0]}>
+                        {climo.data.monthly.map((m) => (
+                          <Cell key={m.month}
+                            fill={m.month === climo.data!.peakMonth ? "#fbbf24" : "rgba(251,191,36,0.35)"} />
+                        ))}
+                      </Bar>
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+
+                {climo.data.yearly.length > 1 && (
+                  <div className="p-4 pt-0 space-y-1">
+                    <div className="text-xs font-semibold">Thunder days per year</div>
+                    <ResponsiveContainer width="100%" height={150}>
+                      <LineChart data={climo.data.yearly.map((y) => ({ name: String(y.year), days: y.days }))}>
+                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} width={26} />
+                        <Tooltip contentStyle={{ background: "#0a0a18", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
+                          formatter={(v: number) => [`${v} days`, "Thunder"]} />
+                        <Line type="monotone" dataKey="days" stroke="#fbbf24" strokeWidth={2}
+                          dot={{ r: 2.5, fill: "#fbbf24" }} />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+
+                <div className="px-4 py-3 border-t border-border bg-muted/10 text-[11px] text-muted-foreground leading-relaxed">
+                  <strong className="text-foreground">Why thunder days?</strong> There is no free public archive of
+                  historical strike density — the per-state flash-density numbers usually quoted come from Vaisala's
+                  NLDN, which is a commercial licence. Thunder days (NCEI element <code>DYTS</code>) are the long-standing
+                  observed proxy: the count of days on which thunder was actually heard or detected at the station.
+                  These are real observations for the station nearest you, not a model or a national average.
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* Global hotspots belong with the climatology rather than the live maps. */}
+          <div className="bg-card border border-border rounded-xl p-4">
+            <h3 className="text-sm font-semibold mb-3">World's Top Lightning Hotspots (NASA OTD/LIS climatology)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {TOP_REGIONS.map((r, i) => (
+                <div key={r.region} className="flex items-start gap-3 bg-muted/20 rounded-lg p-3">
+                  <div className="w-6 h-6 rounded-full bg-yellow-400/15 text-yellow-400 text-xs font-bold flex items-center justify-center shrink-0">
+                    {i + 1}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium truncate">{r.region}</div>
+                    <div className="text-xs text-yellow-400/90 tabular-nums">{r.rate}</div>
+                    {r.note && <div className="text-[10px] text-muted-foreground mt-0.5">{r.note}</div>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Facts grid */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {LIGHTNING_FACTS.map(f => (
@@ -176,25 +314,6 @@ export default function LightningHeatGlobe() {
             <div className="text-[10px] text-muted-foreground/70 mt-0.5">{f.sub}</div>
           </div>
         ))}
-      </div>
-
-      {/* Top regions */}
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">World's Top Lightning Hotspots (NASA OTD/LIS climatology)</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-          {TOP_REGIONS.map((r, i) => (
-            <div key={r.region} className="flex items-start gap-3 bg-muted/20 rounded-lg p-3">
-              <div className="w-6 h-6 rounded-full bg-yellow-400/15 text-yellow-400 text-xs font-bold flex items-center justify-center shrink-0">
-                {i + 1}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="text-sm font-medium truncate">{r.region}</div>
-                <div className="text-xs text-yellow-400/90 tabular-nums">{r.rate}</div>
-                {r.note && <div className="text-[10px] text-muted-foreground mt-0.5">{r.note}</div>}
-              </div>
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* About */}

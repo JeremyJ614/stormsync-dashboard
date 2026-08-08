@@ -11,6 +11,11 @@ import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, 
 import { AlertTriangle, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, GripVertical, EyeOff, Plus, Settings2, RotateCcw, Check, Sunrise, Sunset } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { DASHBOARD_WIDGETS, WIDGET_LABELS, getLayout, saveLayout, type WidgetId, type DashboardLayout } from "../lib/dashboardLayout";
+import {
+  CloudCoverWidget, VisibilityWidget, HumidityPressureWidget, AqiWidget,
+  SswxconWidget, IngredientsWidget, TimingWidget, MoonWidget, MosquitoWidget,
+  WindWidget, WIDGET_CSS,
+} from "../components/DashboardWidgets";
 
 interface Props { location: Location }
 
@@ -295,13 +300,34 @@ export default function Dashboard({ location }: Props) {
         </div>
       </div>
     ) : null,
+
+    // ── Relaunch mini-widgets ──
+    // These are compact and animated, so they read as a phone-weather-app tile
+    // wall rather than a stack of panels. Each links through to its full module.
+    cloudCover: <CloudCoverWidget wx={weather} />,
+    visibility: <VisibilityWidget wx={weather} />,
+    humidityPressure: <HumidityPressureWidget wx={weather} />,
+    aqi: <AqiWidget location={location} />,
+    sswxcon: <SswxconWidget wx={weather} />,
+    ingredients: <IngredientsWidget wx={weather} />,
+    timing: <TimingWidget wx={weather} />,
+    moon: <MoonWidget />,
+    mosquito: <MosquitoWidget wx={weather} />,
   };
+
+  // Compact widgets tile two-up on phones and four-up on desktop; the original
+  // full-width panels keep their own row.
+  const COMPACT = new Set<WidgetId>([
+    "cloudCover", "visibility", "humidityPressure", "aqi",
+    "sswxcon", "ingredients", "timing", "moon", "mosquito",
+  ]);
 
   const visible = layout.order.filter((id) => !layout.hidden.includes(id));
   const hiddenList = layout.order.filter((id) => layout.hidden.includes(id));
 
   return (
     <div className="p-4 md:p-6 space-y-4">
+      <style>{WIDGET_CSS}</style>
       <div className="flex items-center justify-between">
         <h1 className="text-lg font-bold tracking-wide">Your Dashboard</h1>
         <div className="flex items-center gap-2">
@@ -326,10 +352,14 @@ export default function Dashboard({ location }: Props) {
         </div>
       )}
 
-      <div className="space-y-4">
+      {/* A grid rather than a stack: compact tiles sit two-up on phones and
+          four-up on desktop, while the original full-width panels span the row.
+          Drag-and-drop ordering is unchanged. */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
         {visible.map((id) => {
           const inner = content[id];
           if (inner == null && !editing) return null;
+          const compact = COMPACT.has(id);
           return (
             <div
               key={id}
@@ -338,11 +368,12 @@ export default function Dashboard({ location }: Props) {
               onDragOver={(e) => { if (editing && dragId && dragId !== id) e.preventDefault(); }}
               onDrop={() => { if (dragId) moveWidget(dragId, id); setDragId(null); }}
               onDragEnd={() => setDragId(null)}
-              className={editing ? `relative rounded-xl border border-dashed border-primary/30 p-2 transition-opacity ${dragId === id ? "opacity-40" : ""}` : ""}
+              className={`${compact ? "col-span-1" : "col-span-2 md:col-span-4"} ${
+                editing ? `relative rounded-xl border border-dashed border-primary/30 p-2 transition-opacity ${dragId === id ? "opacity-40" : ""}` : ""}`}
             >
               {editing && (
-                <div className="flex items-center justify-between mb-2 px-1">
-                  <span className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-grab active:cursor-grabbing"><GripVertical className="w-4 h-4" /> {WIDGET_LABELS[id]}</span>
+                <div className="flex items-center justify-between mb-2 px-1 gap-1">
+                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-grab active:cursor-grabbing min-w-0"><GripVertical className="w-4 h-4 shrink-0" /> <span className="truncate">{WIDGET_LABELS[id]}</span></span>
                   <button onClick={() => hide(id)} className="text-muted-foreground hover:text-red-400 flex items-center gap-1 text-[11px]"><EyeOff className="w-3.5 h-3.5" /> Hide</button>
                 </div>
               )}

@@ -176,7 +176,7 @@ function LocationSearch({ onSetLocation }: { onSetLocation: (loc: Location) => v
 export function Layout({ children, location, onSetLocation, onDetectLocation, isGeolocating }: LayoutProps) {
   const [pathname] = useLocation();
   const [sidebarExpanded, setSidebarExpanded] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, backendDown } = useAuth();
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
@@ -534,7 +534,15 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
           </div>
         </header>
 
-        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">{children}</main>
+        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">
+          {backendDown && (
+            <div className="m-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-amber-200">
+              <strong>Can&apos;t reach the StormSync database.</strong> You are still signed in — your
+              password is fine. Modules will fill back in on their own once the connection returns.
+            </div>
+          )}
+          {children}
+        </main>
       </div>
     </div>
   );

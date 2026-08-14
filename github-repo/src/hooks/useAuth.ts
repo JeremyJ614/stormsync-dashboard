@@ -143,9 +143,20 @@ export function pinToPassword(pin: string): string {
 interface AuthState {
   user: User | null;
   loading: boolean;
+  /**
+   * Set when we hold a VALID session but could not load the profile row.
+   *
+   * This is deliberately distinct from `user: null`. Previously any failure —
+   * including the database being unreachable — collapsed into a null user, so a
+   * PostgREST outage rendered the app as "signed out" even though sign-in had
+   * genuinely succeeded. That is the worst possible message: it sends people to
+   * retype passwords that were never wrong. Now the session is kept and the UI
+   * can say the backend is unreachable.
+   */
+  backendDown: boolean;
 }
 
-let state: AuthState = { user: null, loading: isSupabaseConfigured };
+let state: AuthState = { user: null, loading: isSupabaseConfigured, backendDown: false };
 const listeners = new Set<() => void>();
 
 function emit(next: AuthState) {
@@ -153,13 +164,21 @@ function emit(next: AuthState) {
   listeners.forEach((l) => l());
 }
 
-async function loadProfile(userId: string): Promise<User | null> {
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
-  if (error) {
-    logger.error("Failed to load profile", { scope: "auth", error });
-    return null;
+type ProfileLoad =
+  | { ok: true; user: User | null }     // reached the DB; user may legitimately not exist
+  | { ok: false };                      // could not reach the DB at all
+
+/** Loads the profile, retrying briefly so a momentary blip doesn't look like a logout. */
+async function loadProfile(userId: string): Promise<ProfileLoad> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", userId).maybeSingle();
+    if (!error) return { ok: true, user: data ? rowToUser(data as ProfileRow) : null };
+    logger.error("Failed to load profile", { scope: "auth", error, attempt });
+    // 500/503 from the API gateway means PostgREST is down, not that the row is
+    // missing — worth waiting out. Back off 0.4s, 1.2s.
+    if (attempt < 2) await new Promise((r) => setTimeout(r, 400 * (attempt * 2 + 1)));
   }
-  return data ? rowToUser(data as ProfileRow) : null;
+  return { ok: false };
 }
 
 let initialized = false;
@@ -167,7 +186,7 @@ function init() {
   if (initialized) return;
   initialized = true;
   if (!isSupabaseConfigured) {
-    emit({ user: null, loading: false });
+    emit({ user: null, loading: false, backendDown: false });
     return;
   }
   // onAuthStateChange fires immediately with the initial session (INITIAL_SESSION),
@@ -179,12 +198,16 @@ function init() {
       const uid = session.user.id;
       // Show loading only on first sign-in; on token refresh keep the current user
       // visible (avoids a skeleton flash every time the token rotates).
-      if (!state.user) emit({ user: null, loading: true });
+      if (!state.user) emit({ user: null, loading: true, backendDown: false });
       setTimeout(async () => {
-        emit({ user: await loadProfile(uid), loading: false });
+        const res = await loadProfile(uid);
+        if (res.ok) emit({ user: res.user, loading: false, backendDown: false });
+        // Keep whatever user we already had — a refresh that cannot reach the DB
+        // must not silently sign someone out mid-session.
+        else emit({ user: state.user, loading: false, backendDown: true });
       }, 0);
     } else {
-      emit({ user: null, loading: false });
+      emit({ user: null, loading: false, backendDown: false });
     }
   });
 }
@@ -197,7 +220,7 @@ function subscribe(cb: () => void) {
 function getSnapshot(): AuthState {
   return state;
 }
-const SERVER_SNAPSHOT: AuthState = { user: null, loading: true };
+const SERVER_SNAPSHOT: AuthState = { user: null, loading: true, backendDown: false };
 function getServerSnapshot(): AuthState {
   return SERVER_SNAPSHOT;
 }
@@ -259,7 +282,7 @@ export function useAuth() {
     : 0;
   const loyaltyPoints = user ? monthsActive * 100 + user.referrals * 250 : 0;
 
-  return { user, loading: snap.loading, login, signup, logout, loyaltyPoints, monthsActive };
+  return { user, loading: snap.loading, backendDown: snap.backendDown, login, signup, logout, loyaltyPoints, monthsActive };
 }
 
 export function hasModuleAccess(user: User | null, path: string): boolean {

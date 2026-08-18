@@ -7,6 +7,10 @@ export const BASE_API = `${SUPABASE_URL ?? ""}/functions/v1/weather`;
 export const RELAY_API = `${SUPABASE_URL ?? ""}/functions/v1/relay`;
 // NHC tropical proxy (Phase 10 Hurricane Tracker).
 export const NHC_API = `${SUPABASE_URL ?? ""}/functions/v1/nhc`;
+// Wind radii moved to their own function: nhc's /windrad route reads three NHC
+// endpoints that have all 404'd for some time, so it returned an empty field for
+// every storm in every basin.
+export const NHC_RADII_API = `${SUPABASE_URL ?? ""}/functions/v1/nhc-radii`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

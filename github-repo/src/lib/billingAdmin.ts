@@ -44,14 +44,19 @@ export const DEFAULT_LIFETIME_DEALS: LifetimeDeals = {
 // ── Tier module config (bundled-free lists + choosable counts) ──────────────
 export interface TierModuleConfig {
   choosableCount: Record<TierKey, number>;
-  /** Fixed bundled-free module ids. Free has none (just its 1 chosen module);
-   *  Advanced gets literally everything, so it isn't tracked here. */
-  bundledModules: { basic: string[]; vip: string[] };
+  /** Fixed bundled-free module ids, per tier.
+   *  All four tiers are configurable now. Advanced still receives every module
+   *  at runtime regardless (see hasModuleAccess), but having the list here means
+   *  the admin panel can show and seed it like any other tier instead of it
+   *  being an invisible special case. */
+  bundledModules: { free: string[]; basic: string[]; vip: string[]; advanced: string[] };
 }
 
 export const DEFAULT_TIER_MODULE_CONFIG: TierModuleConfig = {
   choosableCount: { free: 1, basic: 6, vip: 15, advanced: 0 },
   bundledModules: {
+    free: [],
+    advanced: [],
     basic: ["/dashboard", "/forecast", "/discussion", "/spc", "/warnings", "/timing"],
     vip: ["/dashboard", "/forecast", "/discussion", "/spc", "/warnings", "/timing", "/ingredients", "/swti", "/comparator", "/thunder", "/rotation"],
   },
@@ -91,7 +96,18 @@ export async function getTierModuleConfig(): Promise<TierModuleConfig> {
     getConfigValue("tier_choosable_count", DEFAULT_TIER_MODULE_CONFIG.choosableCount),
     getConfigValue("tier_bundled_modules", DEFAULT_TIER_MODULE_CONFIG.bundledModules),
   ]);
-  return { choosableCount, bundledModules };
+  // Stored config predates free/advanced, so fill any missing tier rather than
+  // handing the UI an undefined array.
+  const bundled = bundledModules as Partial<TierModuleConfig["bundledModules"]>;
+  return {
+    choosableCount,
+    bundledModules: {
+      free: bundled.free ?? [],
+      basic: bundled.basic ?? [],
+      vip: bundled.vip ?? [],
+      advanced: bundled.advanced ?? [],
+    },
+  };
 }
 export async function saveTierModuleConfig(v: TierModuleConfig): Promise<MutationResult> {
   const [r1, r2] = await Promise.all([

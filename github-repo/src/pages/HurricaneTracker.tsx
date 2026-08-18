@@ -15,7 +15,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { NHC_API } from "../config";
+import { NHC_API, NHC_RADII_API } from "../config";
 import {
   Wind, RefreshCw, ChevronDown, ChevronUp, History,
   Navigation2, Gauge, ExternalLink, Clock, Info, Eye,
@@ -126,15 +126,34 @@ function stormFolder(stormId: string): string {
   return id.slice(0, 2) + id.slice(2, 4); // "EP" + "07" → "EP07"
 }
 
-// NHC storm graphics image URLs — _latest.png suffix gives the current advisory image
-function spaghettUrl(stormId: string) {
-  const folder = stormFolder(stormId);
-  return `https://www.nhc.noaa.gov/storm_graphics/${folder}/${nhcId(stormId)}_all_model_track_latest.png`;
+// NHC storm graphics image URLs.
+//
+// The old code hardcoded a single "_latest.png" name. Verified against the live
+// CP01 directory listing for Hurricane Lala: NOT ONE "_latest" file exists, and
+// "with_line_and_wind" does not exist either - so the cone 404'd and the panel
+// always claimed the graphic "hasn't been published yet". The real file is
+// simply {ID}_5day_cone.png. Names vary by storm and basin, so try the known
+// variants in order rather than betting on one.
+function coneCandidates(stormId: string): string[] {
+  const f = stormFolder(stormId), id = nhcId(stormId);
+  const base = `https://www.nhc.noaa.gov/storm_graphics/${f}/${id}`;
+  return [
+    `${base}_5day_cone_with_line_and_wind_latest.png`,
+    `${base}_5day_cone_with_line_and_wind.png`,
+    `${base}_5day_cone.png`,
+    `${base}_3day_cone.png`,
+  ];
 }
-function coneUrl(stormId: string) {
-  const folder = stormFolder(stormId);
-  return `https://www.nhc.noaa.gov/storm_graphics/${folder}/${nhcId(stormId)}_5day_cone_with_line_and_wind_latest.png`;
+// Model-track ("spaghetti") graphics are an Atlantic / Eastern-Pacific product.
+// NHC publishes none at all for Central Pacific storms - the CP01 listing has
+// zero files matching "model" - so for those the honest answer is that the
+// product does not exist, not that it is late.
+function spaghettiCandidates(stormId: string): string[] {
+  const f = stormFolder(stormId), id = nhcId(stormId);
+  const base = `https://www.nhc.noaa.gov/storm_graphics/${f}/${id}`;
+  return [`${base}_all_model_track_latest.png`, `${base}_all_model_track.png`];
 }
+const isCentralPacific = (stormId: string) => nhcId(stormId).startsWith("CP");
 
 // ─── Tropical Map ─────────────────────────────────────────────────────────────
 interface TropicalMapProps {
@@ -441,9 +460,13 @@ function FormationOddsPanel() {
 // ─── Storm Model Panel (spaghetti + cone) ─────────────────────────────────────
 function StormModelPanel({ storm }: { storm: Storm }) {
   const [view, setView] = useState<"spaghetti" | "cone">("cone");
-  const [err, setErr] = useState(false);
+  // Walk the candidate filenames; only give up once every one has 404'd.
+  const [idx, setIdx] = useState(0);
 
-  const url = view === "cone" ? coneUrl(storm.id) : spaghettUrl(storm.id);
+  const candidates = view === "cone" ? coneCandidates(storm.id) : spaghettiCandidates(storm.id);
+  const exhausted = idx >= candidates.length;
+  const url = exhausted ? "" : candidates[idx];
+  const noModelProduct = view === "spaghetti" && isCentralPacific(storm.id);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden mt-3">
@@ -454,7 +477,7 @@ function StormModelPanel({ storm }: { storm: Storm }) {
           {(["cone", "spaghetti"] as const).map(v => (
             <button
               key={v}
-              onClick={() => { setView(v); setErr(false); }}
+              onClick={() => { setView(v); setIdx(0); }}
               className={`px-3 py-1 capitalize transition-colors ${view === v ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               {v === "spaghetti" ? "Model Tracks" : "Forecast Cone"}
@@ -463,10 +486,15 @@ function StormModelPanel({ storm }: { storm: Storm }) {
         </div>
       </div>
       <div className="p-3">
-        {err ? (
+        {exhausted ? (
           <div className="text-center py-6 text-sm text-muted-foreground">
             <div className="text-xl mb-2">📡</div>
-            Graphic not available yet — the NHC publishes these after the first advisory.{" "}
+            {noModelProduct ? (
+              <>NHC does not publish model-track graphics for Central&nbsp;Pacific storms —
+                only the Atlantic and Eastern Pacific get them. The forecast cone is available above.</>
+            ) : (
+              <>No published graphic for this advisory yet.</>
+            )}{" "}
             {storm.forecastGraphics?.url && (
               <a href={storm.forecastGraphics.url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
                 View on NHC
@@ -479,7 +507,7 @@ function StormModelPanel({ storm }: { storm: Storm }) {
             src={url}
             alt={`${storm.name} ${view}`}
             className="w-full rounded-lg"
-            onError={() => setErr(true)}
+            onError={() => setIdx(i => i + 1)}
           />
         )}
         <p className="text-[11px] text-muted-foreground mt-2">
@@ -554,7 +582,7 @@ export default function HurricaneTracker() {
     if (!storms.length) return;
     for (const s of storms) {
       if (windRadii[s.id]) continue;
-      fetch(`${NHC_API}/windrad/${s.id}`)
+      fetch(`${NHC_RADII_API}?storm=${s.id}`)
         .then(r => r.ok ? r.json() : null)
         .then((data: { radii?: GeoJSON.FeatureCollection } | null) => {
           if (data?.radii) {

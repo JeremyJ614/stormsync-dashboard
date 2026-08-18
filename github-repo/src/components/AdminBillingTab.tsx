@@ -179,7 +179,7 @@ function TierBundlesCard() {
   const purchasable = ALL_MODULES.filter(m => !m.alwaysOn && !m.adminOnly && !HIDDEN_MODULES.has(m.id));
 
   const setChoosable = (tier: TierKey, v: number) => setCfg({ ...cfg, choosableCount: { ...cfg.choosableCount, [tier]: v } });
-  const toggleBundled = (tier: "basic" | "vip", moduleId: string) => {
+  const toggleBundled = (tier: TierKey, moduleId: string) => {
     const list = cfg.bundledModules[tier];
     const next = list.includes(moduleId) ? list.filter(m => m !== moduleId) : [...list, moduleId];
     setCfg({ ...cfg, bundledModules: { ...cfg.bundledModules, [tier]: next } });
@@ -209,9 +209,17 @@ function TierBundlesCard() {
         </div>
       </div>
 
-      {(["basic", "vip"] as const).map(tier => (
+      {(["free", "basic", "vip", "advanced"] as const).map(tier => (
         <div key={tier} className="bg-card border border-border rounded-xl p-4 space-y-3">
-          <h3 className="text-sm font-semibold">{TIER_LABELS[tier]}'s bundled-free modules ({cfg.bundledModules[tier].length})</h3>
+          <h3 className="text-sm font-semibold">
+            {TIER_LABELS[tier]}'s bundled-free modules ({cfg.bundledModules[tier].length})
+          </h3>
+          {tier === "advanced" && (
+            <p className="text-[11px] text-muted-foreground">
+              Advanced already unlocks every module automatically — anything ticked here is
+              belt-and-braces, and Storm Chasing stays admin-only either way.
+            </p>
+          )}
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto pr-1">
             {purchasable.map(m => {
               const checked = cfg.bundledModules[tier].includes(m.id);

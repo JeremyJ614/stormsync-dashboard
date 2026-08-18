@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { useLocation } from "wouter";
-import { useAuth } from "../hooks/useAuth";
+import { useAuth, type SignupQuestion } from "../hooks/useAuth";
+import { getQuestions } from "../lib/userAdmin";
 import {
   TIER_KEYS, type TierKey,
   getTierPricing, type TierPricing,
@@ -28,9 +29,42 @@ export default function Plans() {
   const [, navigate] = useLocation();
   const { user, loading: authLoading } = useAuth();
 
+  // Signed-out visitors are NOT bounced to /login any more. Creating an account
+  // and choosing a plan happen on this one page, so nobody can end up with an
+  // account and no idea which tier they are on.
+  const { signup } = useAuth();
+  const [suName, setSuName] = useState("");
+  const [suEmail, setSuEmail] = useState("");
+  const [suPin, setSuPin] = useState("");
+  const [suQuestions, setSuQuestions] = useState<SignupQuestion[]>([]);
+  const [suAnswers, setSuAnswers] = useState<Record<string, string>>({});
+
   useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [authLoading, user, navigate]);
+    if (user) return;
+    getQuestions()
+      .then((qs) => setSuQuestions(qs.filter((q) => !["name", "email", "pin"].includes(q.id))))
+      .catch(() => setSuQuestions([]));
+  }, [user]);
+
+  /**
+   * Creates the account if there isn't one yet. Paid plans genuinely cannot come
+   * first — Stripe checkout needs an authenticated user — so the account is made
+   * at submit time and the chosen plan is applied immediately after, with no
+   * separate page in between.
+   */
+  async function ensureAccount(): Promise<{ ok: boolean; error?: string }> {
+    if (user) return { ok: true };
+    if (!suName.trim()) return { ok: false, error: "Enter your full name" };
+    if (!/^[^@]+@[^@]+\.[^@]+$/.test(suEmail)) return { ok: false, error: "Enter a valid email" };
+    if (!/^\d{4}$/.test(suPin)) return { ok: false, error: "PIN must be exactly 4 digits" };
+    const customAnswers: Record<string, string> = {};
+    for (const q of suQuestions) {
+      const v = (suAnswers[q.id] ?? "").trim();
+      if (q.required && !v) return { ok: false, error: `"${q.label}" is required` };
+      if (v) customAnswers[q.label] = v;
+    }
+    return signup({ name: suName.trim(), email: suEmail.trim(), pin: suPin, customAnswers });
+  }
 
   const [dataLoading, setDataLoading] = useState(true);
   const [tierPricing, setTierPricing] = useState<TierPricing | null>(null);
@@ -174,6 +208,8 @@ export default function Plans() {
   async function complete() {
     setCompleting(true);
     setCompleteError(null);
+    const acct = await ensureAccount();
+    if (!acct.ok) { setCompleting(false); setCompleteError(acct.error ?? "Could not create your account."); return; }
     const res = promoMode ? await claimAdvancedPromo() : await selectFreeTier(freeModule);
     setCompleting(false);
     if (!res.ok) { setCompleteError(res.error ?? "Something went wrong — try again."); return; }
@@ -185,6 +221,8 @@ export default function Plans() {
     if (!selectedTier) return;
     setCheckingOut(true);
     setCheckoutError(null);
+    const acct = await ensureAccount();
+    if (!acct.ok) { setCheckingOut(false); setCheckoutError(acct.error ?? "Could not create your account."); return; }
     const res = await startCheckout({
       tier: selectedTier,
       period,
@@ -217,6 +255,58 @@ export default function Plans() {
         <h1 className="text-2xl font-bold tracking-wide">Choose Your Plan</h1>
         <p className="text-sm text-muted-foreground">Pick a tier, build your module set, see the price update live.</p>
       </div>
+
+      {/* Account details live on THIS page so a plan is always chosen alongside
+          the account, never after it. Paid tiers still create the account first
+          because Stripe checkout needs an authenticated user - but the member
+          never sees a gap between the two. */}
+      {!user && (
+        <div className="bg-card border border-primary/30 rounded-2xl p-4 space-y-3">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-black grid place-items-center">1</span>
+            <h2 className="text-sm font-bold">Create your account</h2>
+            <span className="ml-auto text-[11px] text-muted-foreground">
+              Already have one? <a href="/login" className="text-primary hover:underline">Log in</a>
+            </span>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-2">
+            <input value={suName} onChange={(e) => setSuName(e.target.value)} placeholder="Full name"
+              autoComplete="name"
+              className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm" />
+            <input value={suEmail} onChange={(e) => setSuEmail(e.target.value)} placeholder="Email address"
+              type="email" autoComplete="email"
+              className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm" />
+            <input value={suPin} onChange={(e) => setSuPin(e.target.value.replace(/\D/g, "").slice(0, 4))}
+              placeholder="4-digit PIN" inputMode="numeric" autoComplete="new-password"
+              className="bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm tracking-[0.4em]" />
+          </div>
+          {suQuestions.map((q) => (
+            <div key={q.id}>
+              <label className="text-[11px] text-muted-foreground">{q.label}{q.required && " *"}</label>
+              {q.type === "textarea" ? (
+                <textarea value={suAnswers[q.id] ?? ""} rows={2}
+                  onChange={(e) => setSuAnswers({ ...suAnswers, [q.id]: e.target.value })}
+                  className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm" />
+              ) : q.type === "select" ? (
+                <select value={suAnswers[q.id] ?? ""}
+                  onChange={(e) => setSuAnswers({ ...suAnswers, [q.id]: e.target.value })}
+                  className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm">
+                  <option value="">Select…</option>
+                  {(q.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input value={suAnswers[q.id] ?? ""} type={q.type === "number" ? "number" : q.type === "date" ? "date" : "text"}
+                  onChange={(e) => setSuAnswers({ ...suAnswers, [q.id]: e.target.value })}
+                  placeholder={q.placeholder ?? ""}
+                  className="w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm" />
+              )}
+            </div>
+          ))}
+          <p className="text-[11px] text-muted-foreground">
+            Your account is created when you confirm your plan below — pick a tier first.
+          </p>
+        </div>
+      )}
 
       {returnBanner === "success" && (
         <div className="bg-primary/10 border border-primary/40 rounded-xl p-4 text-sm flex items-center gap-2">

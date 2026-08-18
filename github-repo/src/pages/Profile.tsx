@@ -159,7 +159,7 @@ export default function Profile() {
         <div className="space-y-1.5 text-sm">
           <div className="flex justify-between gap-3"><span className="text-muted-foreground">User ID</span><span className="font-mono text-xs truncate">{user.id}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Joined</span><span>{new Date(user.joinedAt).toLocaleDateString()}</span></div>
-          <div className="flex justify-between"><span className="text-muted-foreground">Modules enabled</span><span>{user.enabledModules.length}</span></div>
+          <div className="flex justify-between"><span className="text-muted-foreground">Modules enabled</span><span>{user.tier === 4 ? "All modules" : user.enabledModules.length}</span></div>
           <div className="flex justify-between"><span className="text-muted-foreground">Tier</span><span>Tier {user.tier}</span></div>
         </div>
       </div>

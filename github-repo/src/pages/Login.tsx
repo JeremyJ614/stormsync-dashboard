@@ -108,7 +108,10 @@ export default function Login() {
             className={`py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${mode === "login" ? "bg-primary/20 text-primary" : "text-muted-foreground"}`}>
             <LogIn className="w-4 h-4" /> Log in
           </button>
-          <button onClick={() => { setMode("signup"); setError(""); }}
+          {/* Signing up now happens on /plans, where the account form and the tier
+              chooser sit together - creating an account without having picked a
+              plan was the flow that left people stranded. */}
+          <button onClick={() => navigate("/plans")}
             className={`py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 ${mode === "signup" ? "bg-primary/20 text-primary" : "text-muted-foreground"}`}>
             <UserPlus className="w-4 h-4" /> Sign up
           </button>

@@ -294,6 +294,12 @@ export function hasModuleAccess(user: User | null, path: string): boolean {
   if (nav && !nav.visible && !user?.isAdmin) return false; // hidden by an admin
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
+  // Tier 4 (Advanced) is sold as "every module ever made, plus early access to
+  // anything new". That promise must not depend on `enabled_modules` having been
+  // backfilled for each member every time a module ships — so grant everything
+  // outright. adminOnly and HIDDEN_MODULES are already excluded above, which is
+  // what keeps Storm Chasing out.
+  if (user.tier === 4) return true;
   return user.enabledModules.includes(path);
 }
 

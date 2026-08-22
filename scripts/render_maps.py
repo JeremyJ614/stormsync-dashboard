@@ -323,10 +323,89 @@ class Supa:
         if r.status_code >= 300:
             raise RuntimeError(f"save_run: {r.status_code} {r.text[:200]}")
 
-    def purge(self, keep_hours: int):
-        cutoff = (datetime.now(timezone.utc) - timedelta(hours=keep_hours)).isoformat()
-        SESSION.delete(f"{self.url}/rest/v1/model_runs?cycle=lt.{cutoff}",
-                       headers=self.h, timeout=60)
+    def _list(self, prefix: str) -> tuple[list[str], list[str]]:
+        """
+        One directory level. Storage returns folders with a null id and files
+        with a real one, so the two are split on that.
+        """
+        folders: list[str] = []
+        files: list[str] = []
+        for page in range(100):
+            r = SESSION.post(f"{self.url}/storage/v1/object/list/model-maps",
+                             headers={**self.h, "Content-Type": "application/json"},
+                             data=json.dumps({"prefix": prefix, "limit": 1000,
+                                              "offset": page * 1000}), timeout=60)
+            if r.status_code >= 300:
+                raise RuntimeError(f"list {prefix}: {r.status_code} {r.text[:180]}")
+            batch = r.json()
+            if not batch:
+                break
+            for o in batch:
+                (files if o.get("id") else folders).append(prefix + o["name"])
+            if len(batch) < 1000:
+                break
+        return folders, files
+
+    def list_frames(self, cycle_prefix: str) -> list[str]:
+        """Every stored frame under one cycle: {model}/{cycle}/{param}/F###.png."""
+        params, loose = self._list(cycle_prefix)
+        out = list(loose)
+        for pdir in params:
+            _, frames = self._list(pdir + "/")
+            out += frames
+        return out
+
+    def delete_frames(self, paths: list[str]) -> int:
+        """Remove stored objects in batches. Returns how many were deleted."""
+        done = 0
+        for i in range(0, len(paths), 200):
+            chunk = paths[i:i + 200]
+            r = SESSION.delete(f"{self.url}/storage/v1/object/model-maps",
+                               headers={**self.h, "Content-Type": "application/json"},
+                               data=json.dumps({"prefixes": chunk}), timeout=120)
+            if r.status_code >= 300:
+                raise RuntimeError(f"delete frames: {r.status_code} {r.text[:180]}")
+            done += len(chunk)
+        return done
+
+    def purge(self, keep_runs: int) -> None:
+        """
+        Drop everything older than the newest `keep_runs` cycles per model — the
+        rendered PNGs first, then their manifest rows, so the two never drift.
+
+        The frames must go explicitly: deleting a manifest row does not touch the
+        objects it points at, and the bucket is what actually fills up.
+        """
+        for model in ("hrrr", "gfs"):
+            r = SESSION.get(f"{self.url}/rest/v1/model_runs",
+                            headers=self.h, timeout=60,
+                            params={"select": "id,cycle", "model": f"eq.{model}",
+                                    "order": "cycle.desc"})
+            if r.status_code >= 300:
+                raise RuntimeError(f"purge list {model}: {r.status_code} {r.text[:180]}")
+            stale = r.json()[keep_runs:]
+            if not stale:
+                continue
+
+            for run in stale:
+                cycle = datetime.fromisoformat(run["cycle"]).astimezone(timezone.utc)
+                prefix = f"{model}/{cycle:%Y%m%d%H}/"
+                frames = self.list_frames(prefix)
+                if frames:
+                    print(f"  purged {self.delete_frames(frames)} frames from {prefix}")
+
+            # Filter values are URL-encoded by requests' params=, which is the
+            # point: an ISO timestamp ends in "+00:00", and a raw "+" in a query
+            # string decodes to a space, which PostgREST rejects as an invalid
+            # timestamp (HTTP 400). Interpolating the cutoff straight into the
+            # URL is why this purge silently did nothing for its first weeks.
+            ids = ",".join(str(run["id"]) for run in stale)
+            d = SESSION.delete(f"{self.url}/rest/v1/model_runs",
+                               headers=self.h, timeout=60,
+                               params={"id": f"in.({ids})"})
+            if d.status_code >= 300:
+                raise RuntimeError(f"purge rows {model}: {d.status_code} {d.text[:180]}")
+            print(f"  purged {len(stale)} stale {model} manifest rows")
 
 
 # ── run discovery ────────────────────────────────────────────────────────────
@@ -361,7 +440,8 @@ def main() -> int:
     ap.add_argument("--model", choices=["hrrr", "gfs"], required=True)
     ap.add_argument("--max-fhr", type=int, default=18)
     ap.add_argument("--step", type=int, default=1)
-    ap.add_argument("--keep-hours", type=int, default=24)
+    ap.add_argument("--keep-runs", type=int, default=8,
+                    help="cycles of frames to retain per model (the viewer shows 6)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 
@@ -434,7 +514,7 @@ def main() -> int:
     }
     if supa:
         supa.save_run(row)
-        supa.purge(a.keep_hours)
+        supa.purge(a.keep_runs)
         print("manifest saved; old runs purged")
     else:
         print(json.dumps({**row, "frames": {k: len(v) for k, v in row["frames"].items()}}, indent=1))

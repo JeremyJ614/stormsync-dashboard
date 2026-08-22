@@ -299,13 +299,26 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
     // nightly brief to the deterministic SPC template when gemini-2.5-flash was
     // retired — a single retirement must never take the brief down again.
     const tried: string[] = [];
-    for (const model of GEMINI_MODELS) {
-      const res = await geminiOnce(model, system, user, schemaGemini);
-      if (res.ok) return res;
-      tried.push(`${model} -> ${res.error}`);
-      if (!res.tryNext) break;
+    // Every model in the chain is Gemini, so they share a backend: a capacity
+    // 503 rejects all three within a second and the brief drops to the
+    // deterministic template. That accounted for roughly a quarter of nightly
+    // runs. Transient failures (429/5xx) therefore get a second pass over the
+    // chain after a short wait; hard failures (404 retirement, safety blocks)
+    // still fall straight through.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise((r) => setTimeout(r, 5000));
+      let transient = false;
+      for (const model of GEMINI_MODELS) {
+        const res = await geminiOnce(model, system, user, schemaGemini);
+        if (res.ok) return res;
+        tried.push(`${model} -> ${res.error}`);
+        if (!res.tryNext) { transient = false; break; }
+        // 404 means the model is retired — another pass will not bring it back.
+        if (!/^404:/.test(res.error)) transient = true;
+      }
+      if (!transient) break;
     }
-    return { ok: false, error: `gemini failed (${tried.length}/${GEMINI_MODELS.length} tried) — ${tried.join(" | ")}` };
+    return { ok: false, error: `gemini failed (${tried.length} attempts) — ${tried.join(" | ")}` };
   }
   if (ANTHROPIC_API_KEY) {
     try {
@@ -387,6 +400,12 @@ async function generateBrief(src: SourceData): Promise<BriefResult> {
 
 // ── U-19 Severe Weather History ─────────────────────────────────────────────────
 const BACKFILL_DAYS = 45;
+// SPC keeps revising a day's report files after the fact — late reports arrive
+// and duplicates are filtered out — so a day written once from the preliminary
+// file drifts from SPC by hundreds of wind reports in either direction. Days
+// inside this trailing window are re-fetched every run; older ones are only
+// filled if missing.
+const RESYNC_DAYS = 21;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 type PeriodId = "week" | "lastmonth" | "thismonth" | "thisyear";
 interface DayCount { report_date: string; tornado: number; hail: number; wind: number }
@@ -404,8 +423,12 @@ async function backfillCounts(): Promise<void> {
   const oldest = wanted[wanted.length - 1];
   const { data } = await admin.from("daily_report_counts").select("report_date").gte("report_date", oldest);
   const have = new Set((data ?? []).map((r: { report_date: string }) => r.report_date));
-  const missing = wanted.filter((d) => !have.has(d));
-  for (const grp of chunk(missing, 6)) {
+  // wanted[] runs newest-first, so the first RESYNC_DAYS entries are the recent
+  // window that gets refreshed regardless of whether a row already exists.
+  const stale = wanted.slice(0, RESYNC_DAYS);
+  const missing = wanted.slice(RESYNC_DAYS).filter((d) => !have.has(d));
+  const targets = [...stale, ...missing];
+  for (const grp of chunk(targets, 6)) {
     await Promise.all(grp.map(async (d) => {
       const yymmdd = d.slice(2).replace(/-/g, ""); // YYMMDD
       const [t, h, w] = await Promise.all([

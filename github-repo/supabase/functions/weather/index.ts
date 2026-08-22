@@ -18,6 +18,7 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
 const UA = "StormSyncVIP/1.0 (contact: admin@stormsync.media)";
 const NWS = "https://api.weather.gov";
 const SPC = "https://www.spc.noaa.gov";
+const SWPC = "https://services.swpc.noaa.gov";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -134,6 +135,50 @@ Deno.serve(async (req) => {
       if (!target || !target.startsWith(`${NWS}/`)) return json({ error: "invalid url" }, 400);
       const r = await fetchJSON(target);
       return json(await r.json(), 200, 300);
+    }
+
+    // ---- SWPC solar wind (aurora) ----------------------------------------
+    // SWPC retired /products/solar-wind/*.json — every path under it now 404s,
+    // which left the aurora Bz/Bt chart permanently empty. The replacement feed
+    // is the real-time solar wind archive, but it ships a full day at 1-minute
+    // cadence (~1.6 MB for mag alone), so it is trimmed here rather than in the
+    // browser.
+    if (route === "/swpc/solar-wind") {
+      const cached = await cacheGet("swpc:solar-wind", 300);
+      if (cached) return json(cached, 200, 300);
+
+      const points = Math.min(240, Math.max(6, Number(url.searchParams.get("points") ?? 60)));
+      const [magRes, windRes] = await Promise.all([
+        fetchJSON(`${SWPC}/json/rtsw/rtsw_mag_1m.json`),
+        fetchJSON(`${SWPC}/json/rtsw/rtsw_wind_1m.json`),
+      ]);
+      const mag = await magRes.json() as { time_tag: string; bt: number | null; bz_gsm: number | null }[];
+      const wind = await windRes.json() as { time_tag: string; proton_speed: number | null; proton_density: number | null }[];
+
+      // The RTSW feeds are ordered newest-first and can repeat a timestamp when
+      // more than one spacecraft is reporting, so take from the head, de-dupe,
+      // then flip to chronological order for charting.
+      const speedAt = new Map(wind.map((w) => [w.time_tag, w]));
+      const seen = new Set<string>();
+      const series = mag
+        .filter((m) => {
+          if (m.bt == null || m.bz_gsm == null || seen.has(m.time_tag)) return false;
+          seen.add(m.time_tag);
+          return true;
+        })
+        .slice(0, points)
+        .reverse()
+        .map((m) => ({
+          time: `${m.time_tag}Z`,
+          bt: m.bt,
+          bz: m.bz_gsm,
+          speed: speedAt.get(m.time_tag)?.proton_speed ?? null,
+          density: speedAt.get(m.time_tag)?.proton_density ?? null,
+        }));
+
+      const out = { series, latest: series.at(-1) ?? null, source: "NOAA SWPC RTSW (DSCOVR/ACE)" };
+      await cacheSet("swpc:solar-wind", out);
+      return json(out, 200, 300);
     }
 
     // ---- SPC storm reports (counts) --------------------------------------

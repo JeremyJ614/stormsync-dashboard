@@ -3,7 +3,7 @@ import type { Location } from "../hooks/useLocation";
 import { useNWSAlerts, useOpenMeteo } from "../hooks/useWeatherQuery";
 import { cToF, msToMph, getWindDirection } from "../utils/weatherCalc";
 import { FileText, RefreshCw, Bot, AlertTriangle, Thermometer, Wind, Droplets, Eye, TrendingUp, TrendingDown } from "lucide-react";
-import { WMO_DESCRIPTIONS, WEATHER_ICONS } from "../config";
+import { WMO_DESCRIPTIONS, WEATHER_ICONS, BASE_API } from "../config";
 import { format, parseISO } from "date-fns";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area } from "recharts";
 
@@ -16,10 +16,13 @@ function useNationwideAlertCount() {
   return useQuery({
     queryKey: ["nationwide-count"],
     queryFn: async () => {
-      const res = await fetch("https://api.weather.gov/alerts/active?status=actual&limit=500", {
-        headers: { "User-Agent": "StormSync/1.0" },
-      });
-      if (!res.ok) return { total: 0, tornado: 0, svr: 0, flood: 0 };
+      // `limit` is no longer a recognised api.weather.gov parameter — passing it
+      // returns HTTP 400, which this swallowed into an all-zero count, silently
+      // dropping the national summary from the briefing. Goes through the app's
+      // own proxy so the ~1 MB alert payload is cached rather than refetched by
+      // every client.
+      const res = await fetch(`${BASE_API}/nws/alerts`);
+      if (!res.ok) throw new Error(`nationwide alerts: ${res.status}`);
       const data = await res.json();
       const features = data.features ?? [];
       return {

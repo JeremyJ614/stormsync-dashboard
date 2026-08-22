@@ -420,7 +420,8 @@ export default function AQIForecast({ location }: Props) {
   const dust = hourly?.dust?.[0]             ?? 0;
 
   // Chart data — use accurate AQI for each hour
-  const chartData = hourly?.time?.slice(0, 48).map((t: string, i: number) => {
+  interface AqiChartRow { time: string; aqi: number; pm25: number; pm10: number; ozone: number }
+  const chartData: AqiChartRow[] = hourly?.time?.slice(0, 48).map((t: string, i: number): AqiChartRow => {
     const h_pm25  = hourly.pm2_5?.[i]   ?? 0;
     const h_pm10  = hourly.pm10?.[i]    ?? 0;
     const h_ozone = hourly.ozone?.[i]   ?? 0;
@@ -595,7 +596,7 @@ export default function AQIForecast({ location }: Props) {
                     labelStyle={{ color: "#94a3b8" }}
                   />
                   <Bar dataKey="aqi" radius={[3, 3, 0, 0]}>
-                    {chartData.map((entry, i) => <Cell key={i} fill={aqiCategory(entry.aqi).color} />)}
+                    {chartData.map((entry: AqiChartRow, i: number) => <Cell key={i} fill={aqiCategory(entry.aqi).color} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>

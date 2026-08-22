@@ -55,7 +55,7 @@ function buildLocalBreakdown(city: string, weather: ReturnType<typeof useOpenMet
 
   // 3) Thunderstorm potential from local CAPE
   const capeArr = (hourly?.cape as (number | string)[] | undefined) ?? [];
-  const maxCape = capeArr.slice(0, 36).reduce((m, v) => Math.max(m, Number(v) || 0), 0);
+  const maxCape = capeArr.slice(0, 36).reduce<number>((m, v) => Math.max(m, Number(v) || 0), 0);
   if (maxCape >= 1500) paras.push(`There's real thunderstorm fuel around — instability (CAPE) peaks near ${Math.round(maxCape)} J/kg over the next day and a half, so a few storms could turn strong if they fire. Keep an eye on the SPC Outlook and Warning Center if skies darken.`);
   else if (maxCape >= 700) paras.push(`Modest thunderstorm energy is in place (CAPE up to ~${Math.round(maxCape)} J/kg), so a storm or two is possible, but no organized severe threat stands out locally.`);
 

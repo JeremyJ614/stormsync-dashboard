@@ -6,6 +6,7 @@ import { AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContai
 import { format, parseISO } from "date-fns";
 import { NightSkyMap, SKY_LEGEND, AURORA_LEGEND } from "../components/NightSkyMap";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
+import { BASE_API } from "../config";
 
 interface Props { location: Location }
 
@@ -69,10 +70,15 @@ function useSwpcSolarWind() {
   return useQuery({
     queryKey: ["swpc-solar-wind"],
     queryFn: async () => {
-      const res = await fetch("https://services.swpc.noaa.gov/products/solar-wind/mag-5-minute.json");
+      // SWPC retired /products/solar-wind/* — every path under it 404s now, so
+      // this chart had been empty. Served through the app's proxy, which trims
+      // the 1-minute real-time feed (~1.6 MB/day) to the window we chart.
+      const res = await fetch(`${BASE_API}/swpc/solar-wind?points=24`);
       if (!res.ok) throw new Error("Solar wind error");
-      const data = await res.json() as string[][];
-      return data.slice(1).slice(-12).map(r => ({ time: r[0], bz: parseFloat(r[3]), bt: parseFloat(r[6]) }));
+      const data = await res.json() as {
+        series: { time: string; bz: number | null; bt: number | null }[];
+      };
+      return data.series.map((r) => ({ time: r.time, bz: r.bz ?? 0, bt: r.bt ?? 0 }));
     },
     staleTime: 5 * 60 * 1000, retry: 2,
   });

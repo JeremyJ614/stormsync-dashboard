@@ -7,6 +7,8 @@ export const BASE_API = `${SUPABASE_URL ?? ""}/functions/v1/weather`;
 export const RELAY_API = `${SUPABASE_URL ?? ""}/functions/v1/relay`;
 // NHC tropical proxy (Phase 10 Hurricane Tracker).
 export const NHC_API = `${SUPABASE_URL ?? ""}/functions/v1/nhc`;
+// Tropical aggregator: NHC GIS shapefiles, ATCF decks, recon and GOES imagery.
+export const TROPICAL_API = `${SUPABASE_URL ?? ""}/functions/v1/tropical`;
 
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";

@@ -53,6 +53,7 @@ const Trivia = lazy(() => import("./pages/Trivia"));
 const ThunderstormOutlook = lazy(() => import("./pages/ThunderstormOutlook"));
 const HurricaneTracker = lazy(() => import("./pages/HurricaneTracker"));
 const TropicalHistory = lazy(() => import("./pages/TropicalHistory"));
+const StormDetail = lazy(() => import("./pages/StormDetail"));
 
 function PW({ children, name }: { children: React.ReactNode; name: string }) {
   return (
@@ -101,6 +102,8 @@ function AppInner() {
         {/* Tropical history must come before /hurricane to ensure exact-match priority */}
         <Route path="/hurricane/history" component={() => <PW name="Tropical Storm History"><Gated path="/hurricane"><TropicalHistory /></Gated></PW>} />
         <Route path="/hurricane" component={() => <PW name="Hurricane Tracker"><Gated path="/hurricane"><HurricaneTracker /></Gated></PW>} />
+        {/* Per-storm tracker. Declared after /hurricane/history so the literal route wins. */}
+        <Route path="/hurricane/:stormId" component={() => <PW name="Storm Tracker"><Gated path="/hurricane"><StormDetail /></Gated></PW>} />
         <Route path="/meso" component={() => <PW name="Mesoscale Discussion"><Gated path="/meso"><MesoscaleDiscussion location={location} /></Gated></PW>} />
         <Route path="/ingredients" component={() => <PW name="Storm Ingredients"><Gated path="/ingredients"><StormIngredients location={location} /></Gated></PW>} />
         <Route path="/swti" component={() => <PW name="Threat Index"><Gated path="/swti"><SWTIPage location={location} /></Gated></PW>} />

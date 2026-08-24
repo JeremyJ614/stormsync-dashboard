@@ -113,9 +113,17 @@ export async function fetchWarnings(startISO: string, endISO: string, signal?: A
 // service — every request errored, which is why the Tornado History tab was blank.
 const DAT_LINES = "https://services.dat.noaa.gov/arcgis/rest/services/nws_damageassessmenttoolkit/DamageViewer/FeatureServer/1/query";
 
+// Ramp runs cool-to-hot across six clearly separated hues. The previous ramp put
+// EF3 (#ef4444) next to EF4 (#dc2626) — two reds a shade apart that were
+// effectively indistinguishable on a track map.
 export const EF_COLORS: Record<string, string> = {
-  EFU: "#94a3b8", EF0: "#22c55e", EF1: "#eab308",
-  EF2: "#f97316", EF3: "#ef4444", EF4: "#dc2626", EF5: "#d946ef",
+  EFU: "#8fa3bf", // unrated — neutral slate, deliberately outside the ramp
+  EF0: "#f6f8fc", // white
+  EF1: "#89cff0", // baby blue
+  EF2: "#5fd9a8", // mint green
+  EF3: "#e8bb4d", // gold
+  EF4: "#e2373c", // scarlet
+  EF5: "#8b46d9", // royal purple
 };
 export const EF_ORDER = ["EFU", "EF0", "EF1", "EF2", "EF3", "EF4", "EF5"];
 

@@ -111,7 +111,8 @@ export default function SevereWeatherHistory() {
   const torStats: StatBox[] = tornadoes.data ? [
     { label: "Fatalities", value: String(tornadoes.data.fatalities), color: "#ef4444" },
     { label: "Injuries", value: String(tornadoes.data.injuries), color: "#eab308" },
-    { label: "Highest EF", value: tornadoes.data.highestEf, color: "#ef4444" },
+    // Colour this by the rating it is actually showing, not a fixed red.
+    { label: "Highest EF", value: tornadoes.data.highestEf, color: EF_COLORS[tornadoes.data.highestEf] ?? "#8fa3bf" },
   ] : [];
 
   const warnStats: StatBox[] = warnings.data ? [

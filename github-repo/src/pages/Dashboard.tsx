@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useOpenMeteo, useNWSAlerts, useNWSPoints } from "../hooks/useWeatherQuery";
 import type { Location } from "../hooks/useLocation";
 import { StatSkeleton, ChartSkeleton, AlertSkeleton } from "../components/WeatherSkeleton";
@@ -16,24 +17,38 @@ import {
   SswxconWidget, IngredientsWidget, TimingWidget, MoonWidget, MosquitoWidget,
   WindWidget, WIDGET_CSS,
 } from "../components/DashboardWidgets";
+import { ConditionsHero } from "../components/dashboard/ConditionsHero";
+import { CountUp } from "../components/dashboard/CountUp";
+import { ROYAL, HEADING, EASE, panelStyle, topRule } from "../lib/royal";
 
 interface Props { location: Location }
 
-function StatCard({ label, value, unit, icon: Icon, sub }: {
-  label: string; value: string | number; unit?: string; icon: React.ElementType; sub?: string;
+function StatCard({ label, value, unit, icon: Icon, sub, numeric }: {
+  label: string; value: string | number; unit?: string; icon: React.ElementType;
+  sub?: string; numeric?: number | null;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-xs text-muted-foreground font-medium uppercase tracking-wide">{label}</span>
-        <Icon className="w-4 h-4 text-muted-foreground" />
+    <motion.div
+      whileHover={{ y: -2 }}
+      transition={{ type: "spring", stiffness: 400, damping: 26 }}
+      className="relative rounded-xl p-3.5 overflow-hidden group"
+      style={panelStyle}
+    >
+      {/* Gold rail that lights up on hover. */}
+      <span className="absolute left-0 top-0 bottom-0 w-[2px] opacity-40 group-hover:opacity-100 transition-opacity"
+            style={{ background: ROYAL.gold }} />
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[9.5px] font-medium uppercase tracking-[0.16em]" style={{ color: ROYAL.dim }}>{label}</span>
+        <Icon className="w-3.5 h-3.5" style={{ color: ROYAL.gold, opacity: 0.75 }} />
       </div>
       <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold">{value}</span>
-        {unit && <span className="text-sm text-muted-foreground">{unit}</span>}
+        <span className="text-2xl font-bold tabular-nums" style={{ fontFamily: HEADING, color: ROYAL.text }}>
+          {numeric != null ? <CountUp value={numeric} /> : value}
+        </span>
+        {unit && <span className="text-[11px]" style={{ color: ROYAL.dim }}>{unit}</span>}
       </div>
-      {sub && <div className="text-xs text-muted-foreground mt-1">{sub}</div>}
-    </div>
+      {sub && <div className="text-[10.5px] mt-0.5" style={{ color: ROYAL.dim }}>{sub}</div>}
+    </motion.div>
   );
 }
 
@@ -47,10 +62,10 @@ function WindCompass({ deg }: { deg: number }) {
         return <text key={d} x={50 + 38 * Math.cos(a)} y={50 + 38 * Math.sin(a) + 3} textAnchor="middle" fontSize="10" fill="#9ca3af">{d}</text>;
       })}
       <g transform={`rotate(${deg} 50 50)`}>
-        <polygon points="50,16 44,52 56,52" fill="#ef4444" />
-        <polygon points="50,84 44,48 56,48" fill="#7B8FD9" />
+        <polygon points="50,16 44,52 56,52" fill={ROYAL.gold} />
+        <polygon points="50,84 44,48 56,48" fill={ROYAL.iris} opacity={0.55} />
       </g>
-      <circle cx="50" cy="50" r="4" fill="white" />
+      <circle cx="50" cy="50" r="4" fill={ROYAL.text} />
     </svg>
   );
 }
@@ -160,14 +175,14 @@ export default function Dashboard({ location }: Props) {
   // Each widget's inner content (null = nothing to show right now).
   const content: Record<WidgetId, React.ReactNode> = {
     hero: (
-      <div className="flex items-center gap-3">
-        <div className="text-5xl">{emoji}</div>
-        <div>
-          <h2 className="text-3xl font-bold">{isLoading ? "—" : `${tempF}°F`}</h2>
-          <p className="text-muted-foreground">{wmoDesc} · Feels like {isLoading ? "—" : `${feelsF}°F`}</p>
-          <p className="text-xs text-muted-foreground">{location.name}</p>
-        </div>
-      </div>
+      <ConditionsHero
+        tempF={tempF} feelsF={feelsF}
+        condition={wmoDesc} place={location.name} glyph={emoji}
+        hiF={todayHi} loF={todayLo}
+        windMph={windMph} windDir={windDir}
+        humidity={cur?.relative_humidity_2m ?? null}
+        loading={isLoading}
+      />
     ),
     alerts: alertsLoading ? <AlertSkeleton /> : (alerts?.length ? <AlertBanner alerts={alerts} /> : null),
     stats: (
@@ -175,18 +190,19 @@ export default function Dashboard({ location }: Props) {
         {isLoading ? Array.from({ length: 6 }).map((_, i) => <StatSkeleton key={i} />) : (
           <>
             <StatCard label="Wind" value={`${windMph} ${windDir}`} unit="mph" icon={Wind} sub={`Gusts ${gustMph} mph`} />
-            <StatCard label="Humidity" value={cur?.relative_humidity_2m ?? 0} unit="%" icon={Droplets} />
+            <StatCard label="Humidity" value={cur?.relative_humidity_2m ?? 0} numeric={cur?.relative_humidity_2m ?? 0} unit="%" icon={Droplets} />
             <StatCard label="Dew Point" value={`${Math.round(cToF(cur?.dew_point_2m ?? 0))}°`} unit="F" icon={Thermometer} />
-            <StatCard label="Pressure" value={Math.round(cur?.surface_pressure ?? 0)} unit="hPa" icon={Gauge} />
+            <StatCard label="Pressure" value={Math.round(cur?.surface_pressure ?? 0)} numeric={Math.round(cur?.surface_pressure ?? 0)} unit="hPa" icon={Gauge} />
             <StatCard label="Visibility" value={vis} icon={Eye} />
-            <StatCard label="Cloud Cover" value={cur?.cloud_cover ?? 0} unit="%" icon={Cloud} />
+            <StatCard label="Cloud Cover" value={cur?.cloud_cover ?? 0} numeric={cur?.cloud_cover ?? 0} unit="%" icon={Cloud} />
           </>
         )}
       </div>
     ),
     today: daily ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">Today — {location.name}</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Today — {location.name}</h3>
         <div className="flex items-center gap-4">
           <div className="text-5xl">{WEATHER_ICONS[dCode(0)] ?? "🌡️"}</div>
           <div className="flex items-baseline gap-4">
@@ -200,8 +216,9 @@ export default function Dashboard({ location }: Props) {
       </div>
     ) : null,
     sevenDay: sevenDay.length ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">7-Day Forecast</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>7-Day Forecast</h3>
         <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
           {sevenDay.map((d) => (
             <div key={d.day} className="flex flex-col items-center gap-1 rounded-lg bg-muted/20 py-2">
@@ -215,8 +232,9 @@ export default function Dashboard({ location }: Props) {
       </div>
     ) : null,
     sunMoon: (sunrise && sunset) ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">Sunrise & Sunset</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Sunrise & Sunset</h3>
         <div className="grid grid-cols-2 gap-3">
           <div className="flex items-center gap-3 rounded-lg bg-muted/20 p-3">
             <Sunrise className="w-6 h-6 text-amber-400 shrink-0" />
@@ -230,8 +248,9 @@ export default function Dashboard({ location }: Props) {
       </div>
     ) : null,
     windCompass: cur ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">Wind</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Wind</h3>
         <div className="flex items-center gap-5">
           <WindCompass deg={cur.wind_direction_10m} />
           <div>
@@ -243,8 +262,9 @@ export default function Dashboard({ location }: Props) {
       </div>
     ) : null,
     swti: swti ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">Storm Threat Index (SWTI)</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Storm Threat Index (SWTI)</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <div className="text-center"><div className="text-2xl font-bold" style={{ color: swti.color }}>{swti.score}</div><div className="text-xs text-muted-foreground">Score / 100</div></div>
           <div className="text-center"><div className="text-sm font-semibold" style={{ color: swti.color }}>{swti.label}</div><div className="text-xs text-muted-foreground">Tornado Risk</div></div>
@@ -259,39 +279,42 @@ export default function Dashboard({ location }: Props) {
       </div>
     ) : null,
     tempChart: (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">24-Hour Temperature Trend</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>24-Hour Temperature Trend</h3>
         {isLoading ? <ChartSkeleton /> : (
           <ResponsiveContainer width="100%" height={180}>
             <AreaChart data={hourlyChart}>
-              <defs><linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} /><stop offset="95%" stopColor="#06b6d4" stopOpacity={0} /></linearGradient></defs>
+              <defs><linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={ROYAL.gold} stopOpacity={0.34} /><stop offset="95%" stopColor={ROYAL.gold} stopOpacity={0} /></linearGradient></defs>
               <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} unit="°" />
               <Tooltip contentStyle={TOOLTIP} formatter={(v) => [`${v}°F`, "Temp"]} />
-              <Area type="monotone" dataKey="temp" stroke="#06b6d4" strokeWidth={2} fill="url(#tempGrad)" dot={false} />
+              <Area type="monotone" dataKey="temp" stroke={ROYAL.gold} strokeWidth={2} fill="url(#tempGrad)" dot={false} />
             </AreaChart>
           </ResponsiveContainer>
         )}
       </div>
     ),
     precipChart: (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-3">24-Hour Precip Probability</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>24-Hour Precip Probability</h3>
         {isLoading ? <ChartSkeleton /> : (
           <ResponsiveContainer width="100%" height={180}>
             <BarChart data={hourlyChart}>
               <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
               <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} />
               <Tooltip contentStyle={TOOLTIP} formatter={(v) => [`${v}%`, "Precip Prob"]} />
-              <Bar dataKey="precip" fill="#3b82f6" radius={[2, 2, 0, 0]} />
+              <Bar dataKey="precip" fill={ROYAL.iris} radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}
       </div>
     ),
     nwsOffice: nwsPoints ? (
-      <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-semibold mb-2">NWS Office</h3>
+      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
+        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
+        <h3 className="text-[11px] font-semibold mb-2 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>NWS Office</h3>
         <div className="grid grid-cols-2 gap-3 text-sm">
           <div><span className="text-muted-foreground">Office: </span><span className="font-medium">{nwsPoints.properties.cwa}</span></div>
           <div><span className="text-muted-foreground">Grid: </span><span className="font-medium">{nwsPoints.properties.gridX}, {nwsPoints.properties.gridY}</span></div>
@@ -328,8 +351,15 @@ export default function Dashboard({ location }: Props) {
   return (
     <div className="p-4 md:p-6 space-y-4">
       <style>{WIDGET_CSS}</style>
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-bold tracking-wide">Your Dashboard</h1>
+      <div className="flex items-end justify-between gap-3">
+        <div>
+          <div className="text-[10px] uppercase tracking-[0.3em] mb-0.5" style={{ color: ROYAL.gold }}>
+            StormSync VIP
+          </div>
+          <h1 className="text-xl font-bold tracking-[0.02em]" style={{ fontFamily: HEADING, color: ROYAL.text }}>
+            Your Dashboard
+          </h1>
+        </div>
         <div className="flex items-center gap-2">
           {editing && <button onClick={reset} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1.5"><RotateCcw className="w-3.5 h-3.5" /> Reset</button>}
           <button onClick={() => setEditing(e => !e)}
@@ -355,14 +385,27 @@ export default function Dashboard({ location }: Props) {
       {/* A grid rather than a stack: compact tiles sit two-up on phones and
           four-up on desktop, while the original full-width panels span the row.
           Drag-and-drop ordering is unchanged. */}
+      <LayoutGroup id="dashboard">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
-        {visible.map((id) => {
+        {visible.map((id, idx) => {
           const inner = content[id];
           if (inner == null && !editing) return null;
           const compact = COMPACT.has(id);
           return (
-            <div
+            <motion.div
               key={id}
+              layout
+              // Tiles rise in sequence on first paint, and `layout` means a
+              // re-order during customise animates to its new slot rather than
+              // teleporting there.
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{
+                layout: { type: "spring", stiffness: 320, damping: 32 },
+                delay: Math.min(idx, 10) * 0.045,
+                duration: 0.45,
+                ease: EASE,
+              }}
               draggable={editing}
               onDragStart={() => setDragId(id)}
               onDragOver={(e) => { if (editing && dragId && dragId !== id) e.preventDefault(); }}
@@ -378,10 +421,11 @@ export default function Dashboard({ location }: Props) {
                 </div>
               )}
               {inner ?? <div className="text-xs text-muted-foreground italic px-2 py-3">Nothing to show here right now.</div>}
-            </div>
+            </motion.div>
           );
         })}
       </div>
+      </LayoutGroup>
     </div>
   );
 }

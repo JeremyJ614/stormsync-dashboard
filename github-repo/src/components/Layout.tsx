@@ -233,7 +233,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   const handleNavClick = () => setSidebarExpanded(false);
 
   return (
-    <div className="min-h-screen bg-background flex">
+    <div className="min-h-screen bg-background flex royal-ground">
 
       {/* ── Backdrop (expanded overlay) ── */}
       {sidebarExpanded && (
@@ -438,7 +438,10 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
       <div className="flex-1 min-w-0 ml-[62px] flex flex-col min-h-screen">
 
         {/* Header */}
-        <header className="sticky top-0 z-20 bg-background/90 backdrop-blur border-b border-border">
+        <header className="sticky top-0 z-20 backdrop-blur-xl border-b relative"
+                style={{ background: "hsl(var(--background) / 0.82)", borderColor: "hsl(var(--border) / 0.9)" }}>
+          <span aria-hidden className="absolute inset-x-0 bottom-0 h-px"
+                style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
           <div className="flex items-center gap-3 px-4 py-2">
             <div className="flex-1 min-w-0">
               <h1

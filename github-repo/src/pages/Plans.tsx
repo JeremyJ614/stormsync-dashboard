@@ -1,6 +1,11 @@
 import { useState, useEffect, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useLocation } from "wouter";
-import { useAuth } from "../hooks/useAuth";
+import { AccountFields } from "../components/auth/AccountFields";
+import { AuthAurora } from "../components/auth/AuthAurora";
+import { getQuestions } from "../lib/userAdmin";
+import { ROYAL, HEADING, EASE } from "../lib/royal";
+import { useAuth, type SignupQuestion } from "../hooks/useAuth";
 import {
   TIER_KEYS, type TierKey,
   getTierPricing, type TierPricing,
@@ -24,13 +29,48 @@ const TIER_BLURBS: Record<TierKey, string> = {
   advanced: "Everything, always.",
 };
 
+// Rendered natively by AccountFields; only admin-added questions render dynamically.
+const CORE_QUESTION_IDS = ["name", "email", "pin", "tier"];
+
 export default function Plans() {
   const [, navigate] = useLocation();
   const { user, loading: authLoading } = useAuth();
 
+  // No redirect for signed-out visitors any more — account, tier and modules
+  // are one page, so an anonymous visitor builds their plan first and creates
+  // the account as the last step.
+  const joining = !authLoading && !user;
+
+  // Account step state (only used while `joining`).
+  const { signup } = useAuth();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [pin, setPin] = useState("");
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [questions, setQuestions] = useState<SignupQuestion[]>([]);
+  const [accountError, setAccountError] = useState<string | null>(null);
+
   useEffect(() => {
-    if (!authLoading && !user) navigate("/login");
-  }, [authLoading, user, navigate]);
+    if (!joining) return;
+    getQuestions()
+      .then((qs) => setQuestions(qs.filter((q) => !CORE_QUESTION_IDS.includes(q.id))))
+      .catch(() => setQuestions([]));
+  }, [joining]);
+
+  const accountReady = name.trim().length > 1 && /.+@.+\..+/.test(email) && pin.length === 4
+    && questions.every((q) => !q.required || (answers[q.id] ?? "").trim().length > 0);
+
+  /**
+   * Create the account first when one is needed, then run the caller's action.
+   * Returns false if the account could not be created, so the caller stops.
+   */
+  async function ensureAccount(): Promise<boolean> {
+    if (!joining) return true;
+    setAccountError(null);
+    const r = await signup({ name, email, pin, customAnswers: answers });
+    if (!r.ok) { setAccountError(r.error ?? "Could not create your account — try again."); return false; }
+    return true;
+  }
 
   const [dataLoading, setDataLoading] = useState(true);
   const [tierPricing, setTierPricing] = useState<TierPricing | null>(null);
@@ -173,6 +213,7 @@ export default function Plans() {
 
   async function complete() {
     setCompleting(true);
+    if (!(await ensureAccount())) { setCompleting(false); return; }
     setCompleteError(null);
     const res = promoMode ? await claimAdvancedPromo() : await selectFreeTier(freeModule);
     setCompleting(false);
@@ -184,6 +225,7 @@ export default function Plans() {
   async function goToCheckout() {
     if (!selectedTier) return;
     setCheckingOut(true);
+    if (!(await ensureAccount())) { setCheckingOut(false); return; }
     setCheckoutError(null);
     const res = await startCheckout({
       tier: selectedTier,
@@ -212,10 +254,22 @@ export default function Plans() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+    <div className="relative z-10 p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+      {joining && <AuthAurora />}
       <div className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-wide">Choose Your Plan</h1>
-        <p className="text-sm text-muted-foreground">Pick a tier, build your module set, see the price update live.</p>
+        {joining && (
+          <div className="text-[10px] uppercase tracking-[0.3em]" style={{ color: ROYAL.gold }}>
+            Step 1 — build your plan
+          </div>
+        )}
+        <h1 className="text-2xl font-bold tracking-[0.02em]" style={{ fontFamily: HEADING, color: ROYAL.text }}>
+          {joining ? "Join StormSync VIP" : "Choose Your Plan"}
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          {joining
+            ? "Pick a tier, build your module set, then create your account — all right here."
+            : "Pick a tier, build your module set, see the price update live."}
+        </p>
       </div>
 
       {returnBanner === "success" && (
@@ -395,19 +449,58 @@ export default function Plans() {
             </div>
           )}
 
+          {/* Account — the last step of the same page, not a separate route. */}
+          <AnimatePresence initial={false}>
+            {joining && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: 0.4, ease: EASE }}
+                className="overflow-hidden"
+              >
+                <div className="relative rounded-xl p-4 royal-panel royal-rule">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="w-6 h-6 rounded-md flex items-center justify-center text-[11px] font-bold shrink-0"
+                          style={{ background: "rgba(217,183,117,0.14)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
+                      2
+                    </span>
+                    <div>
+                      <h3 className="text-[12px] font-semibold uppercase tracking-[0.16em]"
+                          style={{ fontFamily: HEADING, color: ROYAL.gold }}>
+                        Create your account
+                      </h3>
+                      <p className="text-[11px]" style={{ color: ROYAL.dim }}>
+                        Last step — your plan above is applied the moment it's created.
+                      </p>
+                    </div>
+                  </div>
+                  <AccountFields
+                    name={name} email={email} pin={pin} answers={answers} questions={questions}
+                    onName={setName} onEmail={setEmail} onPin={setPin}
+                    onAnswer={(id, v) => setAnswers((a) => ({ ...a, [id]: v }))}
+                  />
+                  {accountError && (
+                    <p className="text-xs mt-3" style={{ color: "#f3a3a5" }}>{accountError}</p>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Complete */}
           <div className="space-y-2">
             {completeError && <p className="text-xs text-red-400">{completeError}</p>}
             {isFreeCompletion ? (
-              <button onClick={complete} disabled={completing || (selectedTier === "free" && !freeModule)}
+              <button onClick={complete} disabled={completing || (selectedTier === "free" && !freeModule) || (joining && !accountReady)}
                 className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
                 {completing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Check className="w-4 h-4" />}
-                {promoMode ? "Claim my free spot" : "Complete Signup — Free"}
+                {promoMode ? "Claim my free spot" : joining ? "Create account & finish — Free" : "Complete Signup — Free"}
               </button>
             ) : (
               <div className="space-y-2">
                 {checkoutError && <p className="text-xs text-red-400">{checkoutError}</p>}
-                <button onClick={goToCheckout} disabled={checkingOut}
+                <button onClick={goToCheckout} disabled={checkingOut || (joining && !accountReady)}
                   className="w-full py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 flex items-center justify-center gap-2">
                   {checkingOut ? <Loader2 className="w-4 h-4 animate-spin" /> : <Lock className="w-4 h-4" />}
                   Continue to Secure Checkout — ${dueToday.toFixed(2)} today

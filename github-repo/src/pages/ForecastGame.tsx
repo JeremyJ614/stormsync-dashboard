@@ -463,10 +463,10 @@ export default function ForecastGame() {
             </div>
 
             <label className={`flex items-center gap-2 text-xs rounded-xl px-3 py-2 border cursor-pointer transition-colors ${
-              quietDay ? "bg-sky-500/10 border-sky-500/40 text-sky-200" : "bg-muted/20 border-border text-muted-foreground hover:border-sky-500/30"} ${locked ? "opacity-70 pointer-events-none" : ""}`}>
+              quietDay ? "bg-sky-500/10 border-[#d9b775]/40 text-[#e3c88f]" : "bg-muted/20 border-border text-muted-foreground hover:border-sky-500/30"} ${locked ? "opacity-70 pointer-events-none" : ""}`}>
               <input type="checkbox" className="accent-sky-400" checked={quietDay} disabled={locked}
                 onChange={(e) => { setQuietDay(e.target.checked); if (e.target.checked) setTornadoPin(null); }} />
-              <span><strong>No tornadoes anywhere today.</strong> Worth <strong className="text-sky-300">+{QUIET_DAY_BONUS}</strong> if it verifies with zero.</span>
+              <span><strong>No tornadoes anywhere today.</strong> Worth <strong className="text-[#d9b775]">+{QUIET_DAY_BONUS}</strong> if it verifies with zero.</span>
             </label>
 
             <div className="flex items-center gap-2 flex-wrap">
@@ -657,7 +657,7 @@ export default function ForecastGame() {
                       <span className="text-muted-foreground">{b.label} (≤{b.within} mi)</span><strong>{fmt(b.points)}</strong>
                     </li>
                   ))}
-                  <li className="flex justify-between tabular-nums"><span className="text-sky-300">Correct quiet-day call</span><strong className="text-sky-300">{QUIET_DAY_BONUS}</strong></li>
+                  <li className="flex justify-between tabular-nums"><span className="text-[#d9b775]">Correct quiet-day call</span><strong className="text-[#d9b775]">{QUIET_DAY_BONUS}</strong></li>
                 </ul>
               </div>
             </div>
@@ -691,7 +691,7 @@ export default function ForecastGame() {
               {gameBoard.slice(0, 10).map((row, i) => (
                 <div key={row.userId} className={`flex items-center gap-3 p-2.5 rounded-xl ${row.userId === user.id ? "bg-primary/10" : "bg-muted/20"}`}>
                   <div className={`w-7 h-7 rounded-full grid place-items-center font-black text-xs ${
-                    i === 0 ? "bg-yellow-400/20 text-yellow-300" : i === 1 ? "bg-gray-400/20 text-gray-300"
+                    i === 0 ? "bg-yellow-400/20 text-yellow-300" : i === 1 ? "bg-gray-400/20 text-foreground/80"
                     : i === 2 ? "bg-orange-700/20 text-orange-300" : "bg-muted/40 text-muted-foreground"}`}>
                     {i === 0 ? <Crown className="w-3.5 h-3.5" /> : i + 1}
                   </div>

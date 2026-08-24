@@ -111,7 +111,7 @@ export default function Trivia() {
             return (
               <div key={q.id} className="bg-card border border-border rounded-xl overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
-                  <Icon className={`w-4 h-4 ${q.category === "weather" ? "text-sky-400" : "text-fuchsia-400"}`} />
+                  <Icon className={`w-4 h-4 ${q.category === "weather" ? "text-[#d9b775]" : "text-fuchsia-400"}`} />
                   <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
                     {q.category === "weather" ? "Weather" : "Random"}
                   </span>

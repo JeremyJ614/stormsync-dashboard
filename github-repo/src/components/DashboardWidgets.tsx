@@ -69,7 +69,7 @@ export function CloudCoverWidget({ wx }: { wx: Wx }) {
   const desc = pct >= 88 ? "Overcast" : pct >= 63 ? "Mostly cloudy" : pct >= 38 ? "Partly cloudy" : pct >= 13 ? "Mostly clear" : "Clear";
   return (
     <Shell title="Cloud cover" icon={Cloud} accent="#94a3b8" foot={desc}>
-      <div className="relative h-[74px] rounded-xl overflow-hidden bg-gradient-to-b from-sky-900/40 to-slate-900/60">
+      <div className="relative h-[74px] rounded-xl overflow-hidden bg-gradient-to-b from-[#d9b775]/10 to-transparent">
         {/* three drifting cloud bands whose opacity tracks actual cover */}
         {[0, 1, 2].map((i) => (
           <span key={i} className={`sswx-w-cloud sswx-w-cloud-${i}`}

@@ -15,7 +15,31 @@ export function initPwa(): void {
   // Register the service worker (production only — avoids stale caches in dev).
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("/sw.js").catch(() => {});
+      navigator.serviceWorker.register("/sw.js").then((reg) => {
+        // Check for a new worker on load, so a deploy is picked up on the next
+        // visit rather than whenever the browser happens to look.
+        reg.update().catch(() => {});
+        reg.addEventListener("updatefound", () => {
+          const next = reg.installing;
+          if (!next) return;
+          next.addEventListener("statechange", () => {
+            // A new worker is ready and an old one is still serving this page —
+            // hand over immediately so the tab stops mixing old and new assets.
+            if (next.state === "installed" && navigator.serviceWorker.controller) {
+              next.postMessage("SKIP_WAITING");
+            }
+          });
+        });
+      }).catch(() => {});
+
+      // When the new worker takes control, reload once so every lazily-loaded
+      // route resolves against the deploy that is actually live.
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloaded) return;
+        reloaded = true;
+        window.location.reload();
+      });
     });
   }
   window.addEventListener("beforeinstallprompt", (e) => {

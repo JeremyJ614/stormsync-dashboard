@@ -14,46 +14,69 @@ import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 
-const Home = lazy(() => import("./pages/Home"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Forecast = lazy(() => import("./pages/Forecast"));
-const ForecastDiscussion = lazy(() => import("./pages/ForecastDiscussion"));
-const ForecastRunComparator = lazy(() => import("./pages/ForecastRunComparator"));
-const SPCOutlook = lazy(() => import("./pages/SPCOutlook"));
-const MesoscaleDiscussion = lazy(() => import("./pages/MesoscaleDiscussion"));
-const StormIngredients = lazy(() => import("./pages/StormIngredients"));
-const SWTIPage = lazy(() => import("./pages/SWTIPage"));
-const SevereWeatherTiming = lazy(() => import("./pages/SevereWeatherTiming"));
-const WarningCenter = lazy(() => import("./pages/WarningCenter"));
-const AQIForecast = lazy(() => import("./pages/AQIForecast"));
-const HazardsMap = lazy(() => import("./pages/HazardsMap"));
-const DaylightTracker = lazy(() => import("./pages/DaylightTracker"));
-const SSWXCon = lazy(() => import("./pages/SSWXCon"));
-const MoonAstronomy = lazy(() => import("./pages/MoonAstronomy"));
-const AuroraForecast = lazy(() => import("./pages/AuroraForecast"));
-const RadarMap = lazy(() => import("./pages/RadarMap"));
-const TornadoClimatology = lazy(() => import("./pages/TornadoClimatology"));
-const WeatherPatternIndex = lazy(() => import("./pages/WeatherPatternIndex"));
-const AIForecastDuel = lazy(() => import("./pages/AIForecastDuel"));
-const WeatherGlossary = lazy(() => import("./pages/WeatherGlossary"));
-const StormChasingOutlook = lazy(() => import("./pages/StormChasingOutlook"));
-const MosquitoIndex = lazy(() => import("./pages/MosquitoIndex"));
-const LightningHeatGlobe = lazy(() => import("./pages/LightningHeatGlobe"));
 
-const Login = lazy(() => import("./pages/Login"));
-const Profile = lazy(() => import("./pages/Profile"));
-const AdminPanel = lazy(() => import("./pages/AdminPanel"));
-const Plans = lazy(() => import("./pages/Plans"));
-const FAQ = lazy(() => import("./pages/FAQ"));
-const Contact = lazy(() => import("./pages/Contact"));
-const SevereWeatherHistory = lazy(() => import("./pages/SevereWeatherHistory"));
-const Loyalty = lazy(() => import("./pages/Loyalty"));
-const ForecastGame = lazy(() => import("./pages/ForecastGame"));
-const Trivia = lazy(() => import("./pages/Trivia"));
-const ThunderstormOutlook = lazy(() => import("./pages/ThunderstormOutlook"));
-const HurricaneTracker = lazy(() => import("./pages/HurricaneTracker"));
-const TropicalHistory = lazy(() => import("./pages/TropicalHistory"));
-const StormDetail = lazy(() => import("./pages/StormDetail"));
+/**
+ * `lazy()` that survives a deploy.
+ *
+ * Route chunks are content-hashed, so a client holding an older index.html can
+ * ask for a filename that no longer exists. The import rejects and React
+ * renders nothing — the page simply never appears. Reload once (guarded by
+ * sessionStorage so a genuine failure cannot loop) to pick up the current
+ * index.html and its real chunk names.
+ */
+function lazyRoute<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
+  return lazy(() =>
+    factory().catch((err) => {
+      const KEY = "sswx:chunk-reload";
+      if (!sessionStorage.getItem(KEY)) {
+        sessionStorage.setItem(KEY, String(Date.now()));
+        window.location.reload();
+      }
+      throw err;
+    }),
+  );
+}
+
+const Home = lazyRoute(() => import("./pages/Home"));
+const Dashboard = lazyRoute(() => import("./pages/Dashboard"));
+const Forecast = lazyRoute(() => import("./pages/Forecast"));
+const ForecastDiscussion = lazyRoute(() => import("./pages/ForecastDiscussion"));
+const ForecastRunComparator = lazyRoute(() => import("./pages/ForecastRunComparator"));
+const SPCOutlook = lazyRoute(() => import("./pages/SPCOutlook"));
+const MesoscaleDiscussion = lazyRoute(() => import("./pages/MesoscaleDiscussion"));
+const StormIngredients = lazyRoute(() => import("./pages/StormIngredients"));
+const SWTIPage = lazyRoute(() => import("./pages/SWTIPage"));
+const SevereWeatherTiming = lazyRoute(() => import("./pages/SevereWeatherTiming"));
+const WarningCenter = lazyRoute(() => import("./pages/WarningCenter"));
+const AQIForecast = lazyRoute(() => import("./pages/AQIForecast"));
+const HazardsMap = lazyRoute(() => import("./pages/HazardsMap"));
+const DaylightTracker = lazyRoute(() => import("./pages/DaylightTracker"));
+const SSWXCon = lazyRoute(() => import("./pages/SSWXCon"));
+const MoonAstronomy = lazyRoute(() => import("./pages/MoonAstronomy"));
+const AuroraForecast = lazyRoute(() => import("./pages/AuroraForecast"));
+const RadarMap = lazyRoute(() => import("./pages/RadarMap"));
+const TornadoClimatology = lazyRoute(() => import("./pages/TornadoClimatology"));
+const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"));
+const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"));
+const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"));
+const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"));
+const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"));
+const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"));
+
+const Login = lazyRoute(() => import("./pages/Login"));
+const Profile = lazyRoute(() => import("./pages/Profile"));
+const AdminPanel = lazyRoute(() => import("./pages/AdminPanel"));
+const Plans = lazyRoute(() => import("./pages/Plans"));
+const FAQ = lazyRoute(() => import("./pages/FAQ"));
+const Contact = lazyRoute(() => import("./pages/Contact"));
+const SevereWeatherHistory = lazyRoute(() => import("./pages/SevereWeatherHistory"));
+const Loyalty = lazyRoute(() => import("./pages/Loyalty"));
+const ForecastGame = lazyRoute(() => import("./pages/ForecastGame"));
+const Trivia = lazyRoute(() => import("./pages/Trivia"));
+const ThunderstormOutlook = lazyRoute(() => import("./pages/ThunderstormOutlook"));
+const HurricaneTracker = lazyRoute(() => import("./pages/HurricaneTracker"));
+const TropicalHistory = lazyRoute(() => import("./pages/TropicalHistory"));
+const StormDetail = lazyRoute(() => import("./pages/StormDetail"));
 
 function PW({ children, name }: { children: React.ReactNode; name: string }) {
   return (

@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { REGIONS, regionTransform } from "../lib/modelProjection";
+import { ROYAL, HEADING } from "../lib/royal";
 import { useQuery } from "@tanstack/react-query";
 import {
   Satellite, Play, Pause, ChevronLeft, ChevronRight, Download, Share2,
@@ -36,6 +38,7 @@ export default function ForecastRunComparator() {
   const [frameIdx, setFrameIdx] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(500);
+  const [region, setRegion] = useState("conus");
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
 
@@ -65,18 +68,35 @@ export default function ForecastRunComparator() {
   const frame = frames[Math.min(frameIdx, Math.max(0, frames.length - 1))];
   const param = run?.params.find((p) => p.key === paramKey);
 
-  // ── preload every frame of the active parameter so scrubbing is smooth ──
+  // ── preload the active parameter, in order, a few at a time ──
+  // Firing all ~19 frames at once left most of them still in flight while the
+  // loop was already running, and an unloaded frame renders at low opacity —
+  // which is why playback looked like it only had three or four frames. A small
+  // concurrency window means frames finish in the order they are played.
   useEffect(() => {
     if (!frames.length) return;
     let cancelled = false;
     const imgs: HTMLImageElement[] = [];
-    frames.forEach((f) => {
+    let next = 0;
+    const CONCURRENCY = 4;
+
+    const pump = () => {
+      if (cancelled || next >= frames.length) return;
+      const f = frames[next++];
       const img = new Image();
-      img.onload = () => { if (!cancelled) setLoaded((s) => new Set(s).add(f.url)); };
-      img.onerror = () => { if (!cancelled) setFailed((s) => new Set(s).add(f.url)); };
-      img.src = f.url;
       imgs.push(img);
-    });
+      const done = (ok: boolean) => {
+        if (cancelled) return;
+        if (ok) setLoaded((s) => new Set(s).add(f.url));
+        else setFailed((s) => new Set(s).add(f.url));
+        pump();
+      };
+      img.onload = () => done(true);
+      img.onerror = () => done(false);
+      img.src = f.url;
+    };
+    for (let i = 0; i < CONCURRENCY; i++) pump();
+
     return () => { cancelled = true; imgs.forEach((i) => { i.onload = null; i.onerror = null; }); };
   }, [frames]);
 
@@ -85,12 +105,20 @@ export default function ForecastRunComparator() {
 
   // ── playback ──
   const timer = useRef<number | null>(null);
+  const settled = useRef<Set<string>>(new Set());
+  settled.current = new Set([...loaded, ...failed]);
   useEffect(() => {
     if (!playing || frames.length < 2) return;
-    timer.current = window.setInterval(
-      () => setFrameIdx((i) => (i + 1) % frames.length), speed);
+    timer.current = window.setInterval(() => {
+      setFrameIdx((i) => {
+        const next = (i + 1) % frames.length;
+        // Hold on the current frame until the next one has actually arrived,
+        // so the loop never flashes through half-loaded images.
+        return settled.current.has(frames[next].url) ? next : i;
+      });
+    }, speed);
     return () => { if (timer.current) window.clearInterval(timer.current); };
-  }, [playing, speed, frames.length]);
+  }, [playing, speed, frames]);
 
   const step = useCallback((d: number) => {
     setPlaying(false);
@@ -222,12 +250,43 @@ export default function ForecastRunComparator() {
 
       {/* Viewer */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="relative bg-[#0b0e17]" style={{ minHeight: 220 }}>
+        {/* Region tabs — the frames are a fixed Lambert Conformal plate, so a
+            region is framed by transforming the image rather than rendering
+            (and storing) a separate map per region. */}
+        <div className="flex overflow-x-auto no-scrollbar border-b border-border/60">
+          {REGIONS.map((r) => {
+            const on = r.id === region;
+            return (
+              <button
+                key={r.id}
+                onClick={() => setRegion(r.id)}
+                className="relative px-3 py-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] whitespace-nowrap shrink-0 transition-colors"
+                style={{ fontFamily: HEADING, color: on ? ROYAL.text : "hsl(var(--muted-foreground))" }}
+              >
+                {r.label}
+                {on && (
+                  <span className="absolute inset-x-2 bottom-0 h-[2px] rounded-full"
+                        style={{ background: `linear-gradient(90deg,transparent,${ROYAL.gold},transparent)` }} />
+                )}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="relative bg-[#0b0e17] overflow-hidden" style={{ minHeight: 220, aspectRatio: region === "conus" ? "1280 / 760" : "16 / 10" }}>
           {frame ? (
             <>
               <img src={frame.url} alt={`${param?.label} F${frame.fhr}`}
-                className="w-full h-auto block"
-                style={{ opacity: loaded.has(frame.url) ? 1 : 0.25, transition: "opacity .15s" }} />
+                className="absolute inset-0 w-full block"
+                style={{
+                  opacity: loaded.has(frame.url) ? 1 : 0.25,
+                  transition: "opacity .15s, transform .45s cubic-bezier(.22,1,.36,1)",
+                  transformOrigin: "0 0",
+                  transform: (() => {
+                    const t = regionTransform(region, 16 / 10);
+                    return `scale(${t.scale}) translate(${t.x}%, ${t.y}%)`;
+                  })(),
+                }} />
               {failed.has(frame.url) && (
                 <div className="absolute inset-0 grid place-items-center">
                   <span className="px-2.5 py-1.5 rounded-md bg-red-500/85 text-[11px] text-white font-semibold flex items-center gap-1.5">

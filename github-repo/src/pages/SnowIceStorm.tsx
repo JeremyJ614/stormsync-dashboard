@@ -87,7 +87,7 @@ export default function SnowIceStorm({ location }: Props) {
             </div>
             <div className="bg-card border border-border rounded-xl p-4">
               <div className="text-xs text-muted-foreground mb-1">Peak Ice Chance</div>
-              <div className="text-2xl font-bold text-cyan-300">{maxIce}%</div>
+              <div className="text-2xl font-bold text-[#d9b775]">{maxIce}%</div>
               <div className="text-xs text-muted-foreground">{peakIceHour?.time}</div>
             </div>
           </>

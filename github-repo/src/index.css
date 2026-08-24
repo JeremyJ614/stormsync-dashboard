@@ -88,16 +88,16 @@
   --sidebar: 238 32% 5%;
   --sidebar-foreground: 210 15% 80%;
   --sidebar-border: 232 18% 13%;
-  --sidebar-primary: 240 100% 90%;
+  --sidebar-primary: 40 57% 65%;
   --sidebar-primary-foreground: 232 24% 8%;
   --sidebar-accent: 232 18% 12%;
   --sidebar-accent-foreground: 210 15% 80%;
-  --sidebar-ring: 240 100% 90%;
+  --sidebar-ring: 40 57% 60%;
   --popover: 236 26% 8%;
   --popover-foreground: 210 20% 90%;
   --popover-border: 232 18% 16%;
-  --primary: 240 100% 90%;
-  --primary-foreground: 232 24% 8%;
+  --primary: 40 57% 65%;
+  --primary-foreground: 236 40% 8%;
   --secondary: 232 18% 16%;
   --secondary-foreground: 210 15% 78%;
   --muted: 235 20% 13%;
@@ -107,7 +107,7 @@
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --input: 232 18% 20%;
-  --ring: 240 100% 90%;
+  --ring: 40 57% 60%;
   --chart-1: 217 91% 60%;
   --chart-2: 262 75% 62%;
   --chart-3: 25 95% 53%;
@@ -167,16 +167,16 @@
   --sidebar: 238 32% 5%;
   --sidebar-foreground: 210 15% 80%;
   --sidebar-border: 232 18% 13%;
-  --sidebar-primary: 240 100% 90%;
+  --sidebar-primary: 40 57% 65%;
   --sidebar-primary-foreground: 232 24% 8%;
   --sidebar-accent: 232 18% 12%;
   --sidebar-accent-foreground: 210 15% 80%;
-  --sidebar-ring: 240 100% 90%;
+  --sidebar-ring: 40 57% 60%;
   --popover: 236 26% 8%;
   --popover-foreground: 210 20% 90%;
   --popover-border: 232 18% 16%;
-  --primary: 240 100% 90%;
-  --primary-foreground: 232 24% 8%;
+  --primary: 40 57% 65%;
+  --primary-foreground: 236 40% 8%;
   --secondary: 232 18% 16%;
   --secondary-foreground: 210 15% 78%;
   --muted: 235 20% 13%;
@@ -186,7 +186,7 @@
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --input: 232 18% 20%;
-  --ring: 240 100% 90%;
+  --ring: 40 57% 60%;
   --chart-1: 217 91% 60%;
   --chart-2: 262 75% 62%;
   --chart-3: 25 95% 53%;
@@ -386,3 +386,47 @@
 @media (prefers-reduced-motion: reduce) {
   .royal-ground::before { opacity: 0.6; }
 }
+
+/* ─── House treatment, applied globally ─────────────────────────────────────
+   The app has ~60 files that build surfaces out of `bg-card` + a rounded
+   corner. Rather than edit each one, the card-shaped combination itself is
+   given the royal treatment: glass, a champagne hairline along the top edge,
+   and depth. Anything that opts out can still set its own background. */
+.bg-card.rounded-lg,
+.bg-card.rounded-xl,
+.bg-card.rounded-2xl,
+.bg-card\/50.rounded-xl,
+.bg-card\/40.rounded-xl,
+.bg-card\/80.rounded-xl {
+  position: relative;
+  background: hsl(var(--card) / 0.62);
+  backdrop-filter: blur(14px) saturate(1.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
+  box-shadow: 0 1px 0 0 hsl(var(--gold) / 0.14) inset,
+              0 18px 40px -30px rgba(0, 0, 0, 0.95);
+}
+
+/* Display face for every heading, so section titles read as one system
+   instead of each module choosing its own weight and tracking. */
+h1, h2, h3 {
+  font-family: var(--app-font-heading, 'Raleway', sans-serif);
+  letter-spacing: 0.012em;
+}
+h1 { letter-spacing: 0.02em; }
+
+/* Champagne selection + focus ring, replacing the stock blue. */
+::selection { background: hsl(var(--gold) / 0.28); color: hsl(var(--foreground)); }
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid hsl(var(--gold) / 0.55);
+  outline-offset: 2px;
+}
+
+/* Scrollbars in the house palette rather than the browser's grey. */
+* { scrollbar-color: hsl(var(--gold) / 0.32) transparent; scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--gold) / 0.26); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: hsl(var(--gold) / 0.42); background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }

@@ -633,7 +633,7 @@ export default function AQIForecast({ location }: Props) {
 
             <div className="rounded-2xl overflow-hidden border border-white/5 p-4" style={{ background: "rgba(4,8,20,0.8)" }}>
               <h3 className="text-sm font-bold mb-3 text-white/90 flex items-center gap-2">
-                <Droplets className="w-4 h-4 text-sky-400" /> Ozone (O₃) Trend
+                <Droplets className="w-4 h-4 text-[#d9b775]" /> Ozone (O₃) Trend
               </h3>
               <ResponsiveContainer width="100%" height={130}>
                 <AreaChart data={chartData}>
@@ -719,7 +719,7 @@ export default function AQIForecast({ location }: Props) {
           <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-2.5 rounded-xl p-3.5 border border-white/5 hover:border-white/10 transition-colors"
             style={{ background: "rgba(4,8,20,0.7)" }}>
-            <ExternalLink className="w-4 h-4 text-sky-400 shrink-0" />
+            <ExternalLink className="w-4 h-4 text-[#d9b775] shrink-0" />
             <div>
               <div className="text-sm font-semibold text-white/80">AirNow.gov</div>
               <div className="text-xs text-white/40">Official EPA air quality data from monitoring stations</div>

@@ -1030,7 +1030,7 @@ function NewsTab({ adminName }: { adminName: string }) {
                     {p.pinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
                     <span className="text-sm font-semibold truncate">{p.title}</span>
                     {p.status === "draft" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400">Draft</span>}
-                    {scheduled && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-cyan-500/15 text-cyan-300 flex items-center gap-0.5"><Calendar className="w-2.5 h-2.5" /> Scheduled</span>}
+                    {scheduled && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-cyan-500/15 text-[#d9b775] flex items-center gap-0.5"><Calendar className="w-2.5 h-2.5" /> Scheduled</span>}
                     {p.category && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-primary/15 text-primary">{p.category}</span>}
                     {p.minTier > 1 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-fuchsia-500/15 text-fuchsia-300">T{p.minTier}+</span>}
                   </div>

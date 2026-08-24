@@ -4,7 +4,12 @@
  * - Handles Web Push notifications (Part B): shows them and focuses the app on tap.
  * Bump CACHE_VERSION to force clients onto a new worker.
  */
-const CACHE_VERSION = "sswx-v2";
+// Bumped whenever the caching strategy changes. Note the *asset* cache is now
+// revalidated in the background rather than served blindly, because a fixed
+// version plus cache-first meant a stale index.html could keep pointing at
+// chunk hashes that no longer exist after a deploy — every route is a lazy
+// import, so that renders as a page that simply never appears.
+const CACHE_VERSION = "sswx-v3";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
@@ -63,18 +68,32 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Same-origin static assets (hashed JS/CSS, images, fonts): cache-first.
+  // Same-origin static assets: stale-while-revalidate. Serve the cached copy
+  // immediately, but always re-fetch in the background so a new deploy's files
+  // replace the old ones instead of living in the cache indefinitely.
   if (url.origin === self.location.origin) {
     event.respondWith(
-      caches.match(req).then((cached) =>
-        cached ||
-        fetch(req).then((res) => {
-          if (res.ok) { const copy = res.clone(); caches.open(ASSET_CACHE).then((c) => c.put(req, copy)).catch(() => {}); }
+      caches.match(req).then((cached) => {
+        const network = fetch(req).then((res) => {
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(ASSET_CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          }
           return res;
-        }),
-      ),
+        }).catch((err) => {
+          if (cached) return cached;
+          throw err;
+        });
+        return cached || network;
+      }),
     );
   }
+});
+
+// Let a waiting worker take over as soon as the page asks it to, so a deploy
+// does not sit behind an old worker until every tab is closed.
+self.addEventListener("message", (event) => {
+  if (event.data === "SKIP_WAITING") self.skipWaiting();
 });
 
 // ── Web Push (Part B) ────────────────────────────────────────────────────────────

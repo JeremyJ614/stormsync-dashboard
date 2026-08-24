@@ -171,7 +171,7 @@ export function AdminTriviaTab() {
               <div className="px-3 py-2 bg-muted/20 border-b border-border flex items-center gap-2">
                 <span className="text-sm font-bold tabular-nums">{date}</span>
                 {date === today && <span className="text-[10px] px-1.5 py-0.5 rounded bg-primary/20 text-primary font-bold uppercase tracking-wider">Today</span>}
-                {date > today && <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/15 text-sky-300 font-bold uppercase tracking-wider">Scheduled</span>}
+                {date > today && <span className="text-[10px] px-1.5 py-0.5 rounded bg-[#d9b775]/12 text-[#d9b775] font-bold uppercase tracking-wider">Scheduled</span>}
                 <button onClick={() => startNew(date)}
                   className="ml-auto text-[11px] text-primary hover:underline flex items-center gap-1">
                   <Plus className="w-3 h-3" /> add to this day
@@ -184,7 +184,7 @@ export function AdminTriviaTab() {
                     <div className="flex items-start gap-2 flex-wrap">
                       <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted/40 font-bold tabular-nums">SLOT {q.slot}</span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider ${
-                        q.category === "weather" ? "bg-sky-500/15 text-sky-300" : "bg-fuchsia-500/15 text-fuchsia-300"}`}>
+                        q.category === "weather" ? "bg-[#d9b775]/12 text-[#d9b775]" : "bg-fuchsia-500/15 text-fuchsia-300"}`}>
                         {q.category}
                       </span>
                       <span className={`text-[10px] px-1.5 py-0.5 rounded font-bold uppercase tracking-wider flex items-center gap-1 ${

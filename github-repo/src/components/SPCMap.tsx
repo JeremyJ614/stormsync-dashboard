@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import { applyRoyalBasemap } from "../lib/basemap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 import {
@@ -112,22 +113,27 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
     mapRef.current = map;
 
     map.on("load", () => {
+      const beneath = applyRoyalBasemap(map);
+
       map.addSource("spc", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+
+      // Risk areas go beneath the boundary and label layers — drawn on top, a
+      // filled outlook hides every state line and place name underneath it.
       map.addLayer({
         id: "spc-fill", type: "fill", source: "spc",
         paint: {
           "fill-color": ["get", "__color"],
-          "fill-opacity": ["case", ["boolean", ["get", "__sig"], false], 0, 0.6],
+          "fill-opacity": ["case", ["boolean", ["get", "__sig"], false], 0, 0.52],
         },
-      });
+      }, beneath);
       map.addLayer({
         id: "spc-outline", type: "line", source: "spc",
         paint: {
           "line-color": ["case", ["boolean", ["get", "__sig"], false], "#ffffff", ["get", "__color"]],
-          "line-width": ["case", ["boolean", ["get", "__sig"], false], 2.5, 1],
-          "line-opacity": 0.95,
+          "line-width": ["case", ["boolean", ["get", "__sig"], false], 2.5, 1.6],
+          "line-opacity": 1,
         },
-      });
+      }, beneath);
       setReady(true);
     });
 

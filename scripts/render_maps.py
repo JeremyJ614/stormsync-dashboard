@@ -128,10 +128,36 @@ GFS_PARAMS = [
     Param("gust", "Surface Wind Gusts", "Surface & Precipitation",
           ":GUST:surface:", "mph", "wind",
           [10, 20, 30, 40, 50, 60, 70, 80]),
+    # Synoptic context — the fields you read a forecast map with. All are single
+    # GFS fields present in every pgrb2 index, so none of them can half-render.
+    Param("mslp", "Mean Sea-Level Pressure", "Upper Air",
+          ":PRMSL:mean sea level:", "mb", "press",
+          [976, 984, 992, 1000, 1008, 1012, 1016, 1020, 1024, 1032], mask_below=False),
+    Param("hgt500", "500 mb Height", "Upper Air",
+          ":HGT:500 mb:", "dam", "hgt",
+          [516, 522, 528, 534, 540, 546, 552, 558, 564, 570, 576], mask_below=False),
+    Param("tmp850", "850 mb Temperature", "Upper Air",
+          ":TMP:850 mb:", "°C", "temp",
+          [-20, -15, -10, -5, 0, 5, 10, 15, 20, 25, 30], mask_below=False),
+    Param("tcdc", "Total Cloud Cover", "Surface & Precipitation",
+          ":TCDC:entire atmosphere:", "%", "cloud",
+          [10, 20, 30, 40, 50, 60, 70, 80, 90]),
+    Param("rh700", "700 mb Relative Humidity", "Upper Air",
+          ":RH:700 mb:", "%", "cloud",
+          [10, 20, 30, 40, 50, 60, 70, 80, 90]),
 ]
 
 CMAPS = {
     "refl": refl_cmap(),
+    # Pressure runs low-to-high through the cool end so deep lows read dark.
+    "press": seq(["#3d1a52", "#5b2a86", "#3f6fbf", "#4aa3c9", "#7fd1b9",
+                  "#d9d9d9", "#e8c87a", "#e08a3c", "#c0392b"]),
+    "hgt": seq(["#2a1a4a", "#3f4f9e", "#4a8fc4", "#63c2a8", "#c8dd6a",
+                "#f2c14e", "#e07b39", "#b83b3b"]),
+    "temp": seq(["#3b1f6b", "#2f5fa8", "#4aa3c9", "#8fd4c1", "#e8e08a",
+                 "#e8a94e", "#d4643c", "#a32c2c"]),
+    "cloud": seq(["#101828", "#24405e", "#3d6b8f", "#6d9bbd", "#a9c6db",
+                  "#d5e3ee", "#f2f6fa"]),
     "cape": seq(["#0b3d2e", "#12715a", "#2fa36b", "#8ec63f", "#f2e33c",
                  "#f5a623", "#ef5b2b", "#d21f3c", "#a3123f", "#f06ad4"]),
     "uphl": seq(["#10243f", "#1d4e89", "#3f8ecc", "#7fd1b9", "#f5e663",
@@ -168,9 +194,14 @@ def fetch_index(url: str) -> list[dict]:
 
 def fetch_record(url: str, rows: list[dict], match: str) -> bytes | None:
     """HTTP Range fetch for just the record(s) matching `match`."""
-    hit = next((r for r in rows if match in r["line"]), None)
-    if not hit:
+    # Some fields appear twice in the index — an instantaneous record and a
+    # time-averaged one (TCDC, for instance, is also published as "6-12 hour ave
+    # fcst"). Always prefer the instantaneous record; falling through to
+    # whichever happened to be indexed first would silently plot an average.
+    candidates = [r for r in rows if match in r["line"]]
+    if not candidates:
         return None
+    hit = next((r for r in candidates if "ave fcst" not in r["line"]), candidates[0])
     rng = f"bytes={hit['start']}-" + ("" if hit["end"] is None else str(hit["end"]))
     r = SESSION.get(url, headers={"Range": rng}, timeout=120)
     if r.status_code not in (200, 206):
@@ -214,6 +245,12 @@ def convert(key: str, data: np.ndarray) -> np.ndarray:
         return data / 25.4              # mm -> in
     if key == "absv500":
         return data * 1e5
+    if key == "mslp":
+        return data / 100.0             # Pa -> mb
+    if key == "hgt500":
+        return data / 10.0              # m -> decametres
+    if key == "tmp850":
+        return data - 273.15            # K -> C
     return data
 
 

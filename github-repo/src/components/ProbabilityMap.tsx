@@ -44,6 +44,8 @@ function labelToPct(label: string): number | null {
 // Free GPU-accelerated vector tile basemap — CARTO Dark Matter GL style.
 // Renders city labels, state names, international borders and coastlines
 // at 60fps via WebGL with zero API key required.
+import { applyRoyalBasemap } from "../lib/basemap";
+
 const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 
 type Status = "loading" | "ok" | "empty" | "error";
@@ -84,6 +86,7 @@ function ProbMap({
     );
 
     map.on("load", () => {
+      const beneath = applyRoyalBasemap(map);
       // Source + fill layer (color per-feature via __color property)
       map.addSource("prob", {
         type: "geojson",
@@ -96,9 +99,9 @@ function ProbMap({
         source: "prob",
         paint: {
           "fill-color": ["get", "__color"],
-          "fill-opacity": 0.62,
+          "fill-opacity": 0.55,
         },
-      });
+      }, beneath);
 
       map.addLayer({
         id: "prob-outline",
@@ -106,10 +109,10 @@ function ProbMap({
         source: "prob",
         paint: {
           "line-color": ["get", "__color"],
-          "line-width": 1.4,
-          "line-opacity": 0.95,
+          "line-width": 1.6,
+          "line-opacity": 1,
         },
-      });
+      }, beneath);
 
       mapRef.current = map;
       onReady(map);

@@ -13,6 +13,7 @@ import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
+import { ModuleUpsell } from "./components/ModuleUpsell";
 
 
 /**
@@ -71,6 +72,8 @@ const FAQ = lazyRoute(() => import("./pages/FAQ"));
 const Contact = lazyRoute(() => import("./pages/Contact"));
 const SevereWeatherHistory = lazyRoute(() => import("./pages/SevereWeatherHistory"));
 const Loyalty = lazyRoute(() => import("./pages/Loyalty"));
+const RiverGauges = lazyRoute(() => import("./pages/RiverGauges"));
+const Subscription = lazyRoute(() => import("./pages/Subscription"));
 const ForecastGame = lazyRoute(() => import("./pages/ForecastGame"));
 const Trivia = lazyRoute(() => import("./pages/Trivia"));
 const ThunderstormOutlook = lazyRoute(() => import("./pages/ThunderstormOutlook"));
@@ -89,16 +92,7 @@ function PW({ children, name }: { children: React.ReactNode; name: string }) {
 function Gated({ path, children }: { path: string; children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <PageSkeleton />;
-  if (!hasModuleAccess(user, path)) {
-    return (
-      <div className="p-6 max-w-md mx-auto mt-12 text-center bg-card border border-border rounded-2xl space-y-3">
-        <div className="text-3xl">🔒</div>
-        <h2 className="text-lg font-bold">Module Not Enabled</h2>
-        <p className="text-sm text-muted-foreground">This module isn't part of your current tier. Contact your administrator to enable it.</p>
-        {!user && <a href="/login" className="inline-block px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm">Sign in</a>}
-      </div>
-    );
-  }
+  if (!hasModuleAccess(user, path)) return <ModuleUpsell path={path} signedIn={!!user} />;
   return <>{children}</>;
 }
 
@@ -115,6 +109,7 @@ function AppInner() {
         <Route path="/faq" component={() => <PW name="FAQ"><FAQ /></PW>} />
         <Route path="/contact" component={() => <PW name="Contact"><Contact /></PW>} />
         <Route path="/plans" component={() => <PW name="Plans"><Plans /></PW>} />
+        <Route path="/subscription" component={() => <PW name="Subscription"><Subscription /></PW>} />
 
         <Route path="/dashboard" component={() => <PW name="Dashboard"><Gated path="/dashboard"><Dashboard location={location} /></Gated></PW>} />
         <Route path="/forecast" component={() => <PW name="Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
@@ -134,6 +129,7 @@ function AppInner() {
         <Route path="/warnings" component={() => <PW name="Warning Center"><Gated path="/warnings"><WarningCenter location={location} /></Gated></PW>} />
         <Route path="/aqi" component={() => <PW name="AQI Forecast"><Gated path="/aqi"><AQIForecast location={location} /></Gated></PW>} />
         <Route path="/hazards" component={() => <PW name="Hazards & Drought"><Gated path="/hazards"><HazardsMap location={location} /></Gated></PW>} />
+        <Route path="/rivers" component={() => <PW name="River & Flood Gauges"><Gated path="/rivers"><RiverGauges location={location} /></Gated></PW>} />
         <Route path="/summary" component={() => <PW name="Daylight Tracker"><Gated path="/summary"><DaylightTracker location={location} /></Gated></PW>} />
         <Route path="/sswxcon" component={() => <PW name="SSWXCon"><Gated path="/sswxcon"><SSWXCon location={location} /></Gated></PW>} />
         <Route path="/moon" component={() => <PW name="Moon & Astronomy"><Gated path="/moon"><MoonAstronomy location={location} /></Gated></PW>} />

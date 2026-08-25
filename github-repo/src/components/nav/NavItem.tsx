@@ -13,16 +13,21 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { motion, AnimatePresence } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
+import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ROYAL, SPRING, prefersReducedMotion } from "../../lib/royal";
 
 interface Ripple { id: number; x: number; y: number }
 
 export function NavItem({
-  label, path, icon: Icon, active, expanded, index, onNavigate,
+  label, path, icon: Icon, active, expanded, index, locked = false, onNavigate,
 }: {
   label: string; path: string; icon: LucideIcon;
   active: boolean; expanded: boolean; index: number;
+  /** Not in this member's plan. The row still shows — it just leads to the
+   *  place they can add it, because a module nobody can see is a module nobody
+   *  buys. */
+  locked?: boolean;
   onNavigate: () => void;
 }) {
   const [ripples, setRipples] = useState<Ripple[]>([]);
@@ -45,9 +50,9 @@ export function NavItem({
 
   return (
     <Link
-      href={path}
+      href={locked ? `/subscription?add=${encodeURIComponent(path)}` : path}
       onClick={handleClick}
-      title={!expanded ? label : undefined}
+      title={locked ? `${label} — not in your plan` : !expanded ? label : undefined}
       className={cn(
         "flex items-center gap-[11px] px-[10px] py-[9px] rounded-[9px]",
         "relative overflow-hidden group isolate",
@@ -92,7 +97,7 @@ export function NavItem({
         <Icon
           className={cn(
             "w-[17px] h-[17px] transition-colors duration-150",
-            active ? "text-[#d9b775]" : "text-[#a3a3cc] group-hover:text-[#ccccff]",
+            active ? "text-[#d9b775]" : locked ? "text-[#5c5c7a]" : "text-[#a3a3cc] group-hover:text-[#ccccff]",
           )}
         />
       </motion.span>
@@ -107,12 +112,22 @@ export function NavItem({
         transition={reduced ? { duration: 0 } : { ...SPRING.silk, delay: expanded ? Math.min(index, 14) * 0.012 : 0 }}
         className={cn(
           "text-[12.5px] whitespace-nowrap overflow-hidden",
-          active ? "text-[#f1f4ff] font-semibold" : "text-[#c8c8e6] font-medium",
+          active ? "text-[#f1f4ff] font-semibold" : locked ? "text-[#7a7a99] font-medium" : "text-[#c8c8e6] font-medium",
         )}
         style={{ fontFamily: "'DM Sans', sans-serif", pointerEvents: expanded ? "auto" : "none" }}
       >
         {label}
       </motion.span>
+
+      {locked && (
+        <motion.span
+          animate={{ opacity: expanded ? 1 : 0 }}
+          transition={reduced ? { duration: 0 } : { ...SPRING.silk, delay: expanded ? Math.min(index, 14) * 0.012 : 0 }}
+          className="ml-auto flex-shrink-0"
+        >
+          <Lock className="w-[11px] h-[11px] text-[#6a6a8c]" />
+        </motion.span>
+      )}
     </Link>
   );
 }

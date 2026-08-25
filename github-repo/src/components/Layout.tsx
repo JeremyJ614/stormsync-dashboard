@@ -12,11 +12,11 @@ import {
   Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
   Gamepad2, LogIn, User as UserIcon, Settings, BookMarked,
   CloudRain, Satellite, Target, RotateCcw, ChevronRight,
-  History, X, Sun,
+  History, X, Sun, Waves, CreditCard,
 } from "lucide-react";
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
-import { useAuth, hasModuleAccess, ALL_MODULES } from "../hooks/useAuth";
+import { useAuth, hasModuleAccess, navVisible, ALL_MODULES } from "../hooks/useAuth";
 import { SavedLocations } from "./SavedLocations";
 import { NotificationBell } from "./NotificationBell";
 import { MorphToggle } from "./nav/MorphToggle";
@@ -59,6 +59,7 @@ const NAV_SECTIONS = [
       { label: "Lightning Monitor",path: "/lightning-globe", icon: Zap },
       { label: "Radar & MRMS",     path: "/rotation",        icon: Target },
       { label: "Hazards & Drought",path: "/hazards",         icon: Map },
+      { label: "River & Flood Gauges", path: "/rivers",     icon: Waves },
       { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
     ],
   },
@@ -86,6 +87,7 @@ const NAV_SECTIONS = [
       { label: "Daily Trivia",      path: "/trivia",   icon: Brain },
       { label: "Loyalty Dashboard", path: "/loyalty",  icon: Trophy },
       { label: "Weather Glossary",  path: "/glossary", icon: BookOpen },
+      { label: "Subscription",      path: "/subscription", icon: CreditCard },
       { label: "FAQ",               path: "/faq",      icon: HelpCircle },
       { label: "Contact Us",        path: "/contact",  icon: Mail },
     ],
@@ -207,7 +209,9 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
     if (!navCfg.loaded || navCfg.sections.length === 0) {
       return NAV_SECTIONS.map(sec => ({
         ...sec,
-        items: sec.items.filter(item => hasModuleAccess(user, item.path)),
+        items: sec.items
+          .filter(item => navVisible(user, item.path))
+          .map(item => ({ ...item, locked: !hasModuleAccess(user, item.path) })),
       })).filter(sec => sec.items.length > 0);
     }
     const known = new Set(ALL_MODULES.map(m => m.id));
@@ -216,12 +220,13 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
       .map(sec => ({
         label: sec.name,
         items: navCfg.modules
-          .filter(m => m.sectionId === sec.id && known.has(m.moduleId) && hasModuleAccess(user, m.moduleId))
+          .filter(m => m.sectionId === sec.id && known.has(m.moduleId) && navVisible(user, m.moduleId))
           .sort((a, b) => a.sortOrder - b.sortOrder)
           .map(m => ({
             label: m.label ?? ALL_MODULES.find(x => x.id === m.moduleId)?.label ?? m.moduleId,
             path: m.moduleId,
             icon: ICON_BY_PATH[m.moduleId] ?? Layers,
+            locked: !hasModuleAccess(user, m.moduleId),
           })),
       }))
       .filter(sec => sec.items.length > 0);
@@ -354,6 +359,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
                     active={pathname === item.path}
                     expanded={sidebarExpanded}
                     index={si * 3 + ii}
+                    locked={"locked" in item ? Boolean(item.locked) : false}
                     onNavigate={handleNavClick}
                   />
                 ))}

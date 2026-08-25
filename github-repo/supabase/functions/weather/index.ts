@@ -252,6 +252,68 @@ Deno.serve(async (req) => {
       }
     }
 
+    // ---- NWPS river & flood gauges ---------------------------------------
+    // The National Water Prediction Service serves no CORS headers, so every
+    // gauge call is proxied here. `srid=EPSG_4326` is not optional — without it
+    // the bbox filter is silently ignored and the API returns an empty list.
+    if (route === "/water/gauges") {
+      const b = ["xmin", "ymin", "xmax", "ymax"].map((k) => url.searchParams.get(k));
+      if (b.some((v) => v === null)) return json({ error: "xmin,ymin,xmax,ymax required" }, 400);
+      const [xmin, ymin, xmax, ymax] = b.map(Number);
+      if (b.some((v) => !Number.isFinite(Number(v)))) return json({ error: "bbox must be numeric" }, 400);
+      // A runaway box would pull thousands of gauges; clamp to a sane window.
+      if (Math.abs(xmax - xmin) > 30 || Math.abs(ymax - ymin) > 20) {
+        return json({ error: "bounding box too large" }, 400);
+      }
+      const key = `water:gauges:${xmin.toFixed(2)},${ymin.toFixed(2)},${xmax.toFixed(2)},${ymax.toFixed(2)}`;
+      const cached = await cacheGet(key, 600);
+      if (cached) return json(cached, 200, 600);
+      const api = `https://api.water.noaa.gov/nwps/v1/gauges?srid=EPSG_4326` +
+        `&bbox.xmin=${xmin}&bbox.ymin=${ymin}&bbox.xmax=${xmax}&bbox.ymax=${ymax}`;
+      const r = await fetch(api, { headers: { "User-Agent": UA } });
+      if (!r.ok) return json({ error: `NWPS ${r.status}`, gauges: [] }, r.status === 404 ? 200 : 502, 60);
+      const d = await r.json();
+      const out = { gauges: Array.isArray(d?.gauges) ? d.gauges : [] };
+      await cacheSet(key, out);
+      return json(out, 200, 600);
+    }
+
+    if (route === "/water/gauge") {
+      const lid = (url.searchParams.get("lid") ?? "").toUpperCase();
+      if (!/^[A-Z0-9]{3,8}$/.test(lid)) return json({ error: "valid lid required" }, 400);
+      const key = `water:gauge:${lid}`;
+      const cached = await cacheGet(key, 600);
+      if (cached) return json(cached, 200, 600);
+      // Detail and hydrograph together — the page needs both and one round trip
+      // through this function is cheaper than two from the browser.
+      const [dR, sR] = await Promise.all([
+        fetch(`https://api.water.noaa.gov/nwps/v1/gauges/${lid}`, { headers: { "User-Agent": UA } }),
+        fetch(`https://api.water.noaa.gov/nwps/v1/gauges/${lid}/stageflow`, { headers: { "User-Agent": UA } }),
+      ]);
+      if (!dR.ok) return json({ error: `NWPS ${dR.status}` }, 502, 60);
+      const detail = await dR.json();
+      const flow = sR.ok ? await sR.json() : null;
+      // The observed series runs a month back at 15-minute cadence — far more
+      // than a chart needs. Keep the last 7 days and thin to hourly.
+      const trim = (series: { data?: { validTime: string; primary: number; secondary?: number }[] } | null | undefined, hours: number) => {
+        const rows = Array.isArray(series?.data) ? series!.data : [];
+        const cutoff = Date.now() - hours * 3600_000;
+        const kept = rows.filter((p) => {
+          const t = Date.parse(p.validTime);
+          return Number.isFinite(t) && t >= cutoff;
+        });
+        const step = Math.max(1, Math.ceil(kept.length / 180));
+        return kept.filter((_, i) => i % step === 0 || i === kept.length - 1);
+      };
+      const out = {
+        detail,
+        observed: flow?.observed ? { ...flow.observed, data: trim(flow.observed, 168) } : null,
+        forecast: flow?.forecast ? { ...flow.forecast, data: (flow.forecast.data ?? []).slice(0, 200) } : null,
+      };
+      await cacheSet(key, out);
+      return json(out, 200, 600);
+    }
+
     return json({ error: "not found", route }, 404);
   } catch (e) {
     return json({ error: String(e instanceof Error ? e.message : e) }, 502);

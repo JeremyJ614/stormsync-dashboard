@@ -43,6 +43,7 @@ export interface BadgeDef {
 // bundle/add-on lists in the billing admin so they can never be sold.
 export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; adminOnly?: boolean }[] = [
   { id: "/", label: "Home", alwaysOn: true },
+  { id: "/subscription", label: "Subscription", alwaysOn: true },
   { id: "/dashboard", label: "Dashboard" },
   { id: "/forecast", label: "Forecast" },
   { id: "/discussion", label: "Forecast Discussion" },
@@ -57,6 +58,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/warnings", label: "Warning Center" },
   { id: "/aqi", label: "AQI Forecast" },
   { id: "/hazards", label: "Hazards & Drought" },
+  { id: "/rivers", label: "River & Flood Gauges" },
   { id: "/summary", label: "Daylight Tracker" },
   { id: "/sswxcon", label: "SSWXCon Score" },
   { id: "/mosquito", label: "Mosquito Index" },
@@ -272,6 +274,24 @@ export function hasModuleAccess(user: User | null, path: string): boolean {
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
   return user.enabledModules.includes(path);
+}
+
+/**
+ * Whether a module should appear in the sidebar at all — as opposed to whether
+ * the member can open it (`hasModuleAccess`).
+ *
+ * These are deliberately different questions. A module the member has not paid
+ * for still belongs in the menu, shown locked, because a module nobody can see
+ * is a module nobody buys. Only three things remove a row entirely: it is
+ * parked pre-launch, it is admin-only, or an admin has hidden it.
+ */
+export function navVisible(user: User | null, path: string): boolean {
+  if (HIDDEN_MODULES.has(path)) return false;
+  const mod = ALL_MODULES.find((m) => m.id === path);
+  const nav = navOverrideFor(path);
+  if (nav?.adminOnly || mod?.adminOnly) return !!user?.isAdmin;
+  if (nav && !nav.visible && !user?.isAdmin) return false;
+  return true;
 }
 
 /**

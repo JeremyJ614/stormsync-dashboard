@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import "leaflet/dist/leaflet.css";
-import { createHeatLayer } from "../components/ClimoHeatLayer";
+import maplibregl from "maplibre-gl";
+import { BaseMap, type BaseMapHandle } from "../components/map/BaseMap";
 import type { Location } from "../hooks/useLocation";
 import {
   Tornado, ExternalLink, Info, Database, Flame, BarChart3, Map as MapIcon,
@@ -46,6 +46,12 @@ const HEAT_GRADIENT: [number, number[]][] = [
   [1.00, [217,  70, 239]],
 ];
 
+/**
+ * Weighting exponent applied to each grid cell before the kernels accumulate.
+ * Shared with the legend below, which has to invert it to name real counts.
+ */
+export const HEAT_EXP = 0.7;
+
 /** Legend rows in real tornado counts, derived from the grid's own maximum. */
 export function heatLegend(max: number): { label: string; color: string }[] {
   const stops = [1, 0.72, 0.48, 0.3, 0.17, 0.08];
@@ -55,14 +61,51 @@ export function heatLegend(max: number): { label: string; color: string }[] {
     for (let i = 0; i < g.length - 1; i++) if (f >= g[i][0] && f <= g[i + 1][0]) { a = g[i]; b = g[i + 1]; break; }
     const t = (f - a[0]) / ((b[0] - a[0]) || 1);
     const rgb = [0, 1, 2].map((k) => Math.round(a[1][k] + (b[1][k] - a[1][k]) * t));
-    return { label: `${Math.max(1, Math.round(max * f * f))}+`, color: `rgb(${rgb.join(",")})` };
+    return { label: `${Math.max(1, Math.round(max * f ** (1 / HEAT_EXP)))}+`, color: `rgb(${rgb.join(",")})` };
   });
   // collapse rows that round to the same count (small grids compress the low end)
   return rows.filter((r, i) => i === 0 || r.label !== rows[i - 1].label);
 }
 
-// ─── Shared Leaflet map for density grids + tracks ───────────────────────────
+// ─── Shared MapLibre map for density grids + tracks ──────────────────────────
 const GRID_RES = 0.25; // density bin size in degrees (matches tornadoClimo.json densityRes)
+
+/**
+ * Radius of one grid cell, in screen pixels, as a function of zoom.
+ *
+ * The old canvas layer recomputed this on every pan by projecting two points
+ * and measuring the gap. It is a closed form: web-mercator world width is
+ * 512·2^z px, so 0.25° of longitude is 512·2^z·(0.25/360) px — which doubles
+ * per zoom level, exactly what an exponential-base-2 interpolation expresses.
+ *
+ * The multiplier is 2.4 cells rather than the canvas layer's 1.35. A Gaussian
+ * kernel falls to zero *at* its radius, so at 1.35 the 0.25° rows only grazed
+ * one another and the field came out visibly striped along latitude. At 2.4
+ * each cell reaches its second neighbour and the rows dissolve into a
+ * continuous surface — which is what a climatology is.
+ */
+const CELL_RADIUS: maplibregl.ExpressionSpecification = [
+  "interpolate", ["exponential", 2], ["zoom"],
+  3, 7,
+  6, 56,
+  12, 56,
+];
+
+/**
+ * Radius tracks cell size exactly, so the number of neighbours inside the
+ * kernel is the same at every zoom and one constant intensity holds throughout.
+ * 1.2 is where the Plains and Dixie cores reach the top of the ramp without the
+ * merely-active parts of the Midwest saturating with them.
+ */
+const HEAT_INTENSITY = 1.2;
+
+/** HEAT_GRADIENT, expressed against MapLibre's normalised heatmap-density. */
+const HEAT_COLOR: maplibregl.ExpressionSpecification = [
+  "interpolate", ["linear"], ["heatmap-density"],
+  0, "rgba(30,58,95,0)",
+  ...HEAT_GRADIENT.flatMap<number | string>(([stop, [r, g, b]]) =>
+    stop === 0 ? [] : [stop, `rgb(${r},${g},${b})`]),
+] as maplibregl.ExpressionSpecification;
 
 function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
   mode: "grid" | "tracks";
@@ -71,59 +114,121 @@ function ClimoMap({ mode, grid, tracks, minEF, sinceYear }: {
   minEF?: number;
   sinceYear?: number;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import("leaflet").Map | null>(null);
-  const layerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const handle = useRef<BaseMapHandle>(null);
+  const [ready, setReady] = useState(false);
 
-  useEffect(() => {
-    if (!containerRef.current) return;
-    let cancelled = false;
-    import("leaflet").then((L) => {
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, { center: [39, -97], zoom: 4, zoomControl: true, attributionControl: false, scrollWheelZoom: false });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 10 }).addTo(map);
-      map.createPane("labels");
-      const lp = map.getPane("labels")!; lp.style.zIndex = "650"; lp.style.pointerEvents = "none"; lp.style.filter = "brightness(1.7) contrast(1.1)";
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 10, pane: "labels" }).addTo(map);
-      mapRef.current = map;
-      setTimeout(() => map.invalidateSize(), 60);
-      draw(L, map);
-    });
-    return () => {
-      cancelled = true;
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; layerRef.current = null; }
+  /**
+   * Grid cells as weighted points.
+   *
+   * The exponent is the whole character of this map. The canvas layer used a
+   * square root, which was right for it — each blob was drawn once and read
+   * alone. Here the kernels overlap and *sum*, so a square root double-counts
+   * the low end: give a four-tornado cell 14% of a hundred-tornado cell's
+   * weight and eighteen overlapping neighbours push the entire Ohio Valley to
+   * the top of the ramp alongside Moore and Tuscaloosa. 0.7 keeps sparse cells
+   * legible while leaving the real corridors somewhere to go.
+   */
+  const heat = useMemo<GeoJSON.FeatureCollection>(() => {
+    const pts = grid ?? [];
+    const max = pts.reduce((m, p) => (p[2] > m ? p[2] : m), 1);
+    return {
+      type: "FeatureCollection",
+      features: pts.map(([lat, lon, v]) => ({
+        type: "Feature" as const,
+        properties: { w: Math.max(0.03, Math.min(1, (v / max) ** HEAT_EXP)), n: v },
+        geometry: { type: "Point" as const, coordinates: [lon + GRID_RES / 2, lat + GRID_RES / 2] },
+      })),
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [grid]);
 
-  useEffect(() => {
-    if (!mapRef.current) return;
-    import("leaflet").then((L) => { if (mapRef.current) draw(L, mapRef.current); });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mode, minEF, sinceYear, grid, tracks]);
-
-  function draw(L: typeof import("leaflet"), map: import("leaflet").Map) {
-    if (layerRef.current) { map.removeLayer(layerRef.current); layerRef.current = null; }
-    const group = L.layerGroup();
-    if (mode === "grid" && grid) {
-      // Continuous canvas heat field (see ClimoHeatLayer) — scales with zoom and
-      // tiles the ground, unlike screen-space markers.
-      createHeatLayer(L, grid, { cellDeg: GRID_RES, gradient: HEAT_GRADIENT, spread: 1.35, maxOpacity: 0.8 }).addTo(group);
-    } else if (mode === "tracks" && tracks) {
-      let drawn = 0;
-      for (const [slat, slon, elat, elon, mag, yr] of tracks) {
-        if ((minEF && mag < minEF) || (sinceYear && yr < sinceYear)) continue;
-        if (drawn++ > 6000) break;
-        L.polyline([[slat, slon], [elat, elon]], { color: EF_COLOR[mag] ?? "#f59e0b", weight: mag >= 4 ? 2.5 : 1.5, opacity: 0.8 })
-          .bindTooltip(`EF${mag} · ${yr}`, { sticky: true }).addTo(group);
-      }
+  const lines = useMemo<GeoJSON.FeatureCollection>(() => {
+    const feats: GeoJSON.Feature[] = [];
+    let drawn = 0;
+    for (const [slat, slon, elat, elon, mag, yr] of tracks ?? []) {
+      if ((minEF && mag < minEF) || (sinceYear && yr < sinceYear)) continue;
+      if (drawn++ > 6000) break;
+      feats.push({
+        type: "Feature",
+        properties: { mag, yr, label: `EF${mag} · ${yr}` },
+        geometry: { type: "LineString", coordinates: [[slon, slat], [elon, elat]] },
+      });
     }
-    group.addTo(map);
-    layerRef.current = group;
+    return { type: "FeatureCollection", features: feats };
+  }, [tracks, minEF, sinceYear]);
+
+  function onReady(map: maplibregl.Map, beneath: string | undefined) {
+    map.addSource("climo-heat", { type: "geojson", data: heat });
+    map.addLayer({
+      id: "climo-heat",
+      type: "heatmap",
+      source: "climo-heat",
+      layout: { visibility: mode === "grid" ? "visible" : "none" },
+      paint: {
+        "heatmap-weight": ["get", "w"],
+        "heatmap-intensity": HEAT_INTENSITY,
+        "heatmap-radius": CELL_RADIUS,
+        "heatmap-color": HEAT_COLOR,
+        "heatmap-opacity": 0.8,
+      },
+    }, beneath);
+
+    map.addSource("climo-tracks", { type: "geojson", data: lines });
+    map.addLayer({
+      id: "climo-tracks",
+      type: "line",
+      source: "climo-tracks",
+      layout: {
+        visibility: mode === "tracks" ? "visible" : "none",
+        "line-cap": "round",
+        // Violent tornadoes are the reason to open this map, and there are far
+        // fewer of them — without a sort key the EF2 mass buries every EF5.
+        "line-sort-key": ["get", "mag"],
+      },
+      paint: {
+        "line-color": [
+          "match", ["get", "mag"],
+          0, EF_COLOR[0], 1, EF_COLOR[1], 2, EF_COLOR[2],
+          3, EF_COLOR[3], 4, EF_COLOR[4], 5, EF_COLOR[5],
+          "#f59e0b",
+        ],
+        "line-width": ["case", [">=", ["get", "mag"], 4], 2.5, 1.5],
+        "line-opacity": 0.8,
+      },
+    });
+
+    const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
+    map.on("mousemove", "climo-tracks", (e) => {
+      const label = e.features?.[0]?.properties?.label;
+      if (typeof label !== "string") return;
+      map.getCanvas().style.cursor = "pointer";
+      pop.setLngLat(e.lngLat).setText(label).addTo(map);
+    });
+    map.on("mouseleave", "climo-tracks", () => { map.getCanvas().style.cursor = ""; pop.remove(); });
+
+    setReady(true);
   }
 
-  return <div ref={containerRef} style={{ height: 360, background: "#0a0e1a" }} className="rounded-xl" />;
+  useEffect(() => {
+    const map = handle.current?.map();
+    if (!map || !ready) return;
+    (map.getSource("climo-heat") as maplibregl.GeoJSONSource | undefined)?.setData(heat);
+    (map.getSource("climo-tracks") as maplibregl.GeoJSONSource | undefined)?.setData(lines);
+    map.setLayoutProperty("climo-heat", "visibility", mode === "grid" ? "visible" : "none");
+    map.setLayoutProperty("climo-tracks", "visibility", mode === "tracks" ? "visible" : "none");
+  }, [heat, lines, mode, ready]);
+
+  return (
+    <BaseMap
+      ref={handle}
+      center={{ lat: 39, lon: -97 }}
+      zoom={3.6}
+      height={360}
+      onReady={onReady}
+      className="w-full rounded-xl overflow-hidden"
+    />
+  );
 }
+
 
 type TabId = "annual" | "monthly" | "region" | "ytd" | "density" | "hotspots" | "tracks" | "states" | "pathsize" | "casualties" | "spcmaps" | "reference";
 const NEW_TABS: { id: TabId; label: string; icon: React.ElementType }[] = [

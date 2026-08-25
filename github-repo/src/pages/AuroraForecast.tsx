@@ -339,7 +339,11 @@ export default function AuroraForecast({ location }: Props) {
             </div>
             <div className="p-3 bg-black/40 flex items-center justify-center min-h-[200px]">
               <img
-                src={`https://services.swpc.noaa.gov/images/animations/ovation/global/latest.jpg?t=${Math.floor(Date.now() / 300000)}`}
+                // NOAA retired the `global/` frame; the directory now holds only
+                // `north/` and `south/`. The old path 404'd, and the onError
+                // fallback below reported it as an access problem, so this read
+                // as a permissions failure rather than a dead URL.
+                src={`https://services.swpc.noaa.gov/images/animations/ovation/north/latest.jpg?t=${Math.floor(Date.now() / 300000)}`}
                 alt="NOAA Aurora Oval OVATION" className="w-full rounded-lg object-contain" style={{ maxHeight: 340 }}
                 onError={(e) => {
                   const img = e.target as HTMLImageElement; img.style.display = "none";
@@ -352,7 +356,7 @@ export default function AuroraForecast({ location }: Props) {
                 }}
               />
             </div>
-            <p className="px-4 pb-3 text-xs text-muted-foreground">Global aurora oval — updated every ~5 minutes.</p>
+            <p className="px-4 pb-3 text-xs text-muted-foreground">Northern-hemisphere aurora oval — updated every ~5 minutes.</p>
           </div>
 
           {/* Solar Wind Bz */}

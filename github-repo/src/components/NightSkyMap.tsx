@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
-import "leaflet/dist/leaflet.css";
+import maplibregl from "maplibre-gl";
+import { BaseMap, type BaseMapHandle } from "./map/BaseMap";
 
 // State centroids for sky-condition fetch
 const STATES = [
@@ -61,6 +62,72 @@ function clarityScore(cloud: number, humidity: number, precip: number): number {
 }
 
 // Purple-focused color scale (brighter, more purple than blue)
+/**
+ * Per-state sky clarity for the four hours around local astronomical dark.
+ *
+ * Open-Meteo takes comma-joined coordinate lists, so all 50 centroids ride one
+ * request rather than 50. The result is memoised for 15 minutes because this
+ * map rebuilds whenever Kp ticks, and cloud cover does not move that fast.
+ */
+type MeteoHourly = {
+  hourly?: {
+    cloud_cover?: number[];
+    relative_humidity_2m?: number[];
+    precipitation?: number[];
+  };
+};
+
+const CLARITY_TTL_MS = 15 * 60 * 1000;
+const clarityCache = new Map<number, { at: number; scores: Record<string, number> }>();
+const clarityInflight = new Map<number, Promise<Record<string, number>>>();
+
+async function clarityByState(nightHour: number): Promise<Record<string, number>> {
+  const hit = clarityCache.get(nightHour);
+  if (hit && Date.now() - hit.at < CLARITY_TTL_MS) return hit.scores;
+
+  const pending = clarityInflight.get(nightHour);
+  if (pending) return pending;
+
+  const job = (async () => {
+    const lats = STATES.map((s) => s.lat).join(",");
+    const lons = STATES.map((s) => s.lon).join(",");
+    const url =
+      `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}` +
+      `&hourly=cloud_cover,relative_humidity_2m,precipitation&forecast_days=2&timezone=auto`;
+
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`open-meteo ${res.status}`);
+    const raw: unknown = await res.json();
+    const rows: MeteoHourly[] = Array.isArray(raw) ? (raw as MeteoHourly[]) : [raw as MeteoHourly];
+
+    const idxs = [nightHour, nightHour + 1, nightHour + 2, nightHour + 3];
+    const scores: Record<string, number> = {};
+
+    STATES.forEach((state, i) => {
+      const h = rows[i]?.hourly;
+      if (!h) { scores[state.name] = 50; return; }
+      const avg = (arr: number[] | undefined) => {
+        const vals = idxs.map((k) => arr?.[k]).filter((v): v is number => typeof v === "number");
+        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      };
+      const cloud = avg(h.cloud_cover);
+      const hum = avg(h.relative_humidity_2m);
+      const precip = Math.max(0, ...idxs.map((k) => h.precipitation?.[k] ?? 0));
+      scores[state.name] = clarityScore(cloud, hum, precip);
+    });
+
+    clarityCache.set(nightHour, { at: Date.now(), scores });
+    return scores;
+  })();
+
+  clarityInflight.set(nightHour, job);
+  try {
+    return await job;
+  } finally {
+    clarityInflight.delete(nightHour);
+  }
+}
+
 function clarityBucket(score: number): { label: string; fill: string; stroke: string } {
   if (score >= 85) return { label: "PRISTINE",   fill: "#fde047", stroke: "#ca8a04" };
   if (score >= 70) return { label: "EXCELLENT",  fill: "#e879f9", stroke: "#c026d3" };
@@ -121,214 +188,152 @@ export function NightSkyMap({
   height = 360,
   nightHour = 22,
 }: Props) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<L.Map | null>(null);
+  const handle = useRef<BaseMapHandle>(null);
   const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
+  const ready = useRef(false);
 
-  // Re-draw aurora lines when Kp changes without full re-mount
-  const auroraLayerRef = useRef<L.LayerGroup | null>(null);
+  /**
+   * Draws both halves of this map: per-state sky clarity, and the aurora view
+   * lines. Migrated off Leaflet onto the shared MapLibre BaseMap — the geometry
+   * and the science are unchanged, but the fills now sit *beneath* the
+   * coastlines and labels instead of over them, so the map stays readable.
+   */
+  async function build(map: maplibregl.Map, beneath: string | undefined) {
+    setStatus("loading");
+    try {
+      const W = -130, E = -58;
+
+      // ── states, coloured by sky clarity ──────────────────────────────────
+      const geoRes = await fetch("https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json");
+      const geoData: GeoJSON.FeatureCollection = await geoRes.json();
+
+      if (mode === "stargazing" || mode === "both") {
+        const scoreMap = await clarityByState(nightHour);
+        for (const f of geoData.features) {
+          const name = String((f.properties as Record<string, unknown>)?.NAME ?? (f.properties as Record<string, unknown>)?.name ?? "");
+          const score = scoreMap[name] ?? 50;
+          const b = clarityBucket(score);
+          f.properties = { ...(f.properties ?? {}), name, score, fill: b.fill, stroke: b.stroke, label: `${name}: ${b.label} (${score}/100)` };
+        }
+      } else {
+        for (const f of geoData.features) {
+          f.properties = { ...(f.properties ?? {}), fill: "#1e1040", stroke: "#4c1d95", label: "" };
+        }
+      }
+
+      upsertGeo(map, "sky-states", geoData);
+      addOnce(map, {
+        id: "sky-fill", type: "fill", source: "sky-states",
+        paint: { "fill-color": ["get", "fill"], "fill-opacity": mode === "both" ? 0.45 : 0.7 },
+      }, beneath);
+      addOnce(map, {
+        id: "sky-line", type: "line", source: "sky-states",
+        paint: { "line-color": ["get", "stroke"], "line-width": 0.8, "line-opacity": 0.7 },
+      }, beneath);
+
+      // ── aurora view lines ────────────────────────────────────────────────
+      if (mode === "aurora" || mode === "both") {
+        const nakedLat = viewLineLat(peakKp);
+        const overheadLat = viewLineLat(Math.min(9, peakKp + 1.5));
+        const cameraLat = viewLineLat(Math.max(0, peakKp - 1.5));
+        const curLat = viewLineLat(currentKp);
+
+        const line = (lat: number, color: string, width: number, dash: number[] | null, label: string, kind: string): GeoJSON.Feature => ({
+          type: "Feature",
+          properties: { color, width, label, kind, dashed: dash ? 1 : 0 },
+          geometry: { type: "LineString", coordinates: [[W, lat], [E, lat]] },
+        });
+
+        const feats: GeoJSON.Feature[] = [
+          { type: "Feature", properties: { kind: "band" },
+            geometry: { type: "Polygon", coordinates: [[[W, nakedLat], [E, nakedLat], [E, 75], [W, 75], [W, nakedLat]]] } },
+          line(overheadLat, "#c084fc", 2.5, [2, 2], `Overhead ~${Math.round(overheadLat)}°N`, "dash"),
+          line(nakedLat, "#f472b6", 3.5, null, `Kp ${peakKp.toFixed(1)} naked eye ~${Math.round(nakedLat)}°N`, "solid"),
+          line(cameraLat, "#a855f7", 2, [4, 2.5], `Camera only ~${Math.round(cameraLat)}°N`, "dash"),
+          ...(Math.abs(curLat - nakedLat) > 0.5
+            ? [line(curLat, "#c084fc", 2, [3, 3], `Now Kp ${currentKp.toFixed(1)} ~${Math.round(curLat)}°N`, "dash")]
+            : []),
+          { type: "Feature",
+            properties: { kind: "you", color: userLat >= nakedLat ? "#f472b6" : "#64748b", label: userName },
+            geometry: { type: "Point", coordinates: [userLon, userLat] } },
+        ];
+
+        upsertGeo(map, "aurora", { type: "FeatureCollection", features: feats });
+        addOnce(map, { id: "aurora-band", type: "fill", source: "aurora",
+          filter: ["==", ["get", "kind"], "band"],
+          paint: { "fill-color": "#f472b6", "fill-opacity": 0.1 } }, beneath);
+        addOnce(map, { id: "aurora-solid", type: "line", source: "aurora",
+          filter: ["==", ["get", "kind"], "solid"],
+          paint: { "line-color": ["get", "color"], "line-width": ["get", "width"], "line-opacity": 1 } });
+        addOnce(map, { id: "aurora-dash", type: "line", source: "aurora",
+          filter: ["==", ["get", "kind"], "dash"],
+          paint: { "line-color": ["get", "color"], "line-width": ["get", "width"], "line-opacity": 0.88, "line-dasharray": [3, 3] } });
+        addOnce(map, { id: "aurora-you", type: "circle", source: "aurora",
+          filter: ["==", ["get", "kind"], "you"],
+          paint: { "circle-radius": 6, "circle-color": ["get", "color"], "circle-stroke-color": "#fff", "circle-stroke-width": 2 } });
+      }
+
+      attachTooltip(map, ["sky-fill", "aurora-solid", "aurora-dash", "aurora-you"]);
+      setStatus("ok");
+    } catch {
+      setStatus("error");
+    }
+  }
 
   useEffect(() => {
-    let cancelled = false;
-    setStatus("loading");
-
-    // Cleanup on mode change
-    if (mapRef.current) {
-      mapRef.current.remove();
-      mapRef.current = null;
-      auroraLayerRef.current = null;
-    }
-
-    async function build() {
-      try {
-        const L = await import("leaflet");
-        if (cancelled || !containerRef.current) return;
-
-        const map = L.map(containerRef.current!, {
-          center: [46, -96], zoom: 3,
-          zoomControl: false, attributionControl: false, scrollWheelZoom: false,
-          dragging: true,
-        });
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 8 }).addTo(map);
-        mapRef.current = map;
-
-        // ── Sky condition fill (stargazing + both) ──
-        if (mode === "stargazing" || mode === "both") {
-          const lats = STATES.map(s => s.lat).join(",");
-          const lons = STATES.map(s => s.lon).join(",");
-          const url = `https://api.open-meteo.com/v1/forecast?latitude=${lats}&longitude=${lons}&hourly=cloud_cover,relative_humidity_2m,precipitation&forecast_days=2&timezone=auto`;
-          const [meteoRes, geoRes] = await Promise.all([
-            fetch(url),
-            fetch("https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json"),
-          ]);
-          if (cancelled) return;
-          const raw = await meteoRes.json();
-          const geoData = await geoRes.json();
-          if (cancelled) return;
-
-          const results: { hourly: { cloud_cover: number[]; relative_humidity_2m: number[]; precipitation: number[] } }[] =
-            Array.isArray(raw) ? raw : [raw];
-
-          const scoreMap: Record<string, number> = {};
-          STATES.forEach((state, i) => {
-            const r = results[i];
-            if (!r?.hourly) { scoreMap[state.name] = 50; return; }
-            const idxs = [nightHour, nightHour + 1, nightHour + 2, nightHour + 3];
-            const avg = (arr: number[]) => {
-              const vals = idxs.map(h => arr[h]).filter(v => v != null);
-              return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
-            };
-            const cloud = avg(r.hourly.cloud_cover ?? []);
-            const hum   = avg(r.hourly.relative_humidity_2m ?? []);
-            const precip = Math.max(...idxs.map(h => r.hourly.precipitation?.[h] ?? 0));
-            scoreMap[state.name] = clarityScore(cloud, hum, precip);
-          });
-
-          L.geoJSON(geoData, {
-            style: (feature) => {
-              const name = feature?.properties?.NAME ?? feature?.properties?.name ?? "";
-              const score = scoreMap[name] ?? 50;
-              const b = clarityBucket(score);
-              return { fillColor: b.fill, fillOpacity: mode === "both" ? 0.45 : 0.72, color: b.stroke, weight: 0.8, opacity: 0.7 };
-            },
-            onEachFeature: (feature, layer) => {
-              const name = feature?.properties?.NAME ?? feature?.properties?.name ?? "";
-              const score = scoreMap[name] ?? 50;
-              const b = clarityBucket(score);
-              layer.bindTooltip(`${name}: ${b.label} (${score}/100)`, { direction: "center" });
-            },
-          }).addTo(map);
-        } else {
-          // Aurora-only: just fetch GeoJSON for dark outlines
-          const geoRes = await fetch("https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json");
-          if (cancelled) return;
-          const geoData = await geoRes.json();
-          if (cancelled) return;
-          L.geoJSON(geoData, {
-            style: () => ({ fillColor: "#1e1040", fillOpacity: 0.55, color: "#4c1d95", weight: 0.8, opacity: 0.5 }),
-          }).addTo(map);
-        }
-
-        // City labels on top
-        L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", {
-          maxZoom: 8, pane: "shadowPane",
-        }).addTo(map);
-
-        // ── Aurora view lines (aurora + both) ──
-        if (mode === "aurora" || mode === "both") {
-          const W = -130, E = -58;
-          const nakedLat = viewLineLat(peakKp);
-          const overheadLat = viewLineLat(Math.min(9, peakKp + 1.5));
-          const cameraLat  = viewLineLat(Math.max(0, peakKp - 1.5));
-          const curLat     = viewLineLat(currentKp);
-
-          const g = L.layerGroup().addTo(map);
-          auroraLayerRef.current = g;
-
-          // Aurora-possible band
-          L.polygon([[nakedLat, W], [nakedLat, E], [75, E], [75, W]],
-            { color: "#f472b6", weight: 0, fillColor: "#f472b6", fillOpacity: 0.10 }).addTo(g);
-
-          // Overhead line — light purple
-          L.polyline([[overheadLat, W], [overheadLat, E]], {
-            color: "#c084fc", weight: 2.5, opacity: 0.95, dashArray: "4 4",
-          }).addTo(g).bindTooltip(`Overhead ~${Math.round(overheadLat)}°N`, { sticky: true });
-
-          // Naked-eye line — hot pink (peak Kp)
-          L.polyline([[nakedLat, W], [nakedLat, E]], {
-            color: "#f472b6", weight: 3.5, opacity: 1,
-          }).addTo(g).bindTooltip(`Kp ${peakKp.toFixed(1)} naked eye ~${Math.round(nakedLat)}°N`, { sticky: true });
-
-          // Camera line — deep purple
-          L.polyline([[cameraLat, W], [cameraLat, E]], {
-            color: "#a855f7", weight: 2, opacity: 0.85, dashArray: "8 5",
-          }).addTo(g).bindTooltip(`Camera only ~${Math.round(cameraLat)}°N`, { sticky: true });
-
-          // Current Kp dashed line (light purple) — only if it differs meaningfully
-          if (Math.abs(curLat - nakedLat) > 0.5) {
-            L.polyline([[curLat, W], [curLat, E]], {
-              color: "#c084fc", weight: 2, opacity: 0.8, dashArray: "6 6",
-            }).addTo(g).bindTooltip(`Now Kp ${currentKp.toFixed(1)} ~${Math.round(curLat)}°N`, { sticky: true });
-          }
-
-          // User dot
-          const aboveNaked = userLat >= nakedLat;
-          L.circleMarker([userLat, userLon], {
-            radius: 6, color: "#fff", weight: 2,
-            fillColor: aboveNaked ? "#f472b6" : "#64748b", fillOpacity: 1,
-          }).addTo(g).bindTooltip(userName, { sticky: true });
-        }
-
-        if (!cancelled) setStatus("ok");
-      } catch (e) {
-        if (!cancelled) setStatus("error");
-      }
-    }
-
-    build();
-    return () => {
-      cancelled = true;
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    const m = handle.current?.map();
+    if (m && ready.current) void build(m, undefined);
+     
   }, [mode, peakKp, currentKp, userLat, userLon, nightHour]);
 
-  const showSkyLegend  = mode === "stargazing" || mode === "both";
-  const showAuroraLgnd = mode === "aurora"     || mode === "both";
-
   return (
-    <div className="relative rounded-xl overflow-hidden" style={{ background: "#07070F" }}>
-      <div ref={containerRef} style={{ height, background: "#07070F" }} />
-
-      {/* Legend overlay — bottom right */}
-      <div className="absolute bottom-3 right-3 flex flex-col gap-2 pointer-events-none" style={{ zIndex: 1000 }}>
-        {showAuroraLgnd && (
-          <div className="bg-black/80 rounded-lg px-3 py-2 space-y-1">
-            <div className="text-[9px] uppercase tracking-widest text-white/50 font-semibold mb-1">Aurora View Lines</div>
-            {AURORA_LEGEND.map(l => (
-              <div key={l.label} className="flex items-center gap-2">
-                <div className="w-5 h-[2px] flex-shrink-0" style={{ background: l.color }} />
-                <span className="text-[10px] text-white font-semibold tracking-wide">{l.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        {showSkyLegend && (
-          <div className="bg-black/80 rounded-lg px-3 py-2 space-y-1">
-            <div className="text-[9px] uppercase tracking-widest text-white/50 font-semibold mb-1">Sky Conditions</div>
-            {SKY_LEGEND.map(l => (
-              <div key={l.label} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: l.color }} />
-                <span className="text-[10px] text-white font-semibold tracking-wide">{l.label}</span>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Peak Kp badge — top left when aurora visible */}
-      {(mode === "aurora" || mode === "both") && (
-        <div className="absolute top-2 left-2 bg-black/80 rounded-lg px-2.5 py-1.5 pointer-events-none" style={{ zIndex: 1000 }}>
-          <div className="text-[9px] uppercase tracking-[0.2em] text-white/50">Peak Kp · 3-day</div>
-          <div className="text-xs font-bold" style={{ color: "#f472b6" }}>
-            Kp {peakKp.toFixed(1)} · view line ~{Math.round(viewLineLat(peakKp))}°N
-          </div>
-        </div>
-      )}
-
+    <div className="relative">
+      <BaseMap
+        ref={handle}
+        center={{ lat: 47, lon: -96 }}
+        zoom={2.7}
+        height={height}
+        onReady={(m, beneath) => { ready.current = true; void build(m, beneath); }}
+      />
       {status === "loading" && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/60 pointer-events-none">
-          <div className="flex items-center gap-3 text-sm text-[#e3c88f]">
-            <div className="w-4 h-4 border-2 border-[#d9b775]/60 border-t-transparent rounded-full animate-spin" />
-            Building night sky map…
-          </div>
+        <div className="absolute inset-0 grid place-items-center pointer-events-none text-xs text-muted-foreground">
+          Reading the sky…
         </div>
       )}
       {status === "error" && (
-        <div className="absolute inset-0 flex items-center justify-center text-sm text-muted-foreground pointer-events-none">
-          Couldn't load map data. Try refreshing.
+        <div className="absolute inset-0 grid place-items-center pointer-events-none text-xs text-red-300">
+          Could not load the sky map.
         </div>
       )}
     </div>
   );
 }
+
+// ── small MapLibre helpers ───────────────────────────────────────────────────
+function upsertGeo(map: maplibregl.Map, id: string, data: GeoJSON.FeatureCollection) {
+  const src = map.getSource(id) as maplibregl.GeoJSONSource | undefined;
+  if (src) src.setData(data);
+  else map.addSource(id, { type: "geojson", data });
+}
+
+function addOnce(map: maplibregl.Map, layer: maplibregl.LayerSpecification, beneath?: string) {
+  if (map.getLayer(layer.id)) return;
+  map.addLayer(layer, beneath);
+}
+
+/** One shared hover tooltip across every layer that carries a `label`. */
+function attachTooltip(map: maplibregl.Map, layers: string[]) {
+  const pop = new maplibregl.Popup({ closeButton: false, closeOnClick: false, offset: 8 });
+  for (const id of layers) {
+    if (!map.getLayer(id)) continue;
+    map.on("mousemove", id, (e) => {
+      const lab = e.features?.[0]?.properties?.label;
+      if (typeof lab !== "string" || !lab) return;
+      map.getCanvas().style.cursor = "pointer";
+      pop.setLngLat(e.lngLat).setText(lab).addTo(map);
+    });
+    map.on("mouseleave", id, () => { map.getCanvas().style.cursor = ""; pop.remove(); });
+  }
+}
+
+export default NightSkyMap;

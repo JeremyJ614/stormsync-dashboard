@@ -284,14 +284,10 @@
   }
 }
 
-/* U-08: keep Leaflet maps below the fixed sidebar (z-40) and overlays.
-   Leaflet panes/controls default to z-index 400–1000, which otherwise bleed
-   over the navigation. Giving the container its own z-index:0 stacking context
-   confines all internal panes beneath the chrome. */
-.leaflet-container { z-index: 0; }
-.leaflet-pane,
-.leaflet-top,
-.leaflet-bottom { z-index: 1; }
+/* Every map is MapLibre now (see components/map/BaseMap). Its controls sit
+   inside the canvas container rather than in globally-numbered panes, so the
+   z-index clamp Leaflet needed here is no longer required. */
+.maplibregl-map { z-index: 0; }
 
 /* ── Phase 9 design system: glassmorphism + glow utilities ─────────────────── */
 .glass {

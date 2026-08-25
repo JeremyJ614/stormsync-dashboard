@@ -3,12 +3,13 @@
  * Replaces "Local Summary" — full daylight information page
  * Inspired by Max Velocity's daylight page, restyled for StormSync
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Location } from "../hooks/useLocation";
 import { reverseGeocode } from "../utils/weatherApi";
 import { MapPin, ChevronLeft, ChevronRight, X, Sun, ArrowLeftRight } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import "leaflet/dist/leaflet.css";
+import type maplibregl from "maplibre-gl";
+import { BaseMap, type BaseMapHandle } from "../components/map/BaseMap";
 
 interface Props { location: Location }
 
@@ -302,106 +303,113 @@ function MapPopupPanel({
   );
 }
 
-// ─── Leaflet Map with choropleth ─────────────────────────────────────────────
+// ─── Daylight choropleth, on the shared MapLibre base ────────────────────────
+/**
+ * Seventy latitude bands, each shaded by how much daylight that latitude gains
+ * or loses between the middle of last month and the middle of this one. It was
+ * seventy Leaflet rectangles redrawn from scratch on every month change; it is
+ * now one GeoJSON source whose fills are driven by feature properties, so
+ * changing month is a `setData` rather than a teardown.
+ */
 function DaylightMap({
   lat, lon, year, monthIdx, onMonthChange,
 }: {
   lat: number; lon: number; year: number; monthIdx: number;
   onMonthChange: (i: number) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef      = useRef<unknown>(null);
-  const markerRef   = useRef<unknown>(null);
-  const choroRef    = useRef<unknown>(null);
+  const handle = useRef<BaseMapHandle>(null);
   const monthIdxRef = useRef(monthIdx);
   const [popup, setPopup] = useState<PopupData | null>(null);
   const [popupMonth, setPopupMonth] = useState(monthIdx);
-  // Leaflet is imported dynamically, so the map does not exist during the first
-  // render pass. The choropleth effect below bails out when the map is missing,
-  // which meant the bands were never drawn until something changed monthIdx -
-  // i.e. the map looked empty until you clicked a month. This flag re-runs that
-  // effect the moment the map is actually ready.
-  const [mapReady, setMapReady] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => { monthIdxRef.current = monthIdx; }, [monthIdx]);
 
-  // Init map once
-  useEffect(() => {
-    if (!containerRef.current) return;
-    let cancelled = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    import("leaflet").then((L: any) => {
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, {
-        center: [lat, lon], zoom: 4,
-        zoomControl: false, attributionControl: false, scrollWheelZoom: false,
+  /** The band collection for one month — pure, so it memoises cleanly. */
+  const bands = useMemo<GeoJSON.FeatureCollection>(() => {
+    const prevM = ((monthIdx - 1 + 12) % 12) + 1;
+    const curM = monthIdx + 1;
+    const features: GeoJSON.Feature[] = [];
+    for (let lb = -66; lb < 74; lb += 2) {
+      const latMid = lb + 1;
+      const cur = sunTimes(latMid, 0, year, curM, 15);
+      const prv = sunTimes(latMid, 0, year, prevM, 15);
+      const { fillColor, fillOpacity } = choroStyle(cur.dl - prv.dl);
+      features.push({
+        type: "Feature",
+        properties: { fillColor, fillOpacity },
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[-180, lb], [180, lb], [180, lb + 2], [-180, lb + 2], [-180, lb]]],
+        },
       });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-        maxZoom: 9, subdomains: "abcd",
-      }).addTo(map);
-      L.control.zoom({ position: "topright" }).addTo(map);
+    }
+    return { type: "FeatureCollection", features };
+  }, [monthIdx, year]);
 
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:14px;height:14px;background:#CCCCFF;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(204,204,255,0.9)"></div>`,
-        iconSize: [14, 14], iconAnchor: [7, 7],
-      });
-      markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
-      mapRef.current = map;
-      setMapReady(true);   // triggers the initial choropleth draw
+  const you = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [lon, lat] } }],
+  }), [lat, lon]);
 
-      map.on("click", async (e: { latlng: { lat: number; lng: number } }) => {
-        const { lat: clat, lng: clon } = e.latlng;
-        setPopup({ lat: clat, lon: clon, name: `${Math.abs(clat).toFixed(2)}°${clat>=0?"N":"S"}, ${Math.abs(clon).toFixed(2)}°${clon>=0?"E":"W"}` });
-        setPopupMonth(monthIdxRef.current);
-        reverseGeocode(clat, clon).then((name) => setPopup((p) => p ? { ...p, name } : p));
-      });
+  function onReady(map: maplibregl.Map, beneath: string | undefined) {
+    map.addSource("daylight-bands", { type: "geojson", data: bands });
+    map.addLayer({
+      id: "daylight-bands",
+      type: "fill",
+      source: "daylight-bands",
+      paint: { "fill-color": ["get", "fillColor"], "fill-opacity": ["get", "fillOpacity"] },
+    }, beneath);
+
+    map.addSource("daylight-you", { type: "geojson", data: you });
+    map.addLayer({
+      id: "daylight-you-glow",
+      type: "circle",
+      source: "daylight-you",
+      paint: { "circle-radius": 14, "circle-color": "#CCCCFF", "circle-opacity": 0.18, "circle-blur": 0.8 },
     });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Update marker when location changes
-  useEffect(() => {
-    if (!mapRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (markerRef.current as any)?.setLatLng([lat, lon]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mapRef.current as any)?.setView([lat, lon], (mapRef.current as any)?.getZoom(), { animate: true });
-  }, [lat, lon]);
-
-  // Update choropleth when month changes
-  useEffect(() => {
-    if (!mapRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    import("leaflet").then((L: any) => {
-      if (!mapRef.current) return;
-      if (choroRef.current) (mapRef.current as any).removeLayer(choroRef.current);
-      const g = L.layerGroup().addTo(mapRef.current);
-      choroRef.current = g;
-      const prevM = ((monthIdx - 1 + 12) % 12) + 1;
-      const curM = monthIdx + 1;
-      for (let lb = -66; lb < 74; lb += 2) {
-        const latMid = lb + 1;
-        const cur = sunTimes(latMid, 0, year, curM, 15);
-        const prv = sunTimes(latMid, 0, year, prevM, 15);
-        const { fillColor, fillOpacity } = choroStyle(cur.dl - prv.dl);
-        L.rectangle([[lb, -180], [lb + 2, 180]], {
-          fillColor, fillOpacity, stroke: false, interactive: false,
-        }).addTo(g);
-      }
+    map.addLayer({
+      id: "daylight-you",
+      type: "circle",
+      source: "daylight-you",
+      paint: {
+        "circle-radius": 7, "circle-color": "#CCCCFF",
+        "circle-stroke-color": "#ffffff", "circle-stroke-width": 2,
+      },
     });
-  }, [monthIdx, year, mapReady]);
+
+    map.on("click", (e) => {
+      const { lat: clat, lng: clon } = e.lngLat;
+      setPopup({
+        lat: clat, lon: clon,
+        name: `${Math.abs(clat).toFixed(2)}°${clat >= 0 ? "N" : "S"}, ${Math.abs(clon).toFixed(2)}°${clon >= 0 ? "E" : "W"}`,
+      });
+      setPopupMonth(monthIdxRef.current);
+      void reverseGeocode(clat, clon).then((name) => setPopup((prev) => (prev ? { ...prev, name } : prev)));
+    });
+
+    setReady(true);
+  }
+
+  // Month change is a data swap, not a rebuild.
+  useEffect(() => {
+    if (!ready) return;
+    const src = handle.current?.map()?.getSource("daylight-bands") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(bands);
+  }, [bands, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const src = handle.current?.map()?.getSource("daylight-you") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(you);
+  }, [you, ready]);
 
   return (
-    // `isolate` creates a stacking context around the map. Leaflet gives its own
-    // controls z-index values up to 1000, and these overlays sat at z-[999];
-    // without a stacking context both competed globally and painted straight
-    // over the app sidebar (z-40) whenever it was expanded. Isolating means
-    // nothing inside the map can ever escape above the app chrome again.
+    // `isolate` creates a stacking context around the map so the overlay chrome
+    // below can never escape above the app sidebar.
     <div className="relative isolate rounded-xl overflow-hidden border border-[rgba(204,204,255,0.12)]" style={{ height: 420 }}>
       {/* Month toggle strip */}
-      <div className="absolute top-2 left-0 right-0 z-[999] flex justify-center pointer-events-none">
+      <div className="absolute top-2 left-0 right-0 z-[5] flex justify-center pointer-events-none">
         <div className="flex gap-0.5 pointer-events-auto bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-1.5 py-1 border border-[rgba(204,204,255,0.13)]">
           {MONTHS.map((m, i) => (
             <button
@@ -417,11 +425,17 @@ function DaylightMap({
         </div>
       </div>
 
-      {/* Map div */}
-      <div ref={containerRef} style={{ height: "100%", background: "#090915" }} />
+      <BaseMap
+        ref={handle}
+        center={{ lat, lon }}
+        zoom={3.2}
+        height="100%"
+        className="w-full h-full"
+        onReady={onReady}
+      />
 
       {/* Legend */}
-      <div className="absolute bottom-3 left-3 z-[999] bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-[rgba(204,204,255,0.1)]">
+      <div className="absolute bottom-3 left-3 z-[5] bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-[rgba(204,204,255,0.1)]">
         <div className="text-[8px] text-[#6b7280] uppercase tracking-wider mb-1 font-semibold">Daylight Change</div>
         <div className="w-20 h-2 rounded-full" style={{ background: "linear-gradient(90deg, rgba(251,191,36,0.9) 0%, rgba(255,255,255,0.08) 50%, rgba(74,222,128,0.9) 100%)" }} />
         <div className="flex justify-between text-[7px] text-[#6b7280] mt-0.5">
@@ -442,6 +456,7 @@ function DaylightMap({
     </div>
   );
 }
+
 
 // ─── Main Daylight Tracker Page ──────────────────────────────────────────────
 export default function DaylightTracker({ location }: Props) {

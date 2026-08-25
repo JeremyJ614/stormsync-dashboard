@@ -1,6 +1,6 @@
 import type { Location } from "../hooks/useLocation";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import "leaflet/dist/leaflet.css";
+import { BaseMap, type BaseMapHandle, type RasterOverlay } from "../components/map/BaseMap";
 import {
   Radar, Satellite, Layers as LayersIcon, ExternalLink, RefreshCw, AlertTriangle,
   Eye, Crosshair, Loader2,
@@ -22,9 +22,9 @@ interface Props { location: Location }
  * the closest national equivalent and say so in the layer description rather than
  * shipping a dead tab.
  *
- * Tile errors used to fail silently (Leaflet swallows them), so a renamed or
- * offline product just looked like clear weather. The viewer now tracks tile
- * load/error counts per layer and surfaces "no returns" vs "product offline".
+ * Tile errors used to fail silently, so a renamed or offline product just
+ * looked like clear weather. The viewer tracks tile load/error counts per layer
+ * and says so plainly when a product returns nothing at all.
  */
 
 type Group = "radar" | "mrms" | "satellite";
@@ -157,10 +157,7 @@ export default function RadarMap({ location }: Props) {
   // tile telemetry so a dead product can't masquerade as clear weather
   const [tiles, setTiles] = useState({ loaded: 0, errored: 0, done: false });
 
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef = useRef<import("leaflet").Map | null>(null);
-  const overlayRef = useRef<import("leaflet").TileLayer | null>(null);
-  const probRef = useRef<import("leaflet").TileLayer | null>(null);
+  const mapHandle = useRef<BaseMapHandle>(null);
 
   const layer = useMemo(() => LAYERS.find(l => l.id === layerId) ?? LAYERS[0], [layerId]);
   const groupLayers = useMemo(() => LAYERS.filter(l => l.group === group), [group]);
@@ -173,81 +170,48 @@ export default function RadarMap({ location }: Props) {
     return () => clearInterval(t);
   }, [refresh]);
 
-  // ── init map once ──
+  // ── overlays, declared rather than imperatively added ───────────────────
+  // The Leaflet version rebuilt a tile layer by hand on every change (and kept
+  // two custom panes to get the stacking right). BaseMap diffs these instead,
+  // and the royal basemap already owns the label ordering.
+  const overlays = useMemo<RasterOverlay[]>(() => {
+    const out: RasterOverlay[] = [{
+      id: `product-${layer.id}`,
+      url: tileUrl(layer, bust),
+      opacity,
+      maxZoom: layer.maxZoom ?? 12,
+      underLabels: true,
+    }];
+    if (showProb) {
+      out.push({ id: "probsevere", url: tileUrl(PROBSEVERE, bust), opacity: 0.9, maxZoom: 12, underLabels: true });
+    }
+    return out;
+  }, [layer, bust, opacity, showProb]);
+
+  // Tile telemetry, so a dead product cannot masquerade as clear weather.
+  const tileCount = useRef({ loaded: 0, errored: 0 });
   useEffect(() => {
-    if (!containerRef.current) return;
-    let cancelled = false;
-    import("leaflet").then((L) => {
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, {
-        center: [location.lat, location.lon], zoom: 6,
-        zoomControl: true, attributionControl: false, scrollWheelZoom: false,
-      });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", { maxZoom: 12 }).addTo(map);
-      map.createPane("labels");
-      const lp = map.getPane("labels")!;
-      lp.style.zIndex = "650";
-      lp.style.pointerEvents = "none";
-      lp.style.filter = "brightness(1.7) contrast(1.1)";
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_only_labels/{z}/{x}/{y}{r}.png", { maxZoom: 12, pane: "labels" }).addTo(map);
-      map.createPane("prob");
-      const pp = map.getPane("prob")!;
-      pp.style.zIndex = "620";
-      pp.style.pointerEvents = "none";
-      mapRef.current = map;
-      setTimeout(() => map.invalidateSize(), 60);
-    });
-    return () => {
-      cancelled = true;
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; overlayRef.current = null; probRef.current = null; }
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    tileCount.current = { loaded: 0, errored: 0 };
+    setTiles({ loaded: 0, errored: 0, done: false });
+    const t = setTimeout(() => {
+      setTiles({ ...tileCount.current, done: true });
+    }, 4500);
+    return () => clearTimeout(t);
+  }, [layerId, bust, showProb]);
+
+  const onTiles = useCallback((c: { loaded: number; errored: number }) => {
+    tileCount.current = c;
   }, []);
 
-  // ── recentre when the member's location changes ──
-  useEffect(() => { mapRef.current?.setView([location.lat, location.lon], mapRef.current.getZoom()); }, [location.lat, location.lon]);
-
-  // ── (re)build the active product overlay ──
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    let cancelled = false;
-    setTiles({ loaded: 0, errored: 0, done: false });
-    import("leaflet").then((L) => {
-      if (cancelled || !mapRef.current) return;
-      if (overlayRef.current) { map.removeLayer(overlayRef.current); overlayRef.current = null; }
-      let loaded = 0, errored = 0;
-      const t = L.tileLayer(tileUrl(layer, bust), { opacity, maxZoom: layer.maxZoom ?? 12 });
-      t.on("tileload", () => { loaded++; });
-      t.on("tileerror", () => { errored++; });
-      t.on("load", () => { if (!cancelled) setTiles({ loaded, errored, done: true }); });
-      t.addTo(map);
-      overlayRef.current = t;
-    });
-    return () => { cancelled = true; };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [layerId, bust]);
-
-  useEffect(() => { overlayRef.current?.setOpacity(opacity); }, [opacity]);
-
-  // ── ProbSevere bonus overlay ──
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    let cancelled = false;
-    import("leaflet").then((L) => {
-      if (cancelled || !mapRef.current) return;
-      if (probRef.current) { map.removeLayer(probRef.current); probRef.current = null; }
-      if (!showProb) return;
-      const t = L.tileLayer(tileUrl(PROBSEVERE, bust), { opacity: 0.9, maxZoom: 12, pane: "prob" });
-      t.addTo(map);
-      probRef.current = t;
-    });
-    return () => { cancelled = true; };
-  }, [showProb, bust]);
-
   const offline = tiles.done && tiles.loaded === 0 && tiles.errored > 0;
-  const empty = tiles.done && tiles.loaded > 0 && tiles.errored === 0;
+
+  // There is deliberately no "no returns in view" badge. It used to read
+  // `loaded > 0 && errored === 0` — which is true exactly when the product is
+  // healthy, so it fired over a screen full of reflectivity. Tile counts can
+  // prove a product is *offline*; they cannot distinguish a transparent tile
+  // from a full one, and the only ways to tell (sampling the WebGL canvas, or
+  // decoding every tile body) cost more frame budget than the answer is worth.
+  // A confident wrong "no returns" during severe weather is worse than none.
 
   return (
     <div className="p-4 md:p-6 space-y-4 max-w-full overflow-x-hidden">
@@ -295,8 +259,20 @@ export default function RadarMap({ location }: Props) {
 
       {/* Map */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="relative">
-          <div ref={containerRef} style={{ height: 420, background: "#0a0e1a" }} />
+        {/* The height lives here, not on BaseMap: the map is sized `h-full`, so
+            the wrapper is what a percentage resolves against. Phones keep the
+            420px the Leaflet version used; desktops get the extra room a radar
+            loop actually wants. */}
+        <div className="relative h-[420px] md:h-[560px]">
+          <BaseMap
+            ref={mapHandle}
+            center={{ lat: location.lat, lon: location.lon }}
+            zoom={6}
+            height="100%"
+            overlays={overlays}
+            onTiles={onTiles}
+            className="w-full h-full"
+          />
 
           {/* data-state badge */}
           <div className="absolute top-2 left-2 z-[1000] flex flex-col gap-1.5 items-start">
@@ -308,11 +284,6 @@ export default function RadarMap({ location }: Props) {
             {offline && (
               <span className="px-2 py-1 rounded-md bg-red-500/85 text-[10px] text-white font-semibold flex items-center gap-1.5">
                 <AlertTriangle className="w-3 h-3" /> Product offline — no tiles returned
-              </span>
-            )}
-            {empty && (
-              <span className="px-2 py-1 rounded-md bg-black/70 text-[10px] text-white/80">
-                No returns in view — try zooming out
               </span>
             )}
           </div>

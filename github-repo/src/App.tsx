@@ -12,6 +12,7 @@ import SplashScreen from "./components/SplashScreen";
 import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
+import { UpdateChip } from "./components/UpdateChip";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 import { ModuleUpsell } from "./components/ModuleUpsell";
 import { registerPrefetch } from "./lib/prefetch";
@@ -167,6 +168,7 @@ function AppInner() {
       </Switch>
       <NotificationToast />
       <InstallPrompt />
+      <UpdateChip />
     </Layout>
   );
 }

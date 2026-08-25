@@ -430,3 +430,16 @@ h1 { letter-spacing: 0.02em; }
 }
 *::-webkit-scrollbar-thumb:hover { background: hsl(var(--gold) / 0.42); background-clip: content-box; }
 *::-webkit-scrollbar-track { background: transparent; }
+
+/* Long scrolling lists — glossary entries, history rows, report tables. The
+   browser skips layout and paint for anything off-screen, which on a 400-row
+   list is the difference between a frame and several. `contain-intrinsic-size`
+   keeps the scrollbar honest while those rows are skipped. */
+.list-virtual > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+.list-virtual-lg > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 168px;
+}

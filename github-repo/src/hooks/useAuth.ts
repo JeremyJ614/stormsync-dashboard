@@ -59,6 +59,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/aqi", label: "AQI Forecast" },
   { id: "/hazards", label: "Hazards & Drought" },
   { id: "/rivers", label: "River & Flood Gauges" },
+  { id: "/fire", label: "Fire Weather" },
   { id: "/summary", label: "Daylight Tracker" },
   { id: "/sswxcon", label: "SSWXCon Score" },
   { id: "/mosquito", label: "Mosquito Index" },

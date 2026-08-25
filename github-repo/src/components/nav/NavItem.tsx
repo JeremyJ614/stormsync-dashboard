@@ -16,6 +16,7 @@ import type { LucideIcon } from "lucide-react";
 import { Lock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ROYAL, SPRING, prefersReducedMotion } from "../../lib/royal";
+import { prefetchRoute } from "../../lib/prefetch";
 
 interface Ripple { id: number; x: number; y: number }
 
@@ -52,6 +53,11 @@ export function NavItem({
     <Link
       href={locked ? `/subscription?add=${encodeURIComponent(path)}` : path}
       onClick={handleClick}
+      // Warm the route's chunk the moment intent shows, so the tap lands on a
+      // module that is already downloading.
+      onMouseEnter={() => { if (!locked) prefetchRoute(path); }}
+      onTouchStart={() => { if (!locked) prefetchRoute(path); }}
+      onFocus={() => { if (!locked) prefetchRoute(path); }}
       title={locked ? `${label} — not in your plan` : !expanded ? label : undefined}
       className={cn(
         "flex items-center gap-[11px] px-[10px] py-[9px] rounded-[9px]",

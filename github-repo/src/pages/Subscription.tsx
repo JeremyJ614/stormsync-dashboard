@@ -372,7 +372,7 @@ export default function Subscription() {
                        style={{ background: "hsl(var(--muted) / 0.35)", border: "1px solid hsl(var(--border))", color: ROYAL.text, colorScheme: "dark" }} />
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-1.5 max-h-[26rem] overflow-y-auto pr-1">
+              <div className="grid sm:grid-cols-2 gap-1.5 max-h-[26rem] overflow-y-auto pr-1 list-virtual">
                 {filtered.map((c, i) => {
                   const tone = c.state === "included"
                     ? { bg: "rgba(217,183,117,0.10)", bd: "rgba(217,183,117,0.30)", fg: ROYAL.gold }

@@ -308,7 +308,7 @@ export default function WeatherGlossary() {
 
       <div className="text-xs text-muted-foreground">{filtered.length} term{filtered.length !== 1 ? "s" : ""} found</div>
 
-      <div className="space-y-3">
+      <div className="space-y-3 list-virtual-lg">
         {filtered.map((term, i) => {
           const color = categoryColors[term.category] ?? "#7B8FD9";
           return (

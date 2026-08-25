@@ -7,7 +7,7 @@ import { renderMarkdown } from "../lib/markdown";
 import { useAuth } from "../hooks/useAuth";
 import DailyBriefing from "../components/DailyBriefing";
 import { Newspaper, AlertCircle, Sparkles, ArrowRight, ExternalLink, Clock } from "lucide-react";
-const logoUrl = "/logo.png";
+const logoUrl = "/img/logo-lg.webp";
 
 type Tab = "weather" | "sswx";
 
@@ -63,7 +63,7 @@ export default function Home() {
         <div className="absolute -top-20 -right-20 w-72 h-72 rounded-full bg-primary/20 blur-3xl pointer-events-none" />
         <div className="absolute -bottom-20 -left-20 w-72 h-72 rounded-full bg-purple-700/20 blur-3xl pointer-events-none" />
         <div className="relative flex flex-col md:flex-row items-center gap-6">
-          <img src={logoUrl} alt="StormSync Media" className="w-28 h-28 md:w-32 md:h-32 rounded-2xl object-cover drop-shadow-[0_0_24px_rgba(168,85,247,0.5)]" />
+          <img src={logoUrl} alt="StormSync Media" width={512} height={512} className="w-28 h-28 md:w-32 md:h-32 rounded-2xl object-cover drop-shadow-[0_0_24px_rgba(168,85,247,0.5)]" />
           <div className="flex-1 text-center md:text-left">
             <div className="text-[10px] text-primary uppercase tracking-[0.4em] mb-1">Welcome to</div>
             <h1 className="text-3xl md:text-5xl font-bold uppercase tracking-widest">StormSync Media</h1>
@@ -186,7 +186,7 @@ export default function Home() {
                     <div className="px-4 pb-4 space-y-3 border-t border-border pt-3">
                       {p.imageUrl && (
                         <div className="rounded-lg overflow-hidden border border-border bg-black">
-                          <img src={p.imageUrl} alt={p.title} className="w-full h-auto" />
+                          <img src={p.imageUrl} alt={p.title} loading="lazy" decoding="async" className="w-full h-auto" />
                         </div>
                       )}
                       <div className="text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(p.body) }} />

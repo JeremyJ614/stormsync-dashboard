@@ -8,7 +8,7 @@ import { useEffect, useState } from "react";
  * Motion is purely CSS so it stays smooth on low-end phones, and the whole thing
  * collapses to a static frame under `prefers-reduced-motion`.
  */
-const MARK = "/sswx-mark.png";
+const MARK = "/img/mark.webp";
 const TOTAL_MS = 3000;
 
 export function SplashScreen({ onDone }: { onDone: () => void }) {

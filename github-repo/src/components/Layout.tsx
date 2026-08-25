@@ -12,7 +12,7 @@ import {
   Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
   Gamepad2, LogIn, User as UserIcon, Settings, BookMarked,
   CloudRain, Satellite, Target, RotateCcw, ChevronRight,
-  History, X, Sun, Waves, CreditCard,
+  History, X, Sun, Waves, CreditCard, Flame,
 } from "lucide-react";
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
@@ -22,8 +22,8 @@ import { NotificationBell } from "./NotificationBell";
 import { MorphToggle } from "./nav/MorphToggle";
 import { NavItem } from "./nav/NavItem";
 import { ROYAL, SPRING, prefersReducedMotion } from "../lib/royal";
-const logoUrl = "/logo.png";
-const markUrl = "/sswx-mark.png"; // dripping-skull brand mark (transparent PNG)
+const logoUrl = "/img/logo.webp";
+const markUrl = "/img/mark.webp"; // dripping-skull brand mark
 
 // ─── Navigation structure ────────────────────────────────────────────────────
 const NAV_SECTIONS = [
@@ -60,6 +60,7 @@ const NAV_SECTIONS = [
       { label: "Radar & MRMS",     path: "/rotation",        icon: Target },
       { label: "Hazards & Drought",path: "/hazards",         icon: Map },
       { label: "River & Flood Gauges", path: "/rivers",     icon: Waves },
+      { label: "Fire Weather",     path: "/fire",            icon: Flame },
       { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
     ],
   },

@@ -72,3 +72,71 @@ export const PODIUM = [
   { ring: "#cbd5e1", glow: "rgba(203,213,225,.5)", label: "SILVER", grad: "linear-gradient(135deg,#f1f5f9,#94a3b8,#64748b)" },
   { ring: "#d97706", glow: "rgba(217,119,6,.5)",   label: "BRONZE", grad: "linear-gradient(135deg,#fcd9b6,#c2762f,#7c4a12)" },
 ];
+
+// ── Admin adjustments ────────────────────────────────────────────────────────
+/**
+ * Grant or deduct points for a member.
+ *
+ * An adjustment is a new ledger row with source `admin`, never an edit to an
+ * existing award — so a correction is visible in the history rather than
+ * rewriting it, and a mistaken adjustment can itself be reversed.
+ * `points` may be negative.
+ */
+export async function adjustPoints(params: {
+  userId: string; userName: string; points: number; reason: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+  const pts = Math.trunc(params.points);
+  if (!Number.isFinite(pts) || pts === 0) return { ok: false, error: "Enter a non-zero whole number." };
+  if (Math.abs(pts) > 100000) return { ok: false, error: "That adjustment looks like a typo — keep it under 100,000." };
+  const { error } = await supabase.from("game_points").insert({
+    user_id: params.userId,
+    user_name: params.userName,
+    source: "admin",
+    points: pts,
+    earned_on: new Date().toISOString().slice(0, 10),
+    detail: { reason: params.reason.trim().slice(0, 300) || "Manual adjustment" },
+  });
+  if (error) { logger.error("adjustPoints failed", { scope: "game", error }); return { ok: false, error: error.message }; }
+  return { ok: true };
+}
+
+export interface LedgerRow {
+  id: string; userId: string; userName: string; source: string;
+  points: number; earnedOn: string; reason: string | null; createdAt: string;
+}
+
+/** One member's full points history, newest first. */
+export async function getMemberLedger(userId: string, limit = 60): Promise<LedgerRow[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase
+    .from("game_points")
+    .select("id,user_id,user_name,source,points,earned_on,detail,created_at")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) { logger.error("getMemberLedger failed", { scope: "game", error }); return []; }
+  return (data ?? []).map((r: {
+    id: string; user_id: string; user_name: string | null; source: string;
+    points: number; earned_on: string; detail: { reason?: string } | null; created_at: string;
+  }) => ({
+    id: r.id, userId: r.user_id, userName: r.user_name ?? "Member", source: r.source,
+    points: Number(r.points) || 0, earnedOn: r.earned_on,
+    reason: r.detail?.reason ?? null, createdAt: r.created_at,
+  }));
+}
+
+/** Career total across every source, for the admin points panel. */
+export async function getMemberTotals(): Promise<Map<string, { points: number; entries: number }>> {
+  if (!isSupabaseConfigured) return new Map();
+  const { data, error } = await supabase.from("game_points").select("user_id,points");
+  if (error) { logger.error("getMemberTotals failed", { scope: "game", error }); return new Map(); }
+  const out = new Map<string, { points: number; entries: number }>();
+  for (const r of (data ?? []) as { user_id: string; points: number }[]) {
+    const cur = out.get(r.user_id) ?? { points: 0, entries: 0 };
+    cur.points += Number(r.points) || 0;
+    cur.entries += 1;
+    out.set(r.user_id, cur);
+  }
+  return out;
+}

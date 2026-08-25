@@ -14,7 +14,7 @@ import { AuthAurora } from "../components/auth/AuthAurora";
 import { PinField } from "../components/auth/AccountFields";
 import { ROYAL, HEADING, EASE } from "../lib/royal";
 
-const logoUrl = "/logo.png";
+const logoUrl = "/img/logo.webp";
 
 export default function Login() {
   const [, navigate] = useLocation();

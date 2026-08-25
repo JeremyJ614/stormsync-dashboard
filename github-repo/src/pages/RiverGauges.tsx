@@ -185,7 +185,7 @@ export default function RiverGauges({ location }: Props) {
               No NWPS gauges report in this window. Try a wider range.
             </div>
           ) : (
-            <div className="max-h-[460px] overflow-y-auto">
+            <div className="max-h-[460px] overflow-y-auto list-virtual">
               {gauges.map((g, i) => {
                 const st = floodStyle(g.worst);
                 const active = g.lid === selected;

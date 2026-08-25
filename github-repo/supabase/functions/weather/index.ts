@@ -110,6 +110,74 @@ function parseRssItems(xml: string): RssItem[] {
   return out;
 }
 
+
+// ---- KMZ / KML ---------------------------------------------------------------
+/**
+ * Pull the single KML out of a KMZ. A KMZ is an ordinary ZIP; entries are
+ * either stored (method 0) or deflated (method 8), and `DecompressionStream`
+ * handles the latter with no dependency.
+ */
+async function kmlFromKmz(buf: Uint8Array): Promise<string> {
+  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+  // Walk local file headers rather than the central directory — a KMZ holds one
+  // meaningful entry and this avoids parsing the whole index.
+  let off = 0;
+  while (off + 30 <= buf.length) {
+    if (dv.getUint32(off, true) !== 0x04034b50) break;
+    const method = dv.getUint16(off + 8, true);
+    const compSize = dv.getUint32(off + 18, true);
+    const nameLen = dv.getUint16(off + 26, true);
+    const extraLen = dv.getUint16(off + 28, true);
+    const name = new TextDecoder().decode(buf.subarray(off + 30, off + 30 + nameLen));
+    const dataStart = off + 30 + nameLen + extraLen;
+    const data = buf.subarray(dataStart, dataStart + compSize);
+    if (/\.kml$/i.test(name)) {
+      if (method === 0) return new TextDecoder().decode(data);
+      const ds = new DecompressionStream("deflate-raw");
+      const stream = new Blob([data]).stream().pipeThrough(ds);
+      return await new Response(stream).text();
+    }
+    off = dataStart + compSize;
+  }
+  throw new Error("no KML inside KMZ");
+}
+
+/** KML placemarks to GeoJSON, keeping SPC's own labels and colours. */
+function kmlToFeatures(kml: string): GeoJSON.FeatureCollection {
+  const features: GeoJSON.Feature[] = [];
+  for (const block of kml.split(/<Placemark[\s>]/i).slice(1)) {
+    const body = block.split(/<\/Placemark>/i)[0];
+    const props: Record<string, string> = {};
+    for (const m of body.matchAll(/<SimpleData name="([^"]+)">([^<]*)<\/SimpleData>/g)) {
+      props[m[1]] = m[2];
+    }
+    const rings: number[][][] = [];
+    for (const m of body.matchAll(/<coordinates>([\s\S]*?)<\/coordinates>/g)) {
+      const ring = m[1].trim().split(/\s+/).map((pair) => {
+        const [lon, lat] = pair.split(",").map(Number);
+        return [lon, lat];
+      }).filter((c) => Number.isFinite(c[0]) && Number.isFinite(c[1]));
+      if (ring.length >= 4) rings.push(ring);
+    }
+    if (rings.length === 0) continue;
+    features.push({
+      type: "Feature",
+      geometry: { type: "Polygon", coordinates: rings },
+      properties: {
+        label: props.LABEL ?? "",
+        label2: props.LABEL2 ?? "",
+        stroke: props.stroke ?? "#FF7F00",
+        fill: props.fill ?? "#FFBF80",
+        valid: props.VALID_ISO ?? null,
+        expire: props.EXPIRE_ISO ?? null,
+        issue: props.ISSUE_ISO ?? null,
+        forecaster: props.FORECASTER ?? "",
+      },
+    });
+  }
+  return { type: "FeatureCollection", features };
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -312,6 +380,76 @@ Deno.serve(async (req) => {
       };
       await cacheSet(key, out);
       return json(out, 200, 600);
+    }
+
+    // ---- SPC fire weather outlook ----------------------------------------
+    // SPC publishes no GeoJSON for fire weather (unlike the convective
+    // outlooks) — only KMZ. A KMZ is a plain ZIP holding one KML, so it is
+    // unzipped and converted here. The IEM mirror returns empty for these
+    // categories, so this reads SPC directly.
+    if (route === "/spc/fire-outlook") {
+      const day = url.searchParams.get("day") ?? "1";
+      if (!/^[123]$/.test(day)) return json({ error: "day must be 1-3" }, 400);
+      const key = `spc:firewx:${day}`;
+      const cached = await cacheGet(key, 1800);
+      if (cached) return json(cached, 200, 1800);
+      try {
+        const r = await fetch(`${SPC}/products/fire_wx/day${day}fireotlk.kmz`, { headers: { "User-Agent": UA } });
+        if (!r.ok) throw new Error(String(r.status));
+        const kml = await kmlFromKmz(new Uint8Array(await r.arrayBuffer()));
+        const out = kmlToFeatures(kml);
+        await cacheSet(key, out);
+        return json(out, 200, 1800);
+      } catch (e) {
+        return json({ type: "FeatureCollection", features: [], error: String(e) }, 200, 300);
+      }
+    }
+
+    // ---- Large active wildfire incidents (InciWeb) -------------------------
+    if (route === "/fire/incidents") {
+      const cached = await cacheGet("fire:incidents", 1800);
+      if (cached) return json(cached, 200, 1800);
+      try {
+        const r = await fetch("https://inciweb.wildfire.gov/incidents/rss.xml", { headers: { "User-Agent": UA } });
+        if (!r.ok) throw new Error(String(r.status));
+        const xml = await r.text();
+        const items = xml.split(/<item>/i).slice(1).map((raw) => {
+          const b = raw.split(/<\/item>/i)[0];
+          const title = pick(b, "title");
+          const link = pick(b, "link");
+          const desc = pick(b, "description").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+          const pub = pick(b, "pubDate");
+          // InciWeb publishes no geo tags — the position is written into the
+          // description as unsigned degrees/minutes/seconds, e.g.
+          //   "Latitude: 48° 56 31  Longitude: 120° 36 34".
+          // Longitude is negated because every InciWeb incident is in the
+          // western hemisphere.
+          const dms = (label: string): number | null => {
+            const m = desc.match(new RegExp(`${label}:\\s*(\\d+)[^\\d]+(\\d+)(?:[^\\d]+(\\d+))?`, "i"));
+            if (!m) return null;
+            const v = Number(m[1]) + Number(m[2]) / 60 + (m[3] ? Number(m[3]) / 3600 : 0);
+            return Number.isFinite(v) ? Math.round(v * 1e4) / 1e4 : null;
+          };
+          const lat = dms("Latitude");
+          const lon = dms("Longitude");
+          const state = (desc.match(/State:\s*([A-Za-z .]+?)\s*-{2,}/) ?? [])[1]?.trim() ?? "";
+          const acresM = desc.match(/([\d,]+)\s*acres/i);
+          return {
+            title, link,
+            description: desc.replace(/-{2,}/g, "·").replace(/\s+/g, " ").slice(0, 320),
+            published: pub ? new Date(pub).toISOString() : null,
+            state,
+            acres: acresM ? Number(acresM[1].replace(/,/g, "")) : null,
+            latitude: lat,
+            longitude: lon != null ? -lon : null,
+          };
+        }).filter((i) => i.title);
+        const out = { incidents: items.slice(0, 60) };
+        await cacheSet("fire:incidents", out);
+        return json(out, 200, 1800);
+      } catch {
+        return json({ incidents: [] }, 200, 300);
+      }
     }
 
     return json({ error: "not found", route }, 404);

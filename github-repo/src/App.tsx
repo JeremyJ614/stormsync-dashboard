@@ -14,6 +14,7 @@ import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 import { ModuleUpsell } from "./components/ModuleUpsell";
+import { registerPrefetch } from "./lib/prefetch";
 
 
 /**
@@ -25,8 +26,20 @@ import { ModuleUpsell } from "./components/ModuleUpsell";
  * sessionStorage so a genuine failure cannot loop) to pick up the current
  * index.html and its real chunk names.
  */
-function lazyRoute<T extends React.ComponentType<any>>(factory: () => Promise<{ default: T }>) {
-  return lazy(() =>
+/**
+ * Every route is a lazy import, so the chunk is fetched on navigation. Two
+ * things hang off that:
+ *
+ *  • a failed import usually means a deploy changed the chunk hashes under a
+ *    tab that is still running the old build — one guarded reload fixes it;
+ *  • the factory is registered by path so the sidebar can *warm* the chunk on
+ *    hover or touch-start, which is 100-300 ms of head start before the tap
+ *    even registers. `registerPrefetch` is what makes that possible.
+ */
+function lazyRoute<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>, path?: string,
+) {
+  const guarded = () =>
     factory().catch((err) => {
       const KEY = "sswx:chunk-reload";
       if (!sessionStorage.getItem(KEY)) {
@@ -34,52 +47,54 @@ function lazyRoute<T extends React.ComponentType<any>>(factory: () => Promise<{ 
         window.location.reload();
       }
       throw err;
-    }),
-  );
+    });
+  if (path) registerPrefetch(path, guarded);
+  return lazy(guarded);
 }
 
-const Home = lazyRoute(() => import("./pages/Home"));
-const Dashboard = lazyRoute(() => import("./pages/Dashboard"));
-const Forecast = lazyRoute(() => import("./pages/Forecast"));
-const ForecastDiscussion = lazyRoute(() => import("./pages/ForecastDiscussion"));
-const ForecastRunComparator = lazyRoute(() => import("./pages/ForecastRunComparator"));
-const SPCOutlook = lazyRoute(() => import("./pages/SPCOutlook"));
-const MesoscaleDiscussion = lazyRoute(() => import("./pages/MesoscaleDiscussion"));
-const StormIngredients = lazyRoute(() => import("./pages/StormIngredients"));
-const SWTIPage = lazyRoute(() => import("./pages/SWTIPage"));
-const SevereWeatherTiming = lazyRoute(() => import("./pages/SevereWeatherTiming"));
-const WarningCenter = lazyRoute(() => import("./pages/WarningCenter"));
-const AQIForecast = lazyRoute(() => import("./pages/AQIForecast"));
-const HazardsMap = lazyRoute(() => import("./pages/HazardsMap"));
-const DaylightTracker = lazyRoute(() => import("./pages/DaylightTracker"));
-const SSWXCon = lazyRoute(() => import("./pages/SSWXCon"));
-const MoonAstronomy = lazyRoute(() => import("./pages/MoonAstronomy"));
-const AuroraForecast = lazyRoute(() => import("./pages/AuroraForecast"));
-const RadarMap = lazyRoute(() => import("./pages/RadarMap"));
-const TornadoClimatology = lazyRoute(() => import("./pages/TornadoClimatology"));
-const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"));
-const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"));
-const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"));
-const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"));
-const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"));
-const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"));
+const Home = lazyRoute(() => import("./pages/Home"), "/");
+const Dashboard = lazyRoute(() => import("./pages/Dashboard"), "/dashboard");
+const Forecast = lazyRoute(() => import("./pages/Forecast"), "/forecast");
+const ForecastDiscussion = lazyRoute(() => import("./pages/ForecastDiscussion"), "/discussion");
+const ForecastRunComparator = lazyRoute(() => import("./pages/ForecastRunComparator"), "/comparator");
+const SPCOutlook = lazyRoute(() => import("./pages/SPCOutlook"), "/spc");
+const MesoscaleDiscussion = lazyRoute(() => import("./pages/MesoscaleDiscussion"), "/meso");
+const StormIngredients = lazyRoute(() => import("./pages/StormIngredients"), "/ingredients");
+const SWTIPage = lazyRoute(() => import("./pages/SWTIPage"), "/swti");
+const SevereWeatherTiming = lazyRoute(() => import("./pages/SevereWeatherTiming"), "/timing");
+const WarningCenter = lazyRoute(() => import("./pages/WarningCenter"), "/warnings");
+const AQIForecast = lazyRoute(() => import("./pages/AQIForecast"), "/aqi");
+const HazardsMap = lazyRoute(() => import("./pages/HazardsMap"), "/hazards");
+const DaylightTracker = lazyRoute(() => import("./pages/DaylightTracker"), "/summary");
+const SSWXCon = lazyRoute(() => import("./pages/SSWXCon"), "/sswxcon");
+const MoonAstronomy = lazyRoute(() => import("./pages/MoonAstronomy"), "/moon");
+const AuroraForecast = lazyRoute(() => import("./pages/AuroraForecast"), "/aurora");
+const RadarMap = lazyRoute(() => import("./pages/RadarMap"), "/rotation");
+const TornadoClimatology = lazyRoute(() => import("./pages/TornadoClimatology"), "/climatology");
+const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"), "/wpi");
+const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"), "/duel");
+const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glossary");
+const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
+const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"), "/mosquito");
+const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"), "/lightning-globe");
 
-const Login = lazyRoute(() => import("./pages/Login"));
-const Profile = lazyRoute(() => import("./pages/Profile"));
-const AdminPanel = lazyRoute(() => import("./pages/AdminPanel"));
-const Plans = lazyRoute(() => import("./pages/Plans"));
-const FAQ = lazyRoute(() => import("./pages/FAQ"));
-const Contact = lazyRoute(() => import("./pages/Contact"));
-const SevereWeatherHistory = lazyRoute(() => import("./pages/SevereWeatherHistory"));
-const Loyalty = lazyRoute(() => import("./pages/Loyalty"));
-const RiverGauges = lazyRoute(() => import("./pages/RiverGauges"));
-const Subscription = lazyRoute(() => import("./pages/Subscription"));
-const ForecastGame = lazyRoute(() => import("./pages/ForecastGame"));
-const Trivia = lazyRoute(() => import("./pages/Trivia"));
-const ThunderstormOutlook = lazyRoute(() => import("./pages/ThunderstormOutlook"));
-const HurricaneTracker = lazyRoute(() => import("./pages/HurricaneTracker"));
-const TropicalHistory = lazyRoute(() => import("./pages/TropicalHistory"));
-const StormDetail = lazyRoute(() => import("./pages/StormDetail"));
+const Login = lazyRoute(() => import("./pages/Login"), "/login");
+const Profile = lazyRoute(() => import("./pages/Profile"), "/profile");
+const AdminPanel = lazyRoute(() => import("./pages/AdminPanel"), "/admin");
+const Plans = lazyRoute(() => import("./pages/Plans"), "/plans");
+const FAQ = lazyRoute(() => import("./pages/FAQ"), "/faq");
+const Contact = lazyRoute(() => import("./pages/Contact"), "/contact");
+const SevereWeatherHistory = lazyRoute(() => import("./pages/SevereWeatherHistory"), "/history");
+const Loyalty = lazyRoute(() => import("./pages/Loyalty"), "/loyalty");
+const RiverGauges = lazyRoute(() => import("./pages/RiverGauges"), "/rivers");
+const FireWeather = lazyRoute(() => import("./pages/FireWeather"), "/fire");
+const Subscription = lazyRoute(() => import("./pages/Subscription"), "/subscription");
+const ForecastGame = lazyRoute(() => import("./pages/ForecastGame"), "/game");
+const Trivia = lazyRoute(() => import("./pages/Trivia"), "/trivia");
+const ThunderstormOutlook = lazyRoute(() => import("./pages/ThunderstormOutlook"), "/thunder");
+const HurricaneTracker = lazyRoute(() => import("./pages/HurricaneTracker"), "/hurricane");
+const TropicalHistory = lazyRoute(() => import("./pages/TropicalHistory"), "/hurricane/history");
+const StormDetail = lazyRoute(() => import("./pages/StormDetail"), "/hurricane/:stormId");
 
 function PW({ children, name }: { children: React.ReactNode; name: string }) {
   return (
@@ -130,6 +145,7 @@ function AppInner() {
         <Route path="/aqi" component={() => <PW name="AQI Forecast"><Gated path="/aqi"><AQIForecast location={location} /></Gated></PW>} />
         <Route path="/hazards" component={() => <PW name="Hazards & Drought"><Gated path="/hazards"><HazardsMap location={location} /></Gated></PW>} />
         <Route path="/rivers" component={() => <PW name="River & Flood Gauges"><Gated path="/rivers"><RiverGauges location={location} /></Gated></PW>} />
+        <Route path="/fire" component={() => <PW name="Fire Weather"><Gated path="/fire"><FireWeather location={location} /></Gated></PW>} />
         <Route path="/summary" component={() => <PW name="Daylight Tracker"><Gated path="/summary"><DaylightTracker location={location} /></Gated></PW>} />
         <Route path="/sswxcon" component={() => <PW name="SSWXCon"><Gated path="/sswxcon"><SSWXCon location={location} /></Gated></PW>} />
         <Route path="/moon" component={() => <PW name="Moon & Astronomy"><Gated path="/moon"><MoonAstronomy location={location} /></Gated></PW>} />

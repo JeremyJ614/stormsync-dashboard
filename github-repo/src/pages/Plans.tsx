@@ -434,7 +434,7 @@ export default function Plans() {
                 Every module in the app is included — nothing to pick.
               </div>
             ) : (
-              <div className="grid sm:grid-cols-2 gap-1.5 max-h-[22rem] overflow-y-auto pr-1">
+              <div className="grid sm:grid-cols-2 gap-1.5 max-h-[22rem] overflow-y-auto pr-1 list-virtual">
                 {addonPrices.map(m => {
                   const bundled = bundledIds.includes(m.moduleId);
                   const chosen = selectedTier === "free" ? freeModule === m.moduleId : extras.includes(m.moduleId);

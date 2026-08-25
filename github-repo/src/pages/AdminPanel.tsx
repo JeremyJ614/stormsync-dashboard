@@ -14,6 +14,8 @@ import { BadgeChip } from "../components/BadgeChip";
 import { AdminNavTab } from "../components/AdminNavTab";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
+import { AdminPointsTab } from "../components/AdminPointsTab";
+import { AdminInvoicesTab } from "../components/AdminInvoicesTab";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
 import { DEFAULT_FAQ } from "../lib/faqDefaults";
@@ -21,9 +23,9 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain } from "lucide-react";
+import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy } from "lucide-react";
 
-type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "trivia" | "faq" | "billing" | "settings";
+type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings";
 
 export default function AdminPanel() {
   const { user } = useAuth();
@@ -50,10 +52,6 @@ export default function AdminPanel() {
         <h1 className="text-2xl font-bold tracking-wide uppercase">Admin Panel</h1>
       </div>
 
-      <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-3 text-xs text-yellow-200/90 leading-relaxed">
-        <strong>Users, badges, settings &amp; the contact inbox are server-backed</strong> (Supabase, multi-device).
-        News &amp; broadcasts are still browser-local on this device — those move to the backend next.
-      </div>
 
       <div className="flex gap-1 border-b border-border flex-wrap">
         {([
@@ -67,8 +65,10 @@ export default function AdminPanel() {
           { id: "alerts", label: "Alert Opt-ins", icon: BellRing },
           { id: "news", label: "SSWX News", icon: Newspaper },
           { id: "trivia", label: "Daily Trivia", icon: Brain },
+          { id: "points", label: "Points", icon: Trophy },
           { id: "faq", label: "FAQ & Guide", icon: HelpCircle },
           { id: "billing", label: "Billing", icon: DollarSign },
+          { id: "invoices", label: "Invoices", icon: FileText },
           { id: "settings", label: "Settings", icon: Settings },
         ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
           const Icon = t.icon;
@@ -92,8 +92,10 @@ export default function AdminPanel() {
       {tab === "alerts" && <AlertOptinsTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
       {tab === "trivia" && <AdminTriviaTab />}
+      {tab === "points" && <AdminPointsTab />}
       {tab === "faq" && <FaqTab />}
       {tab === "billing" && <AdminBillingTab />}
+      {tab === "invoices" && <AdminInvoicesTab />}
       {tab === "settings" && <SettingsTab />}
     </div>
   );
@@ -974,7 +976,7 @@ function NewsTab({ adminName }: { adminName: string }) {
 
         {preview ? (
           <div className="bg-muted/10 border border-border rounded-lg p-4 space-y-2">
-            {imageUrl.trim() && <div className="rounded-lg overflow-hidden border border-border bg-black"><img src={imageUrl} alt="" className="w-full h-auto" /></div>}
+            {imageUrl.trim() && <div className="rounded-lg overflow-hidden border border-border bg-black"><img src={imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-auto" /></div>}
             {category && <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">{category}</span>}
             <h2 className="text-lg font-bold">{title || "Untitled post"}</h2>
             {excerpt && <p className="text-sm text-muted-foreground italic">{excerpt}</p>}

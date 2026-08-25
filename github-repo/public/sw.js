@@ -9,12 +9,12 @@
 // version plus cache-first meant a stale index.html could keep pointing at
 // chunk hashes that no longer exist after a deploy — every route is a lazy
 // import, so that renders as a page that simply never appears.
-const CACHE_VERSION = "sswx-v3";
+const CACHE_VERSION = "sswx-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 
-const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/logo.png", "/favicon.svg"];
+const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/img/logo.webp", "/img/mark.webp", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
   // Cache shell URLs individually so one failure can't block the worker installing.
@@ -103,7 +103,7 @@ self.addEventListener("push", (event) => {
   const title = data.title || "StormSync Alert";
   const options = {
     body: data.body || "A weather alert is active for one of your saved locations.",
-    icon: "/logo.png",
+    icon: "/img/logo.webp",
     badge: "/favicon.svg",
     tag: data.tag || "sswx-alert",
     data: { url: data.url || "/warnings" },

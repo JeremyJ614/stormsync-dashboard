@@ -6,14 +6,19 @@
  * picker overrides just the accent with any hex. Everything is applied by
  * writing inline custom properties on <html>, and persisted to localStorage so
  * it's set before first paint (see `initTheme` called from main.tsx).
+ *
+ * IMPORTANT: these inline properties beat every rule in index.css, so the
+ * default preset below must reproduce the royal ground defined there exactly.
+ * When the two drifted apart the whole app silently rendered in the old
+ * blue-grey palette no matter what index.css said.
  */
 
 export interface ThemePreset {
   id: string;
   label: string;
-  /** Hue (0-360) for the dark background family. */
+  /** Base hue (0-360) for the dark background family. */
   bgHue: number;
-  /** Saturation multiplier for the background family (1 = same as Midnight). */
+  /** Saturation multiplier for the background family (1 = same as Royal). */
   bgSat: number;
   /** Accent as an "H S% L%" triplet. */
   primary: string;
@@ -24,24 +29,39 @@ export interface ThemePreset {
 }
 
 export const THEMES: ThemePreset[] = [
-  { id: "midnight",     label: "Midnight",     bgHue: 232, bgSat: 1,    primary: "240 100% 90%", primaryFg: "232 24% 8%",  swatch: "#c7ccff" },
-  { id: "storm-purple", label: "Storm Purple", bgHue: 262, bgSat: 1.15, primary: "270 95% 78%",  primaryFg: "270 40% 12%", swatch: "#b388ff" },
+  { id: "royal",        label: "Royal",        bgHue: 235, bgSat: 1,    primary: "40 57% 65%",   primaryFg: "236 40% 8%",  swatch: "#d9b775" },
+  { id: "midnight",     label: "Midnight",     bgHue: 232, bgSat: 0.9,  primary: "240 100% 90%", primaryFg: "232 24% 8%",  swatch: "#c7ccff" },
+  { id: "storm-purple", label: "Storm Purple", bgHue: 265, bgSat: 1.15, primary: "270 95% 78%",  primaryFg: "270 40% 12%", swatch: "#b388ff" },
   { id: "noaa-classic", label: "NOAA Classic", bgHue: 214, bgSat: 1.05, primary: "205 90% 62%",  primaryFg: "210 50% 8%",  swatch: "#3b9eff" },
   { id: "amber-chase",  label: "Amber Chase",  bgHue: 28,  bgSat: 0.55, primary: "38 96% 56%",   primaryFg: "30 60% 10%",  swatch: "#ffab2e" },
 ];
 
-export const DEFAULT_THEME = "midnight";
+export const DEFAULT_THEME = "royal";
 
-// Background-family tokens as [token, saturation%, lightness%] (from Midnight).
-// Only the hue (and a saturation scale) changes per theme; lightness is kept so
-// contrast stays consistent.
-const BG_TOKENS: [string, number, number][] = [
-  ["background", 22, 7], ["card", 20, 11], ["sidebar", 24, 6], ["popover", 22, 9],
-  ["border", 18, 16], ["card-border", 18, 16], ["sidebar-border", 18, 13], ["popover-border", 18, 16],
-  ["sidebar-accent", 18, 12], ["secondary", 18, 16], ["muted", 18, 14], ["accent", 18, 16], ["input", 18, 20],
+// Background-family tokens as [token, hueOffset, saturation%, lightness%],
+// taken verbatim from the royal ground in index.css. A preset shifts the hue
+// and scales the saturation; lightness never moves, so contrast is identical
+// across every theme.
+const BG_TOKENS: [string, number, number, number][] = [
+  ["background",      1, 30,  6],
+  ["card",            0, 26, 10],
+  ["sidebar",         3, 32,  5],
+  ["popover",         1, 26,  8],
+  ["border",         -1, 20, 17],
+  ["card-border",    -1, 20, 17],
+  ["sidebar-border", -3, 18, 13],
+  ["popover-border", -3, 18, 16],
+  ["sidebar-accent", -3, 18, 12],
+  ["secondary",      -3, 18, 16],
+  ["muted",           0, 20, 13],
+  ["accent",         -3, 18, 16],
+  ["input",          -3, 18, 20],
 ];
 
-const STORAGE = "stormsync_theme_v1";
+// v2: v1 stored "midnight" as everyone's default, which pinned the app to the
+// old blue-grey palette even after the royal ground landed. Bumping the key
+// lands existing members on Royal; re-picking a preset is one tap.
+const STORAGE = "stormsync_theme_v2";
 
 interface Saved { theme: string; accent: string | null }
 function load(): Saved {
@@ -72,8 +92,9 @@ export function hexToHsl(hex: string): { h: number; s: number; l: number } | nul
 
 function applyVars(preset: ThemePreset, accent: string | null) {
   const root = document.documentElement.style;
-  for (const [token, sat, light] of BG_TOKENS) {
-    root.setProperty(`--${token}`, `${preset.bgHue} ${Math.round(sat * preset.bgSat)}% ${light}%`);
+  for (const [token, hueOffset, sat, light] of BG_TOKENS) {
+    const hue = ((preset.bgHue + hueOffset) % 360 + 360) % 360;
+    root.setProperty(`--${token}`, `${hue} ${Math.round(sat * preset.bgSat)}% ${light}%`);
   }
   // Accent: explicit hex overrides the preset's primary.
   let primary = preset.primary, primaryFg = preset.primaryFg;
@@ -84,6 +105,8 @@ function applyVars(preset: ThemePreset, accent: string | null) {
   for (const t of ["primary", "ring", "sidebar-primary", "sidebar-ring"]) root.setProperty(`--${t}`, primary);
   root.setProperty("--primary-foreground", primaryFg);
   root.setProperty("--sidebar-primary-foreground", primaryFg);
+  // `--gold` stays the fixed champagne signature (rules, eyebrows, hairlines)
+  // so the royal furniture reads the same under every preset.
 }
 
 export function getTheme(): { theme: string; accent: string | null } { return load(); }

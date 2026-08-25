@@ -6,15 +6,24 @@
  * The PIN is one real <input> sitting transparently over four display cells:
  * a genuine input keeps paste, autofill, password managers and the numeric
  * keypad working, while the cells give it the shape of a passcode entry.
+ *
+ * Every `QuestionType` the admin panel can produce is rendered with its real
+ * control here — a `date` question must get the native date picker, not a bare
+ * text box, or the member is left guessing at a format.
  */
 import { motion } from "framer-motion";
 import { Lock, Mail, User as UserIcon } from "lucide-react";
-import type { SignupQuestion } from "../../hooks/useAuth";
+import type { QuestionType, SignupQuestion } from "../../hooks/useAuth";
 import { ROYAL, EASE } from "../../lib/royal";
 
 const FIELD =
   "w-full bg-[hsl(var(--muted)/0.35)] border rounded-lg px-3 py-2.5 text-sm outline-none " +
   "transition-colors focus:border-[rgba(217,183,117,0.55)] focus:bg-[hsl(var(--muted)/0.5)]";
+
+// `color-scheme: dark` is what makes Chrome/Safari draw the native date and
+// time pickers (and their calendar glyph) in dark trim instead of a white
+// panel with an invisible black icon on our dark ground.
+const FIELD_STYLE: React.CSSProperties = { borderColor: "hsl(var(--border))", colorScheme: "dark" };
 
 function Label({ icon: Icon, children }: { icon?: React.ElementType; children: React.ReactNode }) {
   return (
@@ -73,26 +82,53 @@ export function PinField({ value, onChange }: { value: string; onChange: (v: str
   );
 }
 
+/** Maps an admin question type onto the HTML input type that actually has the
+ *  right keyboard and picker on a phone. */
+function inputTypeFor(t: QuestionType): string {
+  switch (t) {
+    case "date": return "date";
+    case "email": return "email";
+    case "tel": return "tel";
+    case "number": return "number";
+    default: return "text";
+  }
+}
+
 export function CustomQuestionField({
   q, value, onChange,
 }: { q: SignupQuestion; value: string; onChange: (v: string) => void }) {
+  if (q.type === "checkbox") {
+    const checked = value === "yes";
+    return (
+      <label className="flex items-start gap-2.5 cursor-pointer">
+        <input type="checkbox" checked={checked} required={q.required}
+               onChange={(e) => onChange(e.target.checked ? "yes" : "")}
+               className="mt-0.5 w-4 h-4 shrink-0 accent-[#d9b775]" style={{ colorScheme: "dark" }} />
+        <span className="text-[12px] leading-snug" style={{ color: ROYAL.dim }}>
+          {q.label}{q.required ? " *" : ""}
+        </span>
+      </label>
+    );
+  }
+
   return (
     <label className="block">
       <Label>{q.label}{q.required ? " *" : ""}</Label>
       {q.type === "textarea" ? (
         <textarea value={value} onChange={(e) => onChange(e.target.value)} required={q.required}
                   placeholder={q.placeholder} rows={3}
-                  className={`${FIELD} resize-none`} style={{ borderColor: "hsl(var(--border))" }} />
+                  className={`${FIELD} resize-none`} style={FIELD_STYLE} />
       ) : q.type === "select" ? (
         <select value={value} onChange={(e) => onChange(e.target.value)} required={q.required}
-                className={FIELD} style={{ borderColor: "hsl(var(--border))" }}>
+                className={FIELD} style={FIELD_STYLE}>
           <option value="">Select…</option>
           {(q.options ?? []).map((o) => <option key={o} value={o}>{o}</option>)}
         </select>
       ) : (
         <input value={value} onChange={(e) => onChange(e.target.value)} required={q.required}
-               placeholder={q.placeholder} type={q.type === "number" ? "number" : "text"}
-               className={FIELD} style={{ borderColor: "hsl(var(--border))" }} />
+               placeholder={q.placeholder} type={inputTypeFor(q.type)}
+               inputMode={q.type === "tel" ? "tel" : undefined}
+               className={FIELD} style={FIELD_STYLE} />
       )}
     </label>
   );
@@ -111,12 +147,12 @@ export function AccountFields({
     <label className="block" key="name">
       <Label icon={UserIcon}>Full name</Label>
       <input value={name} onChange={(e) => onName(e.target.value)} required type="text"
-             autoComplete="name" className={FIELD} style={{ borderColor: "hsl(var(--border))" }} />
+             autoComplete="name" className={FIELD} style={FIELD_STYLE} />
     </label>,
     <label className="block" key="email">
       <Label icon={Mail}>Email</Label>
       <input value={email} onChange={(e) => onEmail(e.target.value)} required type="email"
-             autoComplete="email" className={FIELD} style={{ borderColor: "hsl(var(--border))" }} />
+             autoComplete="email" className={FIELD} style={FIELD_STYLE} />
     </label>,
     <PinField key="pin" value={pin} onChange={onPin} />,
     ...questions.map((q) => (

@@ -71,13 +71,20 @@ async function countCsvRows(url: string): Promise<number> {
 }
 
 // ---- RSS parsing (Google News) ------------------------------------------------
+// Google News double-escapes its descriptions, so `&amp;nbsp;` survives one
+// decode pass as a literal `&nbsp;` — which is exactly what was printing in the
+// feed. Decoding is table-driven and runs again after tags are stripped.
+const NAMED_ENTITIES: Record<string, string> = {
+  nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
+  ldquo: "\u201c", rdquo: "\u201d", lsquo: "\u2018", rsquo: "\u2019",
+  mdash: "\u2014", ndash: "\u2013", hellip: "\u2026", middot: "\u00b7",
+};
 function decodeEntities(s: string): string {
   return s
     .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-    .replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'").replace(/&apos;/g, "'")
-    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
-    .replace(/&amp;/g, "&");
+    .replace(/&#x([0-9a-f]+);/gi, (_, h) => String.fromCodePoint(parseInt(h, 16)))
+    .replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n)))
+    .replace(/&([a-z]+);/gi, (m, name) => NAMED_ENTITIES[String(name).toLowerCase()] ?? m);
 }
 function pick(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
@@ -95,7 +102,8 @@ function parseRssItems(xml: string): RssItem[] {
     const source = pick(block, "source") || (rawTitle.includes(" - ") ? rawTitle.split(" - ").pop()! : "Google News");
     // Google News prefixes the title with the headline and " - Source"; trim the source suffix.
     const title = source && rawTitle.endsWith(` - ${source}`) ? rawTitle.slice(0, -(source.length + 3)) : rawTitle;
-    const description = pick(block, "description").replace(/<[^>]+>/g, "").slice(0, 200);
+    const description = decodeEntities(pick(block, "description").replace(/<[^>]+>/g, " "))
+      .replace(/\s+/g, " ").trim().slice(0, 200);
     const pubDate = pick(block, "pubDate");
     out.push({ title, link, description, source, pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString() });
   }

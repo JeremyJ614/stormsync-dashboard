@@ -1,4 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
+import { motion, LayoutGroup } from "framer-motion";
+import { Flower2 } from "lucide-react";
+import { ModuleShell } from "../components/ModuleShell";
+import { PollenTab } from "../components/aqi/PollenTab";
+import { ROYAL, prefersReducedMotion } from "../lib/royal";
 import { useRef, useEffect, useState } from "react";
 import type { Location } from "../hooks/useLocation";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LineChart, Line, CartesianGrid } from "recharts";
@@ -395,6 +400,7 @@ function PollutantMeter({ value, max, color }: { value: number; max: number; col
 
 // ── Main component ───────────────────────────────────────────────────────────
 export default function AQIForecast({ location }: Props) {
+  const [tab, setTab] = useState<"air" | "pollen">("air");
   const { data, isLoading, error } = useQuery({
     queryKey: ["aqi", location.lat.toFixed(3), location.lon.toFixed(3)],
     queryFn: () => fetchAQI(location.lat, location.lon),
@@ -482,9 +488,42 @@ export default function AQIForecast({ location }: Props) {
   ];
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <PageHero icon={Wind} title="Air Quality Forecast" subtitle={`${location.name} · EPA-Accurate AQI`} />
-
+    <ModuleShell
+      eyebrow="Open-Meteo CAMS · EPA breakpoints"
+      title={<>Air Quality &amp; Allergy</>}
+      subtitle={`What is in the air over ${location.name}, and how readily it is moving around.`}
+      status={
+        <LayoutGroup id="aqi-tabs">
+          <div className="grid grid-cols-2 gap-1 rounded-xl p-1.5"
+               style={{ background: "hsl(var(--muted) / 0.3)", border: "1px solid hsl(var(--border))" }}>
+            {([
+              { id: "air", label: "Air Quality", icon: Wind },
+              { id: "pollen", label: "Pollen & Allergy", icon: Flower2 },
+            ] as const).map((t) => {
+              const Icon = t.icon;
+              const on = tab === t.id;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className="relative py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                  style={{ color: on ? "#17141f" : "hsl(var(--muted-foreground))", zIndex: 1 }}>
+                  {on && (
+                    <motion.span layoutId="aqi-tab-slab"
+                      transition={prefersReducedMotion() ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 30 }}
+                      className="absolute inset-0 rounded-lg -z-10"
+                      style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a55f)` }} />
+                  )}
+                  <Icon className="w-4 h-4" /> {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </LayoutGroup>
+      }
+    >
+      {tab === "pollen" ? (
+        <PollenTab lat={location.lat} lon={location.lon} place={location.name} />
+      ) : (
+      <div className="space-y-6">
       {error ? (
         <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 text-sm text-destructive flex gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -727,6 +766,8 @@ export default function AQIForecast({ location }: Props) {
           </a>
         </>
       )}
-    </div>
+      </div>
+      )}
+    </ModuleShell>
   );
 }

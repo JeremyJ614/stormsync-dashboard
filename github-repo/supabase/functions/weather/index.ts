@@ -452,6 +452,84 @@ Deno.serve(async (req) => {
       }
     }
 
+    /**
+     * Pollen forecast, via Google's Pollen API.
+     *
+     * There is no free unauthenticated pollen feed covering the United States —
+     * Open-Meteo's pollen fields are CAMS-Europe only and return null for every
+     * US hour, and pollen.com's endpoint is an internal one that refuses any
+     * request without a forged Referer. Google's is official, documented and
+     * US-wide, and it needs a key.
+     *
+     * When the key is absent this answers 501 with a plain reason rather than
+     * an empty forecast, so the client can say what is missing instead of
+     * rendering zeros that look like "no pollen today".
+     */
+    if (route === "/pollen") {
+      const lat = Number(url.searchParams.get("lat"));
+      const lon = Number(url.searchParams.get("lon"));
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+        return json({ error: "lat and lon required" }, 400);
+      }
+
+      const key = Deno.env.get("GOOGLE_POLLEN_KEY");
+      if (!key) {
+        return json({
+          available: false,
+          error: "Pollen counts need a Google Pollen API key. Set GOOGLE_POLLEN_KEY on this function to turn them on.",
+        }, 501);
+      }
+
+      const cacheKey = `pollen:${lat.toFixed(2)},${lon.toFixed(2)}`;
+      const cached = await cacheGet(cacheKey, 3 * 3600);
+      if (cached) return json(cached, 200, 3 * 3600);
+
+      const api = `https://pollen.googleapis.com/v1/forecast:lookup` +
+        `?key=${encodeURIComponent(key)}&location.latitude=${lat}&location.longitude=${lon}` +
+        `&days=5&plantsDescription=true`;
+      const r = await fetch(api, { headers: { "user-agent": UA } });
+      if (!r.ok) {
+        return json({ available: false, error: `Google Pollen returned ${r.status}.` }, 502);
+      }
+      const raw = await r.json();
+
+      const band = (n: number): string =>
+        n >= 5 ? "very_high" : n >= 4 ? "high" : n >= 3 ? "moderate" : n >= 2 ? "low" : n >= 1 ? "very_low" : "none";
+      const title = (s: string) =>
+        s.replace(/_/g, " ").toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+
+      // deno-lint-ignore no-explicit-any
+      const days = (raw?.dailyInfo ?? []).map((d: any) => {
+        const date = d.date
+          ? `${d.date.year}-${String(d.date.month).padStart(2, "0")}-${String(d.date.day).padStart(2, "0")}`
+          : "";
+        // deno-lint-ignore no-explicit-any
+        const types = (d.pollenTypeInfo ?? []).map((t: any) => ({
+          code: t.code ?? "",
+          label: t.displayName ?? title(t.code ?? ""),
+          index: t.indexInfo?.value ?? 0,
+          band: band(t.indexInfo?.value ?? 0),
+          inSeason: !!t.inSeason,
+          advice: t.healthRecommendations?.[0] ?? null,
+        }));
+        // deno-lint-ignore no-explicit-any
+        const species = (d.plantInfo ?? []).map((pl: any) => ({
+          code: pl.code ?? "",
+          label: pl.displayName ?? title(pl.code ?? ""),
+          family: pl.plantDescription?.family ?? null,
+          index: pl.indexInfo?.value ?? 0,
+          band: band(pl.indexInfo?.value ?? 0),
+          inSeason: !!pl.inSeason,
+        // deno-lint-ignore no-explicit-any
+        })).filter((pl: any) => pl.inSeason || pl.index > 0);
+        return { date, types, species };
+      });
+
+      const payload = { available: true, days };
+      await cacheSet(cacheKey, payload);
+      return json(payload, 200, 3 * 3600);
+    }
+
     return json({ error: "not found", route }, 404);
   } catch (e) {
     return json({ error: String(e instanceof Error ? e.message : e) }, 502);

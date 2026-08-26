@@ -18,6 +18,8 @@ export interface User {
   joinedAt: string;
   badges: string[];
   customAnswers: Record<string, string>;
+  /** When they finished the intro guide. Null means it has not been shown. */
+  introSeenAt: string | null;
 }
 
 export type QuestionType = "text" | "email" | "select" | "textarea" | "number" | "tel" | "date" | "checkbox";
@@ -113,6 +115,7 @@ export interface ProfileRow {
   custom_answers: Record<string, string> | null;
   joined_at: string;
   created_at: string;
+  intro_seen_at?: string | null;
 }
 
 export function rowToUser(r: ProfileRow): User {
@@ -129,6 +132,7 @@ export function rowToUser(r: ProfileRow): User {
     customAnswers: r.custom_answers ?? {},
     joinedAt: r.joined_at,
     createdAt: r.created_at,
+    introSeenAt: r.intro_seen_at ?? null,
   };
 }
 
@@ -203,6 +207,21 @@ function init() {
       emit({ user: null, loading: false });
     }
   });
+}
+
+/**
+ * Reload the signed-in member's profile and push it to every subscriber.
+ *
+ * The store is otherwise driven only by Supabase auth events, which do not fire
+ * when a row changes underneath us. Anything that writes to `profiles` and
+ * expects the UI to notice — finishing the intro guide, an admin granting a
+ * module — calls this afterwards.
+ */
+export async function refreshProfile(): Promise<void> {
+  const { data } = await supabase.auth.getUser();
+  const uid = data?.user?.id;
+  if (!uid) return;
+  emit({ user: await loadProfile(uid), loading: false });
 }
 
 function subscribe(cb: () => void) {
@@ -353,4 +372,23 @@ export async function verifyEmergencyPin(candidate: string): Promise<PinResult> 
 /** Boolean form, for callers that genuinely only need pass/fail. */
 export async function checkEmergencyPin(candidate: string): Promise<boolean> {
   return (await verifyEmergencyPin(candidate)) === "ok";
+}
+
+/**
+ * Record that the member has been through the intro guide.
+ *
+ * `intro_seen_at` is the member's own preference about their own onboarding, so
+ * it is not one of the columns `protect_profile_columns` guards and they write
+ * it directly. Passing null is how the replay control in My Profile arms it to
+ * run again on the next load.
+ */
+export async function setIntroSeen(seen: boolean): Promise<boolean> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return false;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ intro_seen_at: seen ? new Date().toISOString() : null })
+    .eq("id", uid);
+  return !error;
 }

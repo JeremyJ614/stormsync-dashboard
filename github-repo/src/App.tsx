@@ -16,7 +16,7 @@ import { UpdateChip } from "./components/UpdateChip";
 import { ViewAsBanner } from "./components/ViewAsBanner";
 import { AnimatePresence, LayoutGroup } from "framer-motion";
 import { recordModuleView } from "./lib/moduleUsage";
-import { useAuth, hasModuleAccess } from "./hooks/useAuth";
+import { useAuth, hasModuleAccess, setIntroSeen, refreshProfile } from "./hooks/useAuth";
 import { ModuleUpsell } from "./components/ModuleUpsell";
 import { registerPrefetch } from "./lib/prefetch";
 
@@ -81,6 +81,9 @@ const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glo
 const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
 const WinterCenter = lazyRoute(() => import("./pages/WinterCenter"), "/winter");
 const TrafficCameras = lazyRoute(() => import("./pages/TrafficCameras"), "/cameras");
+// Lazy on purpose: most sessions are by members who have already seen this, and
+// they should never pay to download it.
+const IntroGuide = lazy(() => import("./components/intro/IntroGuide").then((m) => ({ default: m.IntroGuide })));
 const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"), "/mosquito");
 const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"), "/lightning-globe");
 
@@ -117,6 +120,41 @@ function Gated({ path, children }: { path: string; children: React.ReactNode }) 
   return <>{children}</>;
 }
 
+
+/**
+ * The intro guide, shown once.
+ *
+ * Runs when a signed-in member has no `intro_seen_at`, and never again once it
+ * is set. The flag is written the moment they finish or dismiss, so closing it
+ * counts as having seen it: nobody should have the same modal thrown at them
+ * twice because they had somewhere to be the first time.
+ *
+ * Held back until auth has settled, otherwise it flashes for a moment on every
+ * cold load before the profile arrives.
+ */
+function FirstRunIntro() {
+  const { user, loading } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (loading || !user || dismissed) return;
+    if (user.introSeenAt) return;
+    setOpen(true);
+  }, [loading, user, dismissed]);
+
+  if (!open || !user) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <IntroGuide
+        onClose={() => { setOpen(false); setDismissed(true); }}
+        onFinished={() => { void setIntroSeen(true).then(() => refreshProfile()); }}
+      />
+    </Suspense>
+  );
+}
+
 function AppInner() {
   const { location, setLocation, detectLocation, isGeolocating } = useLocation();
   const [path] = useWouterLocation();
@@ -131,6 +169,8 @@ function AppInner() {
   }, [path, user, viewAs]);
 
   return (
+    <>
+    <FirstRunIntro />
     <Layout location={location} onSetLocation={setLocation} onDetectLocation={detectLocation} isGeolocating={isGeolocating}>
       <Switch>
         <Route path="/" component={() => <PW name="Home"><Home /></PW>} />
@@ -188,6 +228,7 @@ function AppInner() {
       <UpdateChip />
       <ViewAsBanner />
     </Layout>
+    </>
   );
 }
 

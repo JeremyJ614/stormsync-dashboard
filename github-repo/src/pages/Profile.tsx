@@ -10,6 +10,7 @@ import { AppearancePanel } from "../components/AppearancePanel";
 import { StormAlertsCard } from "../components/StormAlertsCard";
 import { InstallApp } from "../components/InstallApp";
 import { AlertSettings } from "../components/alerts/AlertSettings";
+import { ReplayIntroCard } from "../components/intro/ReplayIntroCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
 // Core signup fields are shown elsewhere; everything else the member answered
@@ -134,6 +135,9 @@ export default function Profile() {
       <div className="bg-card border border-border rounded-xl p-4">
         <AlertSettings />
       </div>
+
+      {/* Replay the intro guide */}
+      <ReplayIntroCard />
 
       {/* Install to home screen (PWA) */}
       <InstallApp />

@@ -186,6 +186,16 @@ function init() {
       if (!state.user) emit({ user: null, loading: true });
       setTimeout(async () => {
         emit({ user: await loadProfile(uid), loading: false });
+        // Award anything newly qualified for. Runs after the profile is in
+        // hand so the UI is never waiting on it, and is a no-op when there is
+        // nothing to give — the database refuses a second award for the same
+        // badge, so this cannot double-notify however often it fires.
+        try {
+          const { data: earned } = await supabase.rpc("evaluate_badges");
+          if (Array.isArray(earned) && earned.length) {
+            emit({ user: await loadProfile(uid), loading: false });
+          }
+        } catch { /* a badge is never worth breaking sign-in over */ }
       }, 0);
     } else {
       emit({ user: null, loading: false });

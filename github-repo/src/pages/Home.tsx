@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { Megaphone } from "lucide-react";
+import { AppUpdatesTab } from "../components/home/AppUpdatesTab";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { listNews } from "../lib/news";
@@ -9,7 +11,7 @@ import DailyBriefing from "../components/DailyBriefing";
 import { Newspaper, AlertCircle, Sparkles, ArrowRight, ExternalLink, Clock } from "lucide-react";
 const logoUrl = "/img/logo-lg.webp";
 
-type Tab = "weather" | "sswx";
+type Tab = "weather" | "sswx" | "updates";
 
 interface NewsItem {
   title: string;
@@ -93,16 +95,22 @@ export default function Home() {
       <DailyBriefing />
 
       {/* Tabs */}
-      <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
+      <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
         <button onClick={() => setTab("weather")}
-          className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "weather" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-          <Newspaper className="w-4 h-4" /> Weather News
+          className={`py-2.5 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "weather" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+          <Newspaper className="w-4 h-4" /> <span className="truncate">Weather News</span>
         </button>
         <button onClick={() => setTab("sswx")}
-          className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "sswx" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-          <Sparkles className="w-4 h-4" /> SSWX News
+          className={`py-2.5 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "sswx" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+          <Sparkles className="w-4 h-4" /> <span className="truncate">SSWX News</span>
+        </button>
+        <button onClick={() => setTab("updates")}
+          className={`py-2.5 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-2 transition-colors ${tab === "updates" ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+          <Megaphone className="w-4 h-4" /> <span className="truncate">App Updates</span>
         </button>
       </div>
+
+      {tab === "updates" && <AppUpdatesTab />}
 
       {tab === "weather" && (
         <div className="space-y-3">

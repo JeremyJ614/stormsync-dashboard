@@ -44,13 +44,21 @@ export function DigestCard({ lat, lon, place }: { lat: number; lon: number; plac
     staleTime: TTL.normal,
   });
 
+  // saveDigestPrefs reports failure by returning { ok: false } rather than
+  // throwing, so onSuccess fires either way. Closing the editor on a failed save
+  // was how a real bug stayed invisible: the panel shut, nothing had changed,
+  // and there was nothing on screen to say why.
+  const [saveError, setSaveError] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: saveDigestPrefs,
-    onSuccess: () => {
+    onSuccess: (r) => {
+      if (!r.ok) { setSaveError(r.error ?? "Could not save your brief settings."); return; }
+      setSaveError(null);
       void qc.invalidateQueries({ queryKey: ["digest-prefs"] });
       void qc.invalidateQueries({ queryKey: ["digest"] });
       setEditing(false);
     },
+    onError: (e) => setSaveError(e instanceof Error ? e.message : "Could not save your brief settings."),
   });
 
   const sections = digestQ.data ?? [];
@@ -145,7 +153,8 @@ export function DigestCard({ lat, lon, place }: { lat: number; lon: number; plac
             <Editor
               prefs={prefs}
               busy={save.isPending}
-              onCancel={() => setEditing(false)}
+              error={saveError}
+              onCancel={() => { setSaveError(null); setEditing(false); }}
               onSave={(p) => save.mutate(p)}
             />
           </motion.div>
@@ -156,10 +165,11 @@ export function DigestCard({ lat, lon, place }: { lat: number; lon: number; plac
 }
 
 function Editor({
-  prefs, busy, onSave, onCancel,
+  prefs, busy, error, onSave, onCancel,
 }: {
   prefs: { hour: number; sections: SectionKey[] };
   busy: boolean;
+  error: string | null;
   onSave: (p: { hour: number; sections: SectionKey[] }) => void;
   onCancel: () => void;
 }) {
@@ -183,6 +193,12 @@ function Editor({
   return (
     <Panel title="What's in your brief, and when">
       <div className="space-y-4">
+        {error && (
+          <div className="rounded-lg px-3 py-2 text-[12px]"
+               style={{ background: "rgba(255,77,85,0.1)", border: "1px solid rgba(255,77,85,0.35)", color: "#ffb3b6" }}>
+            {error}
+          </div>
+        )}
         <div>
           <h4 className="text-[11px] uppercase tracking-wider mb-2" style={{ color: ROYAL.dim }}>
             Sections

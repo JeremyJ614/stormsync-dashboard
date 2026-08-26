@@ -221,9 +221,17 @@ export const DEFAULT_ALERT_PREFS: AlertPrefs = {
 };
 
 export async function fetchAlertPrefs(): Promise<AlertPrefs> {
+  // Filter by user_id explicitly. An admin can read every row of
+  // notification_prefs by policy, so an unfiltered maybeSingle() matches more
+  // than one row for them and errors — which reads on screen as settings that
+  // refuse to save. See getDigestPrefs for the same bug and the same fix.
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return DEFAULT_ALERT_PREFS;
   const { data } = await supabase
     .from("notification_prefs")
     .select("alert_scope,alert_location_ids,alert_state,alert_email,alert_phone,email_optin,text_optin,direct_line_note")
+    .eq("user_id", uid)
     .maybeSingle();
   if (!data) return DEFAULT_ALERT_PREFS;
   return {

@@ -45,10 +45,23 @@ export const DEFAULT_PREFS: DigestPrefs = {
   sections: ["conditions", "today", "alerts", "severe"],
 };
 
+/**
+ * The member's own digest settings.
+ *
+ * The `user_id` filter is not redundant, and leaving it off was a real bug: an
+ * ADMIN can read every row of `notification_prefs` by policy, so an unfiltered
+ * `maybeSingle()` matched three rows for them, errored, and fell through to the
+ * defaults every single time. The save had always worked; the read-back never
+ * did, which on screen is indistinguishable from "it does not save".
+ */
 export async function getDigestPrefs(): Promise<DigestPrefs> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return DEFAULT_PREFS;
   const { data } = await supabase
     .from("notification_prefs")
     .select("digest_hour,digest_sections")
+    .eq("user_id", uid)
     .maybeSingle();
   if (!data) return DEFAULT_PREFS;
   const sections = (data.digest_sections as string[] | null) ?? DEFAULT_PREFS.sections;

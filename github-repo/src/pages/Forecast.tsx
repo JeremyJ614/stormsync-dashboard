@@ -1,4 +1,8 @@
 import { useOpenMeteo, useNWSForecast, useNWSPoints } from "../hooks/useWeatherQuery";
+import { Panel } from "../components/ModuleShell";
+import { Barograph, type BaroPoint } from "../components/motion/WeatherMotion";
+import { useCalm } from "../lib/calm";
+import { ROYAL } from "../lib/royal";
 import type { Location } from "../hooks/useLocation";
 import { ChartSkeleton } from "../components/WeatherSkeleton";
 import { cToF, msToMph, getWindDirection } from "../utils/weatherCalc";
@@ -8,13 +12,13 @@ import {
 } from "recharts";
 import { format, parseISO } from "date-fns";
 import { CalendarDays, Thermometer, Wind, CloudRain } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { WEATHER_ICONS } from "../config";
 import { PageHero } from "../components/PageHero";
 
 interface Props { location: Location }
 
-const TABS = ["Daily", "Hourly", "Wind", "Precipitation"] as const;
+const TABS = ["Daily", "Hourly", "Wind", "Precipitation", "Pressure"] as const;
 type Tab = typeof TABS[number];
 
 const TOOLTIP_STYLE = { background: "hsl(232 20% 10%)", border: "1px solid hsl(232 18% 16%)", borderRadius: 8, fontSize: 12 };
@@ -26,6 +30,16 @@ export default function Forecast({ location }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("Daily");
 
   const hourly = weather?.hourly;
+  const { calm } = useCalm(location.lat, location.lon);
+
+  // Surface pressure was already being fetched and never shown. 48 hours of it
+  // is a barograph — the oldest storm instrument there is.
+  const baro = useMemo<BaroPoint[]>(() => {
+    const times = hourly?.time as string[] | undefined;
+    const mb = hourly?.surface_pressure as number[] | undefined;
+    if (!times || !mb) return [];
+    return times.slice(0, 48).map((t, i) => ({ t, mb: mb[i] })).filter((p) => typeof p.mb === "number");
+  }, [hourly]);
   const daily = weather?.daily;
 
   const hourlyData = (hourly?.time as string[] | undefined)?.slice(0, 48).map((t: string, i: number) => ({
@@ -236,6 +250,22 @@ export default function Forecast({ location }: Props) {
               </ResponsiveContainer>
             )}
           </div>
+        </div>
+      )}
+
+      {activeTab === "Pressure" && (
+        <div className="space-y-4">
+          <Panel
+            title="Barograph"
+            aside={<span className="text-[10px]" style={{ color: ROYAL.dim }}>48 hours · surface pressure</span>}
+          >
+            <Barograph points={baro} calm={calm} height={140} />
+            <p className="text-[11px] mt-3 leading-relaxed" style={{ color: ROYAL.dim }}>
+              A falling barometer is the oldest storm signal there is, and the rate matters more than the
+              number: a drop of more than about a millibar an hour is what a forecaster looks for, and it is
+              invisible on an ordinary line chart unless something points at it. Any such hour is marked.
+            </p>
+          </Panel>
         </div>
       )}
     </div>

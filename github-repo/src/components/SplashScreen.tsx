@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { BrandMark } from "./BrandMark";
 
 /**
  * StormSync intro (P-1.5). A geometric, single-take reveal: a radar sweep over a
@@ -8,7 +9,6 @@ import { useEffect, useState } from "react";
  * Motion is purely CSS so it stays smooth on low-end phones, and the whole thing
  * collapses to a static frame under `prefers-reduced-motion`.
  */
-const MARK = "/img/mark.webp";
 const TOTAL_MS = 3000;
 
 export function SplashScreen({ onDone }: { onDone: () => void }) {
@@ -55,7 +55,9 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
       {/* ── Brand ── */}
       <div className="sswx-center">
         <div className="sswx-markwrap">
-          <img src={MARK} alt="" className="sswx-mark" width={112} height={149} />
+          {/* Shares BRAND_LAYOUT_ID with the header copy, so it flies rather
+              than fades when the splash lifts. */}
+          <BrandMark size={112} drip />
           <span className="sswx-pulse" />
         </div>
 

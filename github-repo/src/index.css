@@ -480,3 +480,24 @@ h1 { letter-spacing: 0.02em; }
 @media (prefers-reduced-motion: reduce) {
   .pollen-grain { animation: none; opacity: 0 !important; }
 }
+
+/* ── The skull drips ──────────────────────────────────────────────────────────
+   A drop under surface tension hangs, stretches as it releases, and thins as it
+   falls — so ry animates independently of cy rather than the whole ellipse just
+   translating down. Transform and opacity only; `ry` is an SVG geometry
+   attribute animated via CSS, which Chromium and WebKit both composite. */
+@keyframes sswx-drip {
+  0%,  8%  { transform: translateY(0)    scaleY(0.7); opacity: 0; }
+  14%      { transform: translateY(2px)  scaleY(1.15); opacity: 0.9; }
+  55%      { transform: translateY(38px) scaleY(1.6); opacity: 0.85; }
+  85%      { transform: translateY(72px) scaleY(2.1); opacity: 0.25; }
+  100%     { transform: translateY(88px) scaleY(2.4); opacity: 0; }
+}
+.sswx-drip {
+  animation-name: sswx-drip;
+  animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.55);
+  animation-iteration-count: infinite;
+  transform-origin: center top;
+  filter: drop-shadow(0 0 4px rgba(176, 107, 224, 0.7));
+}
+@media (prefers-reduced-motion: reduce) { .sswx-drip { animation: none; opacity: 0; } }

@@ -14,6 +14,7 @@ import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { UpdateChip } from "./components/UpdateChip";
 import { ViewAsBanner } from "./components/ViewAsBanner";
+import { AnimatePresence, LayoutGroup } from "framer-motion";
 import { recordModuleView } from "./lib/moduleUsage";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 import { ModuleUpsell } from "./components/ModuleUpsell";
@@ -189,13 +190,24 @@ function AppInner() {
 function App() {
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem("stormsync_splash_shown"));
   const handleSplashDone = () => { sessionStorage.setItem("stormsync_splash_shown", "1"); setShowSplash(false); };
-  if (showSplash) return <SplashScreen onDone={handleSplashDone} />;
+
+  // The splash overlays the app rather than replacing it. Two reasons, and the
+  // first is the reason it had to change: a `layoutId` can only animate between
+  // elements that exist in the same tree, so the brand mark can only fly from
+  // the splash into the header if the header is already mounted behind it.
+  // Second, and free: the app boots and its first queries run while the splash
+  // is still up, so the screen behind is warm by the time it lifts.
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppInner />
-        </WouterRouter>
+        <LayoutGroup id="sswx-brand">
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AppInner />
+          </WouterRouter>
+          <AnimatePresence>
+            {showSplash && <SplashScreen key="splash" onDone={handleSplashDone} />}
+          </AnimatePresence>
+        </LayoutGroup>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode, useMemo, useSyncExternalStore } from "react";
+import { BrandMark } from "./BrandMark";
 import { motion, LayoutGroup } from "framer-motion";
 import { Link, useLocation } from "wouter";
 import { cn } from "@/lib/utils";
@@ -23,7 +24,6 @@ import { MorphToggle } from "./nav/MorphToggle";
 import { NavItem } from "./nav/NavItem";
 import { ROYAL, SPRING, prefersReducedMotion } from "../lib/royal";
 const logoUrl = "/img/logo.webp";
-const markUrl = "/img/mark.webp"; // dripping-skull brand mark
 
 // ─── Navigation structure ────────────────────────────────────────────────────
 const NAV_SECTIONS = [
@@ -275,14 +275,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
         />
         {/* Logo row */}
         <div className="flex items-center gap-3 px-[15px] py-3 border-b border-[rgba(204,204,255,0.09)] min-h-[58px]">
-          <img
-            src={markUrl}
-            alt="StormSync"
-            width={32}
-            height={32}
-            className="w-[32px] h-[32px] flex-shrink-0 object-contain"
-            style={{ filter: "drop-shadow(0 0 10px rgba(155,80,220,0.45))" }}
-          />
+          <BrandMark size={28} className="flex-shrink-0" />
           <div
             className={cn(
               "overflow-hidden whitespace-nowrap transition-all duration-300",

@@ -6,6 +6,9 @@ import { useState, useMemo } from "react";
 import { fetchAllUSAlerts, fetchStormReports, type NWSAlertFeature } from "../utils/weatherApi";
 import { motion, LayoutGroup } from "framer-motion";
 import { ModuleShell } from "../components/ModuleShell";
+import { ShieldAlert } from "lucide-react";
+import { WarningEntrance } from "../components/motion/WarningEntrance";
+import { useCalm, isCalmEvent } from "../lib/calm";
 import { ReportsTab } from "../components/warnings/ReportsTab";
 import { ROYAL, prefersReducedMotion } from "../lib/royal";
 
@@ -111,6 +114,9 @@ function useStormReportsQ() {
 
 export default function WarningCenter({ location }: Props) {
   const [tab, setTab] = useState<"warnings" | "reports">("warnings");
+  // Nothing on this page is allowed to animate while a warning is live for the
+  // member's own location. See lib/calm — it is a rule, not a preference.
+  const { calm, reason, event: calmEvent } = useCalm(location.lat, location.lon);
   const { data: alerts = [], isLoading, error, refetch, isFetching } = useNationwideWarnings();
   const { data: reports } = useStormReportsQ();
   const [selectedState, setSelectedState] = useState("");
@@ -187,6 +193,19 @@ export default function WarningCenter({ location }: Props) {
         </LayoutGroup>
       }
     >
+      {calm && reason === "warning" && (
+        <div className="rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs"
+             style={{ background: "rgba(226,55,60,0.1)", border: "1px solid rgba(226,55,60,0.3)" }}>
+          <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: "#e2373c" }} />
+          <span style={{ color: "#f0b8ba" }}>
+            <strong>{calmEvent} in effect for your location.</strong>{" "}
+            <span style={{ color: "hsl(var(--muted-foreground))" }}>
+              Animations are off across the app while it stands — nothing on screen will move while you read.
+            </span>
+          </span>
+        </div>
+      )}
+
       {tab === "reports" ? (
         <ReportsTab lat={location.lat} lon={location.lon} place={location.name} />
       ) : (
@@ -313,13 +332,15 @@ export default function WarningCenter({ location }: Props) {
       {!isLoading && activeAlerts.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">All Active Alerts ({activeAlerts.length})</h3>
-          {activeAlerts.map(alert => {
+          {activeAlerts.map((alert, i) => {
             const sev = alert.properties.severity ?? "Unknown";
             const styles = SEVERITY_STYLES[sev] ?? SEVERITY_STYLES.Unknown;
             const expires = alert.properties.expires ? format(parseISO(alert.properties.expires), "EEE h:mm a") : null;
             const radarUrl = getRadarUrl(alert.properties.areaDesc ?? "");
             return (
-              <div key={alert.properties.id} className={`border rounded-xl p-4 ${styles.bg} ${styles.border}`}>
+              <WarningEntrance key={alert.properties.id} index={i} calm={calm}
+                               tone={isCalmEvent(alert.properties.event) ? "#e2373c" : "#e8bb4d"}>
+              <div className={`border rounded-xl p-4 ${styles.bg} ${styles.border}`}>
                 <div className="flex items-start gap-3">
                   <EventIcon event={alert.properties.event} />
                   <div className="flex-1 min-w-0">
@@ -340,6 +361,7 @@ export default function WarningCenter({ location }: Props) {
                   </div>
                 </div>
               </div>
+              </WarningEntrance>
             );
           })}
         </div>

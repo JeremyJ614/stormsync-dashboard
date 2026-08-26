@@ -9,7 +9,7 @@ import { BadgeChip } from "../components/BadgeChip";
 import { AppearancePanel } from "../components/AppearancePanel";
 import { StormAlertsCard } from "../components/StormAlertsCard";
 import { InstallApp } from "../components/InstallApp";
-import { AlertContactCard } from "../components/AlertContactCard";
+import { AlertSettings } from "../components/alerts/AlertSettings";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
 // Core signup fields are shown elsewhere; everything else the member answered
@@ -126,8 +126,14 @@ export default function Profile() {
       {/* Storm Alerts (Web Push) */}
       <StormAlertsCard userId={user.id} />
 
-      {/* Email & Text alert opt-in (Tier 3+) */}
-      {user.tier >= 3 && <AlertContactCard user={user} />}
+      {/* Alerts. Shown to everyone, not just tier 3+: the ladder is how a member
+          finds out what they already have and what more would cost, and gating
+          it behind a tier meant the people most likely to buy never saw it. It
+          replaces the old contact-only card, which asked for an email address
+          without ever saying what would be sent to it. */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <AlertSettings />
+      </div>
 
       {/* Install to home screen (PWA) */}
       <InstallApp />

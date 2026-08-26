@@ -22,7 +22,9 @@ import { AuthAurora } from "../components/auth/AuthAurora";
 import { Section, TierOption, Pill, SURFACE } from "../components/join/JoinUI";
 import { getQuestions } from "../lib/userAdmin";
 import { ROYAL, HEADING, EASE } from "../lib/royal";
-import { useAuth, type SignupQuestion } from "../hooks/useAuth";
+import { useAuth, type SignupQuestion, type Tier } from "../hooks/useAuth";
+import { fetchAlertPrices, type AlertPriceRow } from "../lib/alerts";
+import { AlertLadderModal, AlertLadderTeaser } from "../components/alerts/AlertLadderModal";
 import {
   TIER_KEYS, type TierKey,
   getTierPricing, type TierPricing,
@@ -53,6 +55,8 @@ const CORE_QUESTION_IDS = ["name", "email", "pin", "tier"];
 function money(n: number): string {
   return `$${n.toFixed(2)}`;
 }
+
+const TIER_NUMBER: Record<TierKey, Tier> = { free: 1, basic: 2, vip: 3, advanced: 4 };
 
 export default function Plans() {
   const { user, loading: authLoading, signup } = useAuth();
@@ -92,6 +96,12 @@ export default function Plans() {
 
   // ── plan selection ─────────────────────────────────────────────────────────
   const [selectedTier, setSelectedTier] = useState<TierKey | null>(null);
+  // Alerts are the part of the decision that is hardest to summarise in a line,
+  // so they get a popup rather than a section: full detail for whoever wants it,
+  // nothing pushed off screen for whoever does not.
+  const [alertsOpen, setAlertsOpen] = useState(false);
+  const [alertPrices, setAlertPrices] = useState<AlertPriceRow[]>([]);
+  useEffect(() => { fetchAlertPrices().then(setAlertPrices).catch(() => setAlertPrices([])); }, []);
   const [period, setPeriod] = useState<Period>("monthly");
   const [promoMode, setPromoMode] = useState(false);
   const [freeModule, setFreeModule] = useState<string>("");
@@ -406,6 +416,12 @@ export default function Plans() {
               )}
             </div>
           )}
+
+          {selectedTier && (
+            <div className="mt-3">
+              <AlertLadderTeaser tier={TIER_NUMBER[selectedTier]} onOpen={() => setAlertsOpen(true)} />
+            </div>
+          )}
         </Section>
 
         {/* 2 — Modules */}
@@ -650,6 +666,13 @@ export default function Plans() {
           </p>
         )}
       </div>
+
+      <AlertLadderModal
+        open={alertsOpen}
+        onClose={() => setAlertsOpen(false)}
+        tier={selectedTier ? TIER_NUMBER[selectedTier] : 1}
+        prices={alertPrices}
+      />
     </>
   );
 }

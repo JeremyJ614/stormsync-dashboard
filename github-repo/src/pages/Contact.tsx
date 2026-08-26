@@ -23,10 +23,11 @@ import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { Link } from "wouter";
 import {
   Mail, Headphones, AlertTriangle, Send, Lock, CheckCircle, Phone, ShieldCheck,
-  Loader2, MapPin, Clock, ChevronRight, Delete, LogIn,
+  Loader2, MapPin, Clock, ChevronRight, Delete, LogIn, KeyRound,
 } from "lucide-react";
 import { submitContact } from "../lib/contactInbox";
 import { verifyEmergencyPin, useAuth } from "../hooks/useAuth";
+import { fetchMyEmergencyPin } from "../lib/alerts";
 import { RELAY_API } from "../config";
 import { ROYAL, SPRING, prefersReducedMotion } from "../lib/royal";
 
@@ -337,7 +338,19 @@ function EmergencyVault() {
   const [state, setState] = useState<VaultState>("locked");
   const [pin, setPin] = useState("");
   const [err, setErr] = useState("");
+  const [hint, setHint] = useState<string | null>(null);
   const still = prefersReducedMotion();
+
+  // Alert level 4 is partly defined as "and they receive the PIN", so the people
+  // entitled to it should not have to have written it down somewhere. The RPC
+  // returns null for anyone without the level, so this is safe to call for
+  // everyone signed in and tells us nothing we should not know.
+  useEffect(() => {
+    if (!user) { setHint(null); return; }
+    let cancelled = false;
+    void fetchMyEmergencyPin().then((p) => { if (!cancelled) setHint(p); });
+    return () => { cancelled = true; };
+  }, [user]);
 
   async function attempt(code: string) {
     setState("checking");
@@ -372,7 +385,7 @@ function EmergencyVault() {
   // stand there entering a PIN that was always going to be refused.
   if (!user) return <VaultNeedsSignIn />;
 
-  return <VaultDoor state={state} pin={pin} setPin={setPin} err={err} still={still} />;
+  return <VaultDoor state={state} pin={pin} setPin={setPin} err={err} still={still} hint={hint} />;
 }
 
 function VaultNeedsSignIn() {
@@ -403,8 +416,12 @@ function VaultNeedsSignIn() {
 }
 
 function VaultDoor({
-  state, pin, setPin, err, still,
-}: { state: VaultState; pin: string; setPin: (v: string) => void; err: string; still: boolean }) {
+  state, pin, setPin, err, still, hint,
+}: {
+  state: VaultState; pin: string; setPin: (v: string) => void; err: string; still: boolean;
+  /** The member's own PIN, when their alert level entitles them to it. */
+  hint?: string | null;
+}) {
   const shut = state === "locked" || state === "checking" || state === "denied";
   const boxRef = useRef<HTMLDivElement>(null);
 
@@ -515,6 +532,21 @@ function VaultDoor({
               : state === "opening" ? "Opening the line…"
               : "Enter your 4-digit emergency PIN."}
           </p>
+
+          {/* Someone whose plan includes the PIN should not have to have written
+              it down. Shown, not auto-entered: the deliberate act of keying it
+              in is part of what marks this channel as different from a form. */}
+          {hint && state === "locked" && (
+            <button
+              type="button"
+              onClick={() => setPin(hint)}
+              className="mt-2 mx-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold"
+              style={{ background: "rgba(255,138,61,0.14)", border: "1px solid rgba(255,138,61,0.4)", color: "#ff8a3d" }}
+            >
+              <KeyRound className="w-3 h-3" />
+              Your PIN is <span className="tracking-[0.3em] tabular-nums font-black">{hint}</span> — tap to enter
+            </button>
+          )}
         </div>
 
         {/* keypad — this is used one-handed, in the dark, in a hurry */}

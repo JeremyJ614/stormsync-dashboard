@@ -1,9 +1,16 @@
 // StormSync VIP — Alert fan-out (P-19). Cron-driven multi-channel dispatcher.
 //
 // For every member with saved locations it checks active NWS warnings + watches
-// and the SPC Day-1 outlook against those points, then fans out per the tier ladder:
-//   • in-app inbox  (all tiers)            → insert into public.notifications
-//   • event email   (Tier 3+, opt-in)      → Resend
+// and the SPC Day-1 outlook against those points, then fans out per the ALERT
+// LEVEL LADDER (see 20260827010000_alert_levels.sql), not per tier:
+//   • level 1 — in-app inbox              → insert into public.notifications
+//   • level 3 — email to their contact     → Resend
+//   • level 4 — SPC / winter outlook at the start of the day
+// Levels come from alert_levels_for(), so a free-tier member who bought level 3
+// gets email and a VIP who never set a contact address does not.
+//
+// This replaced a tier ramp that skipped tier 1 entirely, which meant free
+// members received nothing at all even though level 1 has always been free.
 // De-duplicated via notifications(user_id, dedup_key). Per-type opt-outs honored.
 //
 // AUTH: x-engine-secret header (cron) or admin Bearer JWT. SECRET: RESEND_API_KEY
@@ -50,10 +57,42 @@ async function authorize(req: Request): Promise<boolean | Response> {
   return json({ ok: false, error: "Unauthorized" }, 401);
 }
 
-interface Loc { user_id: string; lat: number; lon: number; name: string }
+interface Loc { user_id: string; id: string; lat: number; lon: number; name: string; is_primary: boolean }
+type Scope = "state" | "location" | "multiple" | "all";
 interface Prof { id: string; email: string; name: string; tier: number }
-interface Prefs { inapp_enabled: boolean; warnings: boolean; watches: boolean; outlook: boolean; email_optin: boolean; alert_email: string | null }
-const DEFAULT_PREFS: Prefs = { inapp_enabled: true, warnings: true, watches: true, outlook: true, email_optin: false, alert_email: null };
+interface Prefs {
+  inapp_enabled: boolean; warnings: boolean; watches: boolean; outlook: boolean;
+  email_optin: boolean; alert_email: string | null;
+  alert_scope: Scope; alert_location_ids: string[] | null;
+}
+const DEFAULT_PREFS: Prefs = {
+  inapp_enabled: true, warnings: true, watches: true, outlook: true,
+  email_optin: false, alert_email: null, alert_scope: "state", alert_location_ids: [],
+};
+
+/**
+ * Which of a member's locations count, given the scope they chose.
+ *
+ * "state" and "all" both mean every saved point: we have no state polygon to
+ * test against here, and the member's own locations are the honest stand-in for
+ * "my state" — every one of them is somewhere they told us they care about.
+ * The two narrower scopes are the ones that actually reduce noise, and those we
+ * can honour exactly.
+ */
+function scopedLocations(all: Loc[], prefs: Prefs): Loc[] {
+  const chosen = prefs.alert_location_ids ?? [];
+  if (prefs.alert_scope === "location") {
+    const one = all.find((l) => chosen.includes(l.id)) ?? all.find((l) => l.is_primary) ?? all[0];
+    return one ? [one] : [];
+  }
+  if (prefs.alert_scope === "multiple") {
+    const picked = all.filter((l) => chosen.includes(l.id));
+    // An empty pick is a member who chose "several" and never chose any. Falling
+    // back to everything is the safe direction to be wrong in for a warning.
+    return picked.length ? picked : all;
+  }
+  return all;
+}
 interface Alert { id: string; kind: "warning" | "watch"; event: string; headline: string; area: string; severity: string }
 
 async function alertsForPoint(lat: number, lon: number): Promise<Alert[]> {
@@ -136,7 +175,7 @@ Deno.serve(async (req: Request) => {
   const auth = await authorize(req);
   if (auth instanceof Response) return auth;
 
-  const { data: locsData } = await admin.from("saved_locations").select("user_id,lat,lon,name");
+  const { data: locsData } = await admin.from("saved_locations").select("user_id,id,lat,lon,name,is_primary");
   const locs = (locsData ?? []) as Loc[];
   if (locs.length === 0) return json({ ok: true, users: 0, inapp: 0, emails: 0 });
   const userIds = [...new Set(locs.map((l) => l.user_id))];
@@ -147,6 +186,18 @@ Deno.serve(async (req: Request) => {
   const profById = new Map((profs ?? []).map((p) => [p.id, p as Prof]));
   const { data: prefRows } = await admin.from("notification_prefs").select("*").in("user_id", userIds);
   const prefsById = new Map((prefRows ?? []).map((p) => [p.user_id as string, p as unknown as Prefs]));
+
+  // Entitlements, one round trip per member. The RPC is the single definition of
+  // who holds what, so this function can never drift from what the app shows.
+  const levelsById = new Map<string, Set<number>>();
+  await Promise.all(userIds.map(async (uid) => {
+    const { data } = await admin.rpc("alert_levels_for", { p_user: uid });
+    const held = new Set<number>();
+    for (const r of (data ?? []) as { level: number; source: string }[]) {
+      if (r.source !== "none") held.add(r.level);
+    }
+    levelsById.set(uid, held);
+  }));
 
   const ymd = new Date().toISOString().slice(0, 10);
   const spc = await fetchSpc();
@@ -160,15 +211,17 @@ Deno.serve(async (req: Request) => {
   let inapp = 0, emails = 0;
   for (const uid of userIds) {
     const prof = profById.get(uid);
-    const tier = prof?.tier ?? 1;
-    // Tier 1 has no severe warning/watch/outlook alerts (those unlock at Tier 2).
-    if (tier < 2) continue;
+    const levels = levelsById.get(uid) ?? new Set<number>();
+    // Level 1 is the in-app inbox and is free to everyone, so in practice this
+    // only skips somebody whose profile row is missing.
+    if (!levels.has(1)) continue;
     const prefs = prefsById.get(uid) ?? DEFAULT_PREFS;
     if (!prefs.inapp_enabled) continue;
-    // Email delivery is a Tier-3 opt-in, sent to their chosen alert email.
-    const emailOk = tier >= 3 && prefs.email_optin;
+    // Email is level 3, and still an opt-in on top: holding the level means we
+    // may write to them, not that they asked us to.
+    const emailOk = levels.has(3) && prefs.email_optin;
     const emailTo = prefs.alert_email || prof?.email || "";
-    const myLocs = locsByUser.get(uid) ?? [];
+    const myLocs = scopedLocations(locsByUser.get(uid) ?? [], prefs);
 
     // NWS warnings + watches (distinct across the user's locations).
     const seen = new Map<string, { a: Alert; locName: string }>();
@@ -188,8 +241,9 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // SPC Day-1 outlook escalation (ENH+).
-    if (prefs.outlook && spc.length) {
+    // SPC Day-1 outlook escalation (ENH+). Level 4 is defined as knowing about
+    // the day before the day starts, so this is the line that makes it real.
+    if (levels.has(4) && prefs.outlook && spc.length) {
       let maxRank = 0, where = "";
       for (const l of myLocs) { const r = spcRankAt(l.lon, l.lat, spc); if (r > maxRank) { maxRank = r; where = l.name; } }
       if (maxRank >= 3) {

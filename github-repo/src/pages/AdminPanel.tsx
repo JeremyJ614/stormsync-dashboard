@@ -17,6 +17,7 @@ import AdminBillingTab from "../components/AdminBillingTab";
 import { AdminPointsTab } from "../components/AdminPointsTab";
 import { AdminInvoicesTab } from "../components/AdminInvoicesTab";
 import { AdminUsersTab } from "../components/AdminUsersTab";
+import { AdminAlertsTab } from "../components/admin/AdminAlertsTab";
 import { AdminMoneyTab } from "../components/AdminMoneyTab";
 import { AdminHealthTab } from "../components/AdminHealthTab";
 import { AdminUsageTab } from "../components/AdminUsageTab";
@@ -137,7 +138,7 @@ export default function AdminPanel() {
       {tab === "signups" && <SignupsTab />}
       {tab === "broadcasts" && <BroadcastsTab />}
       {tab === "inbox" && <InboxTab />}
-      {tab === "alerts" && <AlertOptinsTab />}
+      {tab === "alerts" && <AdminAlertsTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
       {tab === "trivia" && <AdminTriviaTab />}
       {tab === "points" && <AdminPointsTab />}
@@ -666,114 +667,6 @@ const isoToLocalInput = (iso?: string) => {
   const d = new Date(iso); const pad = (n: number) => String(n).padStart(2, "0");
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
-
-function AlertOptinsTab() {
-  const [optins, setOptins] = useState<AlertOptin[]>([]);
-  const [tier4, setTier4] = useState<{ id: string; name: string; email: string; tier: number }[]>([]);
-  const [risk, setRisk] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    Promise.all([
-      adminListAlertOptins(),
-      supabase.from("profiles").select("id,name,email,tier").gte("tier", 4),
-    ]).then(([o, t4]) => { setOptins(o); setTier4((t4.data ?? []) as typeof tier4); setLoading(false); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Live: is each text opt-in's location currently under a warning/watch? (glow)
-  useEffect(() => {
-    const texts = optins.filter((o) => o.textOptin && o.textLat != null && o.textLon != null);
-    let cancelled = false;
-    (async () => {
-      const out: Record<string, string> = {};
-      await Promise.all(texts.map(async (o) => {
-        try {
-          const r = await fetch(`https://api.weather.gov/alerts/active?status=actual&point=${o.textLat!.toFixed(4)},${o.textLon!.toFixed(4)}`, { headers: { Accept: "application/geo+json" } });
-          if (!r.ok) return;
-          const d = await r.json();
-          const ev = (d.features ?? []).map((f: { properties?: { event?: string } }) => String(f.properties?.event ?? "")).find((e: string) => /warning$|watch$/i.test(e));
-          if (ev) out[o.userId] = ev;
-        } catch { /* ignore */ }
-      }));
-      if (!cancelled) setRisk(out);
-    })();
-    return () => { cancelled = true; };
-  }, [optins]);
-
-  const textOptins = optins.filter((o) => o.textOptin);
-  const emailOptins = optins.filter((o) => o.emailOptin);
-  const phoneByUser = new Map(optins.map((o) => [o.userId, o.phone]));
-  const activeCount = Object.keys(risk).length;
-
-  if (loading) return <div className="text-sm text-muted-foreground p-6">Loading opt-ins…</div>;
-
-  return (
-    <div className="space-y-5">
-      {activeCount > 0 && (
-        <div className="bg-rose-500/15 border border-rose-500/40 rounded-xl p-3 text-sm text-rose-200 flex items-center gap-2 animate-pulse">
-          <BellRing className="w-4 h-4" /> <strong>{activeCount}</strong> text-alert {activeCount === 1 ? "location is" : "locations are"} under an active warning/watch right now — time to text them.
-        </div>
-      )}
-
-      {/* Tier 3 — Text opt-ins (you send these) */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><MessageSquare className="w-4 h-4 text-primary" /><h3 className="text-sm font-semibold">Text-Alert Opt-ins (Tier 3)</h3><span className="text-[11px] text-muted-foreground ml-auto">{textOptins.length} opted in</span></div>
-        {textOptins.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No text opt-ins yet.</div> : (
-          <div className="divide-y divide-border">
-            {textOptins.map((o) => {
-              const active = risk[o.userId];
-              return (
-                <div key={o.userId} className={`p-3 flex items-center gap-3 ${active ? "bg-rose-500/10" : ""}`} style={active ? { boxShadow: "inset 3px 0 0 #FA003F" } : undefined}>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold flex items-center gap-2">{o.name} <span className="text-[10px] text-muted-foreground">T{o.tier}</span>{active && <span className="text-[10px] font-bold text-rose-300 uppercase tracking-wide animate-pulse">⚠ {active}</span>}</div>
-                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                      <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{o.phone || "no number"}</span>
-                      <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{o.textLocation || "no location"}</span>
-                    </div>
-                  </div>
-                  {o.phone && <a href={`sms:${o.phone.replace(/[^0-9+]/g, "")}`} className="px-3 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-primary text-xs font-semibold shrink-0">Text</a>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Tier 3 — Email opt-ins (auto-sent) */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><Mail className="w-4 h-4 text-primary" /><h3 className="text-sm font-semibold">Email-Alert Opt-ins (Tier 3)</h3><span className="text-[11px] text-muted-foreground ml-auto">{emailOptins.length} opted in · auto-sent</span></div>
-        {emailOptins.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No email opt-ins yet.</div> : (
-          <div className="divide-y divide-border">
-            {emailOptins.map((o) => (
-              <div key={o.userId} className="p-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0"><div className="text-sm font-semibold">{o.name} <span className="text-[10px] text-muted-foreground">T{o.tier}</span></div><div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{o.alertEmail || o.email}</div></div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Tier 4 — direct line */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><Phone className="w-4 h-4 text-yellow-400" /><h3 className="text-sm font-semibold">Tier 4 Elite — Direct Line</h3><span className="text-[11px] text-muted-foreground ml-auto">{tier4.length} members</span></div>
-        {tier4.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No Tier 4 members.</div> : (
-          <div className="divide-y divide-border">
-            {tier4.map((m) => {
-              const phone = phoneByUser.get(m.id);
-              return (
-                <div key={m.id} className="p-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0"><div className="text-sm font-semibold">{m.name}</div><div className="text-xs text-muted-foreground flex flex-wrap gap-x-3"><span className="flex items-center gap-1"><Mail className="w-3 h-3" />{m.email}</span>{phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{phone}</span>}</div></div>
-                  {phone && <a href={`sms:${phone.replace(/[^0-9+]/g, "")}`} className="px-3 py-1.5 rounded-lg bg-yellow-400/15 border border-yellow-400/30 text-yellow-300 text-xs font-semibold shrink-0">Contact</a>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 function NewsTab({ adminName }: { adminName: string }) {
   const [items, setItems] = useState<NewsPost[]>([]);

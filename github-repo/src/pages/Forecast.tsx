@@ -1,5 +1,6 @@
 import { useOpenMeteo, useNWSForecast, useNWSPoints } from "../hooks/useWeatherQuery";
 import { Panel } from "../components/ModuleShell";
+import { DigestCard } from "../components/forecast/DigestCard";
 import { Barograph, type BaroPoint } from "../components/motion/WeatherMotion";
 import { useCalm } from "../lib/calm";
 import { ROYAL } from "../lib/royal";
@@ -18,7 +19,7 @@ import { PageHero } from "../components/PageHero";
 
 interface Props { location: Location }
 
-const TABS = ["Daily", "Hourly", "Wind", "Precipitation", "Pressure"] as const;
+const TABS = ["Brief", "Daily", "Hourly", "Wind", "Precipitation", "Pressure"] as const;
 type Tab = typeof TABS[number];
 
 const TOOLTIP_STYLE = { background: "hsl(232 20% 10%)", border: "1px solid hsl(232 18% 16%)", borderRadius: 8, fontSize: 12 };
@@ -27,7 +28,7 @@ export default function Forecast({ location }: Props) {
   const { data: weather, isLoading } = useOpenMeteo(location);
   const { data: nwsPoints } = useNWSPoints(location);
   const { data: nwsForecast } = useNWSForecast(nwsPoints?.properties?.forecast);
-  const [activeTab, setActiveTab] = useState<Tab>("Daily");
+  const [activeTab, setActiveTab] = useState<Tab>("Brief");
 
   const hourly = weather?.hourly;
   const { calm } = useCalm(location.lat, location.lon);
@@ -70,7 +71,7 @@ export default function Forecast({ location }: Props) {
 
   return (
     <div className="p-4 md:p-6 space-y-5">
-      <PageHero icon={CalendarDays} title="Local Forecast" subtitle={`${location.name} · Open-Meteo + NWS`} />
+      <PageHero icon={CalendarDays} title="Daily Brief & Forecast" subtitle={`${location.name} · Open-Meteo + NWS`} />
 
       <div className="flex gap-2 flex-wrap">
         {TABS.map(tab => (
@@ -84,6 +85,10 @@ export default function Forecast({ location }: Props) {
           </button>
         ))}
       </div>
+
+      {activeTab === "Brief" && (
+        <DigestCard lat={location.lat} lon={location.lon} place={location.name} />
+      )}
 
       {activeTab === "Daily" && (
         <div className="space-y-4">

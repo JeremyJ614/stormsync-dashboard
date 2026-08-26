@@ -46,7 +46,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/", label: "Home", alwaysOn: true },
   { id: "/subscription", label: "Subscription", alwaysOn: true },
   { id: "/dashboard", label: "Dashboard" },
-  { id: "/forecast", label: "Forecast" },
+  { id: "/forecast", label: "Daily Brief & Forecast" },
   { id: "/discussion", label: "Forecast Discussion" },
   { id: "/comparator", label: "Run Comparator" },
   { id: "/spc", label: "SPC Outlook" },

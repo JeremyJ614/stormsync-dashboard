@@ -141,7 +141,7 @@ function AppInner() {
         <Route path="/subscription" component={() => <PW name="Subscription"><Subscription /></PW>} />
 
         <Route path="/dashboard" component={() => <PW name="Dashboard"><Gated path="/dashboard"><Dashboard location={location} /></Gated></PW>} />
-        <Route path="/forecast" component={() => <PW name="Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
+        <Route path="/forecast" component={() => <PW name="Daily Brief & Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
         <Route path="/discussion" component={() => <PW name="Forecast Discussion"><Gated path="/discussion"><ForecastDiscussion location={location} /></Gated></PW>} />
         <Route path="/comparator" component={() => <PW name="Model Runs"><Gated path="/comparator"><ForecastRunComparator location={location} /></Gated></PW>} />
         <Route path="/spc" component={() => <PW name="SPC Outlook"><Gated path="/spc"><SPCOutlook location={location} /></Gated></PW>} />

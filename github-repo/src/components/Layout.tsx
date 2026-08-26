@@ -32,7 +32,7 @@ const NAV_SECTIONS = [
     items: [
       { label: "Home",                path: "/",           icon: Home },
       { label: "Dashboard",           path: "/dashboard",  icon: LayoutDashboard },
-      { label: "Local Forecast",      path: "/forecast",   icon: CalendarDays },
+      { label: "Daily Brief & Forecast", path: "/forecast",   icon: CalendarDays },
       { label: "Forecast Discussion", path: "/discussion", icon: MessageSquare },
       { label: "AQI Forecast",        path: "/aqi",        icon: Wind },
       { label: "Daylight Tracker",      path: "/summary",    icon: Sun },

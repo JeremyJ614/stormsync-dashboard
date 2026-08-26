@@ -17,6 +17,7 @@ import type { Location } from "../hooks/useLocation";
 import { getFireOutlook, listIncidents, getFireHours, riskOf, hdwBand, type FireHour } from "../lib/fireWeather";
 import { FireMap } from "../components/fire/FireMap";
 import { TTL } from "../lib/queryClient";
+import { ModuleShell } from "../components/ModuleShell";
 import { ROYAL, HEADING, EASE, SPRING, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
@@ -107,24 +108,12 @@ export default function FireWeather({ location }: Props) {
   const band = peak24 ? hdwBand(peak24.hdw) : null;
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
-      <motion.header initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                     transition={{ duration: 0.5, ease: EASE }} className="space-y-1">
-        <div className="text-[10px] uppercase tracking-[0.3em] font-semibold" style={{ color: ROYAL.gold }}>
-          SPC · NWS · InciWeb
-        </div>
-        <h1 className="text-2xl font-bold tracking-[0.01em]" style={{ fontFamily: HEADING, color: ROYAL.text }}>
-          Fire Weather
-        </h1>
-        <p className="text-sm" style={{ color: ROYAL.dim }}>
-          Critical fire weather areas, the hourly ingredients over {location.name}, and what's burning now.
-        </p>
-      </motion.header>
-
-      {/* Headline */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.05, ease: EASE }}
-                  className="rounded-2xl p-4 flex items-center gap-4 flex-wrap" style={SURFACE}>
+    <ModuleShell
+      eyebrow="SPC · NWS · InciWeb"
+      title="Fire Weather"
+      subtitle={`Critical fire weather areas, the hourly ingredients over ${location.name}, and what's burning now.`}
+      status={
+        <div className="rounded-2xl p-4 flex items-center gap-4 flex-wrap" style={SURFACE}>
         <motion.div
           animate={prefersReducedMotion() ? {} : { scale: [1, 1.08, 1] }}
           transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
@@ -163,8 +152,9 @@ export default function FireWeather({ location }: Props) {
             ))}
           </div>
         </LayoutGroup>
-      </motion.div>
-
+        </div>
+      }
+    >
       {/* Map */}
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.5, delay: 0.1 }}
                   className="rounded-2xl overflow-hidden relative" style={SURFACE}>
@@ -305,6 +295,6 @@ export default function FireWeather({ location }: Props) {
         from Open-Meteo forecast fields after Srock et al. (2018). Always follow local fire restrictions and evacuation
         orders.
       </p>
-    </div>
+    </ModuleShell>
   );
 }

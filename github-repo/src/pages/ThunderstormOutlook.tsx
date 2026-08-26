@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ModuleShell } from "../components/ModuleShell";
 import { CloudRain, ExternalLink, RefreshCw } from "lucide-react";
 import { ProbabilityMap, PROB_STEPS } from "../components/ProbabilityMap";
 
@@ -9,20 +10,17 @@ export default function ThunderstormOutlook() {
   const [key, setKey] = useState(0);
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <CloudRain className="w-5 h-5 text-primary" />
-            <h1 className="text-xl font-bold tracking-wide uppercase">Severe Weather Probability</h1>
-          </div>
-          <p className="text-sm text-muted-foreground mt-0.5">"Will I see severe weather?" · total-severe likelihood · Day 1–8</p>
-        </div>
+    <ModuleShell
+      eyebrow="SPC · NOAA"
+      title="Severe Weather Probability"
+      subtitle={'"Will I see severe weather?" — total-severe likelihood, Day 1 through 8.'}
+      actions={
         <button onClick={() => setKey(k => k + 1)}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40">
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
-      </div>
+      }
+    >
 
       <div className="bg-card border border-border rounded-xl p-3">
         <div className="flex flex-wrap gap-1.5">
@@ -68,6 +66,6 @@ export default function ThunderstormOutlook() {
           probabilistic any-severe outlook.
         </p>
       </div>
-    </div>
+    </ModuleShell>
   );
 }

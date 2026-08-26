@@ -13,6 +13,7 @@ import type { Location } from "../hooks/useLocation";
 import { listGauges, getGauge, floodStyle, FLOOD_ORDER, type GaugeSummary } from "../lib/riverGauges";
 import { GaugeMap } from "../components/water/GaugeMap";
 import { Hydrograph } from "../components/water/Hydrograph";
+import { ModuleShell } from "../components/ModuleShell";
 import { ROYAL, HEADING, EASE } from "../lib/royal";
 
 interface Props { location: Location }
@@ -99,24 +100,12 @@ export default function RiverGauges({ location }: Props) {
   const trend = d ? trendOf(d.observed) : { dir: 0, delta: 0 };
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-4">
-      <motion.header initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                     transition={{ duration: 0.5, ease: EASE }} className="space-y-1">
-        <div className="text-[10px] uppercase tracking-[0.3em] font-semibold" style={{ color: ROYAL.gold }}>
-          National Water Prediction Service
-        </div>
-        <h1 className="text-2xl font-bold tracking-[0.01em]" style={{ fontFamily: HEADING, color: ROYAL.text }}>
-          River &amp; Flood Gauges
-        </h1>
-        <p className="text-sm" style={{ color: ROYAL.dim }}>
-          Observed stage, forecast crest and flood thresholds for every reporting gauge near {location.name}.
-        </p>
-      </motion.header>
-
-      {/* Status strip */}
-      <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: 0.05, ease: EASE }}
-                  className="rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap" style={SURFACE}>
+    <ModuleShell
+      eyebrow="National Water Prediction Service · NOAA"
+      title={<>River &amp; Flood Gauges</>}
+      subtitle={`Observed stage, forecast crest and flood thresholds for every reporting gauge near ${location.name}.`}
+      status={
+        <div className="rounded-2xl p-4 flex items-center justify-between gap-4 flex-wrap" style={SURFACE}>
         <div className="flex items-center gap-3 min-w-0">
           {flooding > 0
             ? <AlertTriangle className="w-8 h-8 shrink-0" style={{ color: floodStyle(gauges[0]?.worst).color }} />
@@ -147,8 +136,9 @@ export default function RiverGauges({ location }: Props) {
             </button>
           ))}
         </div>
-      </motion.div>
-
+        </div>
+      }
+    >
       {/* Legend */}
       <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px]" style={{ color: ROYAL.dim }}>
         {[...FLOOD_ORDER, "no_flooding"].map((k) => {
@@ -341,6 +331,6 @@ export default function RiverGauges({ location }: Props) {
         Source: NOAA/NWS National Water Prediction Service. Forecasts are issued by the responsible River Forecast
         Center and are not produced by StormSync. Never drive through flood water.
       </p>
-    </div>
+    </ModuleShell>
   );
 }

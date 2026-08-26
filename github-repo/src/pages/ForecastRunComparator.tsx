@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REGIONS, regionTransform } from "../lib/modelProjection";
 import { ROYAL, HEADING } from "../lib/royal";
+import { ModuleShell } from "../components/ModuleShell";
 import { useQuery } from "@tanstack/react-query";
 import {
   Satellite, Play, Pause, ChevronLeft, ChevronRight, Download, Share2,
@@ -165,17 +166,11 @@ export default function ForecastRunComparator() {
   const noRuns = runs.isSuccess && (runs.data?.length ?? 0) === 0;
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-full overflow-x-hidden">
-      {/* Header */}
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold tracking-wide uppercase flex items-center gap-2">
-          <Satellite className="w-5 h-5 text-primary" /> Model Runs
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          HRRR &amp; GFS severe-weather maps, rendered from NOAA model data.
-        </p>
-      </div>
-
+    <ModuleShell
+      eyebrow="NOAA · NOMADS"
+      title="Model Runs"
+      subtitle="HRRR and GFS severe-weather maps, rendered from NOAA model data."
+    >
       {/* Model tabs */}
       <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
         {(["hrrr", "gfs"] as ModelId[]).map((m) => (
@@ -403,6 +398,6 @@ export default function ForecastRunComparator() {
         times daily out to F018; GFS out to F048 in 3-hour steps. Model guidance is not a
         forecast — always defer to official NWS products.
       </p>
-    </div>
+    </ModuleShell>
   );
 }

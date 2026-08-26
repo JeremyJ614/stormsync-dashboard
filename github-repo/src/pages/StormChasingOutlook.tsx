@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { ModuleShell } from "../components/ModuleShell";
 import { useQuery } from "@tanstack/react-query";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
@@ -168,16 +169,16 @@ export default function StormChasingOutlook(_props: Props) {
   const dotColor = (hype: number) => tierFor(hype).color;
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2"><Car className="w-5 h-5 text-primary" /><h1 className="text-xl font-bold tracking-wide uppercase">Storm Chasing Outlook</h1></div>
-          <p className="text-sm text-muted-foreground mt-0.5">Live national scan · the day's 2 best chase targets, ranked &amp; explained</p>
-        </div>
+    <ModuleShell
+      eyebrow="Open-Meteo · SPC · SSWX AI"
+      title="Storm Chasing Outlook"
+      subtitle="A live national scan — the day's two best chase targets, ranked and explained."
+      actions={
         <button onClick={() => refetch()} disabled={isFetching} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40 disabled:opacity-50">
           <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} /> Rescan
         </button>
-      </div>
+      }
+    >
 
       {!isLoading && !isError && (
         <div className="rounded-2xl border-2 p-5 text-center" style={{ borderColor: verdict.color + "66", background: verdict.color + "10" }}>
@@ -291,6 +292,6 @@ export default function StormChasingOutlook(_props: Props) {
       <div className="bg-muted/20 border border-border rounded-xl p-3 text-[11px] text-muted-foreground leading-relaxed">
         Targets are ranked live from a national model scan (Open-Meteo) blended with the SPC Day 1 risk area, then explained with the nightly SSWX AI discussion. This is decision-support, not a substitute for official SPC outlooks, watches, and warnings. Chase safe.
       </div>
-    </div>
+    </ModuleShell>
   );
 }

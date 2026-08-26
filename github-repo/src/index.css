@@ -439,3 +439,23 @@ h1 { letter-spacing: 0.02em; }
   content-visibility: auto;
   contain-intrinsic-size: auto 168px;
 }
+
+/* ── Instrument: one-shot draw-on keyframes ────────────────────────────────────
+   Used by components/instrument/Apparatus. Every one of these runs once and
+   finishes — nothing here loops. An ambient animation behind a header that
+   appears on thirty-odd modules is a permanent compositor tax, and this app is
+   read while people are watching radar. */
+@keyframes app-draw    { to { stroke-dashoffset: 0; } }
+@keyframes app-trace   { to { stroke-dashoffset: 0; } }
+@keyframes app-fade-in { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces: the components already branch on prefersReducedMotion(),
+     but a stylesheet rule also covers anything rendered before hydration. */
+  [class*="instrument"] *,
+  svg[aria-hidden] * {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
+  }
+}

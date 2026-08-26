@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { ModuleShell } from "../components/ModuleShell";
 import { useQuery } from "@tanstack/react-query";
 import { History, Tornado, ShieldAlert, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { WeatherHistoryMap } from "../components/WeatherHistoryMap";
@@ -127,22 +128,17 @@ export default function SevereWeatherHistory() {
   const setDays = mode === "warnings" ? setWarnDays : setTorDays;
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-full overflow-x-hidden">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold tracking-wide uppercase flex items-center gap-2">
-            <History className="w-5 h-5 text-primary" /> Severe Weather History
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Warning history and surveyed tornado paths — live from NWS/IEM and the NOAA Damage Assessment Toolkit.
-          </p>
-        </div>
+    <ModuleShell
+      eyebrow="NWS · IEM · NOAA Damage Assessment Toolkit"
+      title="Severe Weather History"
+      subtitle="Warning history and surveyed tornado paths, live from NWS/IEM and the NOAA Damage Assessment Toolkit."
+      actions={
         <button onClick={() => setNow(Date.now())}
           className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border text-xs font-semibold flex items-center gap-1.5 hover:border-primary/40 shrink-0">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
-      </div>
+      }
+    >
 
       {/* Mode toggle */}
       <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
@@ -246,6 +242,6 @@ export default function SevereWeatherHistory() {
         )}
         <p className="text-muted-foreground/70">Always defer to official NWS products. Counts refresh when you change the range or tap Refresh.</p>
       </div>
-    </div>
+    </ModuleShell>
   );
 }

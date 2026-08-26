@@ -1,4 +1,5 @@
 import type { Location } from "../hooks/useLocation";
+import { ModuleShell } from "../components/ModuleShell";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
 import { BaseMap, type BaseMapHandle, type RasterOverlay } from "../components/map/BaseMap";
 import {
@@ -214,22 +215,18 @@ export default function RadarMap({ location }: Props) {
   // A confident wrong "no returns" during severe weather is worse than none.
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-full overflow-x-hidden">
-      {/* Header */}
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <h1 className="text-xl md:text-2xl font-bold tracking-wide uppercase flex items-center gap-2">
-            <Radar className="w-5 h-5 text-primary" /> Radar &amp; MRMS
-          </h1>
-          <p className="text-sm text-muted-foreground mt-0.5 truncate">
-            {location.name} · live national radar, MRMS mosaics &amp; GOES-East satellite
-          </p>
-        </div>
+    <ModuleShell
+      wide
+      eyebrow="Iowa State Mesonet · NOAA MRMS · GOES-East"
+      title={<>Radar &amp; MRMS</>}
+      subtitle={`${location.name} — live national radar, MRMS mosaics and GOES-East satellite.`}
+      actions={
         <button onClick={refresh}
           className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border text-xs font-semibold flex items-center gap-1.5 hover:border-primary/40 shrink-0">
           <RefreshCw className="w-3.5 h-3.5" /> Refresh
         </button>
-      </div>
+      }
+    >
 
       {/* Group tabs */}
       <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
@@ -355,6 +352,6 @@ export default function RadarMap({ location }: Props) {
           Always defer to official NWS warnings. These mosaics update every few minutes and can lag a fast-moving storm.
         </p>
       </div>
-    </div>
+    </ModuleShell>
   );
 }

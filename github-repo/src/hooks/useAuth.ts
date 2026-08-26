@@ -322,6 +322,19 @@ export function hasModuleAccess(user: User | null, path: string): boolean {
   if (nav && !nav.visible && !user?.isAdmin) return false; // hidden by an admin
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
+  // Advanced means every module, as a rule rather than as a list.
+  //
+  // Access was decided purely by `enabled_modules`, which is written once when
+  // somebody buys. That silently broke every time a module was added: the tier
+  // that the Plans page describes as "everything, nothing to choose" and the FAQ
+  // describes as "every module in the app" was showing "not in your plan" for
+  // anything newer than the member's purchase. Real Advanced members were
+  // sitting on 34 to 37 of 38.
+  //
+  // Encoding it here means the rule cannot go stale again the next time a
+  // module ships. Lower tiers still read their own list, because for them the
+  // list IS the product.
+  if (user.tier >= 4) return true;
   return user.enabledModules.includes(path);
 }
 

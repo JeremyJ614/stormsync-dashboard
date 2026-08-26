@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Link } from "wouter";
 import { renderMarkdown } from "../lib/markdown";
 import { useAuth, ALL_MODULES, HIDDEN_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
@@ -16,6 +16,13 @@ import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
 import { AdminPointsTab } from "../components/AdminPointsTab";
 import { AdminInvoicesTab } from "../components/AdminInvoicesTab";
+import { AdminUsersTab } from "../components/AdminUsersTab";
+import { AdminMoneyTab } from "../components/AdminMoneyTab";
+import { AdminHealthTab } from "../components/AdminHealthTab";
+import { AdminUsageTab } from "../components/AdminUsageTab";
+import { AdminAuditTab } from "../components/AdminAuditTab";
+import { getAdminLayout, resolveLayout, DEFAULT_LAYOUT, type AdminLayout } from "../lib/adminGroups";
+import { audit } from "../lib/adminAudit";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
 import { DEFAULT_FAQ } from "../lib/faqDefaults";
@@ -23,16 +30,54 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy } from "lucide-react";
+import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy, Activity, BarChart3, ScrollText } from "lucide-react";
 
-type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings";
+type Tab =
+  | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
+  | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings"
+  | "money" | "health" | "usage" | "audit";
+
+/**
+ * Every tab that exists, as data.
+ *
+ * Grouping and order come from `app_config.admin_groups` (see lib/adminGroups)
+ * and are edited inside the panel itself. This registry only says what exists —
+ * a tab added here with nowhere to file it lands under "Everything else" rather
+ * than vanishing.
+ */
+const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "users",      label: "Members",           icon: Users },
+  { id: "signups",    label: "Signups",           icon: ClipboardList },
+  { id: "alerts",     label: "Alert Opt-ins",     icon: BellRing },
+  { id: "points",     label: "Points",            icon: Trophy },
+  { id: "badges",     label: "Badges",            icon: Award },
+  { id: "money",      label: "Money",             icon: DollarSign },
+  { id: "billing",    label: "Pricing",           icon: Tag },
+  { id: "invoices",   label: "Invoices",          icon: FileText },
+  { id: "news",       label: "SSWX News",         icon: Newspaper },
+  { id: "faq",        label: "FAQ & Guide",       icon: HelpCircle },
+  { id: "trivia",     label: "Daily Trivia",      icon: Brain },
+  { id: "broadcasts", label: "Send Notification", icon: Bell },
+  { id: "inbox",      label: "Contact Inbox",     icon: Mail },
+  { id: "health",     label: "System Health",     icon: Activity },
+  { id: "usage",      label: "Module Usage",      icon: BarChart3 },
+  { id: "audit",      label: "Audit Log",         icon: ScrollText },
+  { id: "nav",        label: "Sidebar & Modules", icon: ListOrdered },
+  { id: "modules",    label: "Module Access",     icon: Settings },
+  { id: "settings",   label: "Settings",          icon: Settings },
+];
 
 export default function AdminPanel() {
   const { user } = useAuth();
   const [tab, setTab] = useState<Tab>("users");
   const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
+  const [layout, setLayout] = useState<AdminLayout>(DEFAULT_LAYOUT);
+  const [showCreate, setShowCreate] = useState(false);
   const reloadBadges = useCallback(() => { listBadgeDefs().then(setBadgeDefs).catch(() => {}); }, []);
   useEffect(() => { reloadBadges(); }, [reloadBadges]);
+  useEffect(() => { getAdminLayout().then(setLayout).catch(() => {}); }, []);
+
+  const groups = useMemo(() => resolveLayout(layout, TABS), [layout]);
 
   if (!user || !user.isAdmin) {
     return (
@@ -53,37 +98,40 @@ export default function AdminPanel() {
       </div>
 
 
-      <div className="flex gap-1 border-b border-border flex-wrap">
-        {([
-          { id: "users", label: "Users", icon: Users },
-          { id: "nav", label: "Sidebar & Modules", icon: ListOrdered },
-          { id: "modules", label: "Module Access", icon: Settings },
-          { id: "badges", label: "Badges", icon: Award },
-          { id: "signups", label: "Signups", icon: ClipboardList },
-          { id: "broadcasts", label: "Send Notification", icon: Bell },
-          { id: "inbox", label: "Contact Inbox", icon: Mail },
-          { id: "alerts", label: "Alert Opt-ins", icon: BellRing },
-          { id: "news", label: "SSWX News", icon: Newspaper },
-          { id: "trivia", label: "Daily Trivia", icon: Brain },
-          { id: "points", label: "Points", icon: Trophy },
-          { id: "faq", label: "FAQ & Guide", icon: HelpCircle },
-          { id: "billing", label: "Billing", icon: DollarSign },
-          { id: "invoices", label: "Invoices", icon: FileText },
-          { id: "settings", label: "Settings", icon: Settings },
-        ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
-          const Icon = t.icon;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative flex items-center gap-2 ${tab === t.id ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-              <Icon className="w-3.5 h-3.5" /> {t.label}
-              {tab === t.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t" />}
-            </button>
-          );
-        })}
+      {/* Tabs, grouped by the layout saved in app_config. */}
+      <div className="space-y-2 border-b border-border pb-2">
+        {groups.map((g) => (
+          <div key={g.id} className="flex items-center gap-2 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wider text-muted-foreground w-20 shrink-0">
+              {g.label}
+            </span>
+            <div className="flex gap-1 flex-wrap">
+              {g.tabs.map((t) => {
+                const meta = TABS.find((x) => x.id === t.id)!;
+                const Icon = meta.icon;
+                const on = tab === t.id;
+                return (
+                  <button key={t.id} onClick={() => setTab(t.id as Tab)}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
+                      on ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
+                    style={on ? { background: "hsl(var(--primary) / 0.14)", border: "1px solid hsl(var(--primary) / 0.35)" }
+                              : { border: "1px solid transparent" }}>
+                    <Icon className="w-3.5 h-3.5" /> {t.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
-      {tab === "users" && <UsersTab badgeDefs={badgeDefs} />}
-      {tab === "nav" && <AdminNavTab />}
+      {tab === "users" && <AdminUsersTab badgeDefs={badgeDefs} onCreate={() => setShowCreate(true)} />}
+      {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />}
+      {tab === "money" && <AdminMoneyTab />}
+      {tab === "health" && <AdminHealthTab />}
+      {tab === "usage" && <AdminUsageTab />}
+      {tab === "audit" && <AdminAuditTab />}
+      {tab === "nav" && <AdminNavTab knownAdminTabs={TABS} />}
       {tab === "modules" && <ModulesTab />}
       {tab === "badges" && <BadgesTab badgeDefs={badgeDefs} reloadBadges={reloadBadges} />}
       {tab === "signups" && <SignupsTab />}
@@ -97,105 +145,6 @@ export default function AdminPanel() {
       {tab === "billing" && <AdminBillingTab />}
       {tab === "invoices" && <AdminInvoicesTab />}
       {tab === "settings" && <SettingsTab />}
-    </div>
-  );
-}
-
-function UsersTab({ badgeDefs }: { badgeDefs: BadgeDef[] }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setUsers(await listUsers());
-      setErr("");
-    } catch {
-      setErr("Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  async function withBusy(id: string, fn: () => Promise<void>) {
-    setBusyId(id);
-    try { await fn(); } finally { setBusyId(null); }
-  }
-  async function addReferral(u: User) {
-    await withBusy(u.id, async () => { await setUserReferrals(u.id, u.referrals + 1); await refresh(); });
-  }
-  async function removeUser(u: User) {
-    if (!confirm(`Delete ${u.name}? This permanently removes their account.`)) return;
-    await withBusy(u.id, async () => {
-      const r = await adminDeleteUser(u.id);
-      if (!r.ok) { alert(r.error ?? "Delete failed"); return; }
-      await refresh();
-    });
-  }
-  async function changeTier(u: User, tier: Tier) {
-    await withBusy(u.id, async () => { await setUserTier(u.id, tier); await refresh(); });
-  }
-  async function resetPin(u: User) {
-    const pin = window.prompt(`Enter a new 4-digit PIN for ${u.name}:`);
-    if (pin == null) return;
-    await withBusy(u.id, async () => {
-      const r = await adminSetPin(u.id, pin.trim());
-      alert(r.ok ? "PIN updated." : (r.error ?? "Failed to set PIN"));
-    });
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
-        <button onClick={() => setShowCreate(true)} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold flex items-center gap-1.5 hover:bg-primary/30">
-          <UserPlus className="w-4 h-4" /> Create User
-        </button>
-      </div>
-
-      {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => void refresh()} />}
-
-      {err && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{err}</div>}
-
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h2 className="text-sm font-semibold">All Users ({users.length})</h2>
-        </div>
-        {loading ? (
-          <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading users…</div>
-        ) : users.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">No users yet. Create the first account above.</div>
-        ) : (
-        <div className="divide-y divide-border">
-          {users.map(u => (
-            <div key={u.id} className={`p-4 flex flex-wrap items-center gap-3 ${busyId === u.id ? "opacity-50 pointer-events-none" : ""}`}>
-              <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                {u.name.split(" ").map(p => p[0]).slice(0, 2).join("")}
-              </div>
-              <div className="flex-1 min-w-[220px]">
-                <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
-                  {u.name}
-                  {u.isAdmin && <span className="px-1.5 py-0.5 rounded text-[9px] bg-yellow-400/15 text-yellow-300 border border-yellow-400/30 uppercase">Admin</span>}
-                  {(u.badges ?? []).map(id => <BadgeChip key={id} id={id} defs={badgeDefs} />)}
-                </div>
-                <div className="text-xs text-muted-foreground">{u.email}</div>
-              </div>
-              <select value={u.tier} onChange={e => changeTier(u, Number(e.target.value) as Tier)}
-                title="Changing tier resets the user's modules to that tier's defaults"
-                className="bg-muted/30 border border-border rounded-lg px-2 py-1 text-xs">
-                <option value={1}>Tier 1</option><option value={2}>Tier 2</option><option value={3}>Tier 3</option><option value={4}>Tier 4</option>
-              </select>
-              <div className="text-xs text-muted-foreground tabular-nums">Refs: <span className="text-yellow-400 font-bold">{u.referrals}</span></div>
-              <button onClick={() => addReferral(u)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
-              <button onClick={() => resetPin(u)} title="Reset PIN" className="p-1.5 rounded hover:bg-primary/15 text-primary transition-colors"><KeyRound className="w-3.5 h-3.5" /></button>
-              {!u.isAdmin && <button onClick={() => removeUser(u)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
-            </div>
-          ))}
-        </div>
-        )}
-      </div>
     </div>
   );
 }
@@ -464,6 +413,7 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
   async function remove(b: BadgeDef) {
     if (!confirm(`Delete the "${b.label}" badge? It will be removed from every user who has it.`)) return;
     await doSave(() => deleteBadge(b.id));
+    void audit("badge.delete", { type: "badge", id: b.id, label: b.label });
   }
 
   return (
@@ -483,7 +433,7 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
           <BadgeEditor saving={saving}
             initial={{ label: "", color: "#7B8FD9", description: "", group: "Achievement" }}
             onCancel={() => setCreating(false)}
-            onSave={async b => { if (await doSave(() => createBadge(b))) setCreating(false); }} />
+            onSave={async b => { if (await doSave(() => createBadge(b))) { void audit("badge.create", { type: "badge", label: b.label }); setCreating(false); } }} />
         )}
         {BADGE_GROUPS.map(g => {
           const inGroup = badgeDefs.filter(b => b.group === g);
@@ -495,7 +445,7 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
                 {inGroup.map(b => editingId === b.id ? (
                   <BadgeEditor key={b.id} saving={saving} initial={b}
                     onCancel={() => setEditingId(null)}
-                    onSave={async patch => { if (await doSave(() => updateBadge(b.id, patch))) setEditingId(null); }} />
+                    onSave={async patch => { if (await doSave(() => updateBadge(b.id, patch))) { void audit("badge.update", { type: "badge", id: b.id, label: b.label }); setEditingId(null); } }} />
                 ) : (
                   <div key={b.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
                     <BadgeChip id={b.id} defs={badgeDefs} />
@@ -610,6 +560,8 @@ function BroadcastsTab() {
     if (!msg.trim()) return;
     const r = await createBroadcast({ message: msg.trim(), level, targetUserId: target || null });
     if (!r.ok) { alert(r.error ?? "Failed to send"); return; }
+    void audit("broadcast.send", { type: "broadcast", label: target ? "one member" : "everyone" },
+      { level, chars: msg.trim().length });
     setMsg(""); void refresh();
   }
   async function remove(id: string) {

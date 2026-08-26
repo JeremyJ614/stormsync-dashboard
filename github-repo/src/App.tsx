@@ -6,13 +6,15 @@ import { queryClient } from "./lib/queryClient";
 import { useLocation } from "./hooks/useLocation";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { PageSkeleton } from "./components/WeatherSkeleton";
 import SplashScreen from "./components/SplashScreen";
 import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { UpdateChip } from "./components/UpdateChip";
+import { ViewAsBanner } from "./components/ViewAsBanner";
+import { recordModuleView } from "./lib/moduleUsage";
 import { useAuth, hasModuleAccess } from "./hooks/useAuth";
 import { ModuleUpsell } from "./components/ModuleUpsell";
 import { registerPrefetch } from "./lib/prefetch";
@@ -114,6 +116,16 @@ function Gated({ path, children }: { path: string; children: React.ReactNode }) 
 
 function AppInner() {
   const { location, setLocation, detectLocation, isGeolocating } = useLocation();
+  const [path] = useWouterLocation();
+  const { user, viewAs } = useAuth();
+
+  // One place records module usage for every route, rather than 40 Route lines
+  // each remembering to. Never while an admin is looking through the "view as"
+  // lens — that would file their browsing under the member they are inspecting.
+  useEffect(() => {
+    if (!user || viewAs) return;
+    recordModuleView(path);
+  }, [path, user, viewAs]);
 
   return (
     <Layout location={location} onSetLocation={setLocation} onDetectLocation={detectLocation} isGeolocating={isGeolocating}>
@@ -169,6 +181,7 @@ function AppInner() {
       <NotificationToast />
       <InstallPrompt />
       <UpdateChip />
+      <ViewAsBanner />
     </Layout>
   );
 }

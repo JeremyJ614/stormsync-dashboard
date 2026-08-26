@@ -10,6 +10,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Trophy, Search, Plus, Minus, Loader2, Check, AlertCircle, History } from "lucide-react";
 import { listUsers } from "../lib/userAdmin";
 import { adjustPoints, getMemberLedger, getMemberTotals, type LedgerRow } from "../lib/gamePoints";
+import { audit } from "../lib/adminAudit";
 import type { User } from "../hooks/useAuth";
 import { ROYAL, EASE } from "../lib/royal";
 
@@ -63,6 +64,9 @@ export function AdminPointsTab() {
     });
     setBusy(false);
     if (!r.ok) { setMsg({ kind: "err", text: r.error ?? "Could not apply that." }); return; }
+    void audit(sign > 0 ? "points.grant" : "points.deduct",
+      { type: "user", id: selected.id, label: selected.name },
+      { points: Math.abs(Math.trunc(n)), reason: reason || "(none given)" });
     setMsg({ kind: "ok", text: `${sign > 0 ? "Granted" : "Deducted"} ${Math.abs(Math.trunc(n))} points for ${selected.name}.` });
     setReason("");
     const [t, l] = await Promise.all([getMemberTotals(), getMemberLedger(selected.id)]);

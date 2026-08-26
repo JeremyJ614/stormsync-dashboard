@@ -12,6 +12,7 @@ import {
   listCoupons, createCoupon, updateCoupon, deleteCoupon, COUPON_KIND_LABELS, type Coupon, type CouponKind,
   getPromoCounter, savePromoCounter, type PromoCounter,
 } from "../lib/billingAdmin";
+import { audit } from "../lib/adminAudit";
 
 type SubTab = "pricing" | "lifetime" | "bundles" | "addons" | "coupons" | "promo";
 
@@ -71,6 +72,7 @@ function TierPricingCard() {
     setErr(null);
     const r = await saveTierPricing(pricing!);
     if (!r.ok) { setErr(r.error ?? "Failed to save"); return; }
+    void audit("billing.prices", { type: "tier_pricing" }, pricing as unknown as Record<string, unknown>);
     setSaved(true); setTimeout(() => setSaved(false), 1500);
   }
 
@@ -287,6 +289,8 @@ function AddonRow({ row, onSaved, onDeleted }: { row: ModuleAddonPrice; onSaved:
   async function save() {
     setBusy(true);
     const r = await upsertModuleAddonPrice({ ...row, freePrice: free, basicPrice: basic, vipPrice: vip });
+    if (r.ok) void audit("billing.prices", { type: "module", id: row.moduleId, label: row.label },
+      { free, basic, vip });
     setBusy(false);
     if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
     setSaved(true); setTimeout(() => setSaved(false), 1200);

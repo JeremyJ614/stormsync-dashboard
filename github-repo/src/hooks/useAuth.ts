@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { navOverrideFor } from "../lib/navConfig";
+import { viewingAs, subscribeViewAs } from "../lib/impersonate";
 
 export type Tier = 1 | 2 | 3 | 4;
 
@@ -212,7 +213,15 @@ export interface AuthResult {
 
 export function useAuth() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const user = snap.user;
+  const realUser = snap.user;
+
+  // "View as this member" (lib/impersonate). The lens replaces the profile that
+  // drives gating and navigation; it never touches the Supabase session, so
+  // every read and write is still authorised as the admin who is signed in.
+  // Non-admins have nothing to view as, so the lens is ignored for them.
+  const lens = useSyncExternalStore(subscribeViewAs, viewingAs, () => null);
+  const viewAs = realUser?.isAdmin ? lens : null;
+  const user = viewAs ?? realUser;
 
   const login = useCallback(async (email: string, pin: string): Promise<AuthResult> => {
     if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
@@ -262,7 +271,15 @@ export function useAuth() {
     : 0;
   const loyaltyPoints = user ? monthsActive * 100 + user.referrals * 250 : 0;
 
-  return { user, loading: snap.loading, login, signup, logout, loyaltyPoints, monthsActive };
+  return {
+    user,
+    /** The signed-in account, regardless of any "view as" lens. */
+    realUser,
+    /** The member being viewed through the lens, or null. */
+    viewAs,
+    loading: snap.loading,
+    login, signup, logout, loyaltyPoints, monthsActive,
+  };
 }
 
 export function hasModuleAccess(user: User | null, path: string): boolean {

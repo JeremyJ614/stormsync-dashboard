@@ -72,7 +72,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/wpi", label: "Weather Pattern AI" },
   { id: "/duel", label: "AI Forecast Duel" },
   { id: "/glossary", label: "Weather Glossary" },
-  { id: "/chasing", label: "Storm Chasing", adminOnly: true },
+  { id: "/chasing", label: "Storm Chasing" },
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },
   { id: "/game", label: "Forecast Game" },

@@ -74,7 +74,7 @@ const NAV_SECTIONS = [
   {
     label: "Advanced Tools",
     items: [
-      { label: "Storm Chasing Dash",   path: "/chasing",  icon: Tornado },
+      { label: "Storm Chasing",        path: "/chasing",  icon: Tornado },
       { label: "Mosquito Index",       path: "/mosquito", icon: Bug },
       { label: "Weather Patterns",     path: "/wpi",      icon: Brain },
       { label: "AI Knowledge Battle",  path: "/duel",     icon: Swords },

@@ -27,7 +27,7 @@ const GENERAL: DefaultEntry[] = [
   { title: "Can I install StormSync as an app?", sections: [S("", "Yes — it's a PWA. Use the 'Install app' button on the Home screen or the 'Install StormSync' card in My Profile. On iPhone, use Safari's Share → Add to Home Screen; on Android, Chrome's ⋮ menu → Install app. Installing gives a full-screen, app-like experience and the most reliable alerts.")] },
   { title: "How do I set my location?", sections: [S("", "Use the search box in the header, the GPS button to auto-detect, or save multiple locations with the pin menu. Alerts and most modules use your saved locations.")] },
   { title: "What is the SSWX Loyalty Program?", sections: [S("", "Active members earn 100 points each calendar month, plus 250 points per referral. Points unlock prizes — locked prizes show the points required to reveal them. Referrals and renewals are credited by an admin; Forecast Game points post when the monthly board settles.")] },
-  { title: "Who do I contact for help?", sections: [S("", "General support: customerservice@stormsync.media. Emergency (Tier 4 only): the Emergency Storm Contact module, which relays straight to the StormSync admin team during active severe weather.")] },
+  { title: "Who do I contact for help?", sections: [S("", "Use the Contact page. General questions go to the team inbox; billing, access and account matters go through Customer Service, which is routed to SSWX Internal Affairs. The Emergency Storm Contact line — Advanced tier, PIN protected — is for an active, life-threatening storm where you need a person within minutes.")] },
 ];
 
 const m = (title: string, moduleId: string, tier: 1 | 2 | 3 | 4, overview: string, what: string, how: string, tip?: string): DefaultEntry => ({

@@ -316,12 +316,29 @@ export function navVisible(user: User | null, path: string): boolean {
  * Verify the Emergency Storm Contact PIN without ever reading it client-side
  * (the PIN is not selectable by members under RLS — see `check_emergency_pin`).
  */
-export async function checkEmergencyPin(candidate: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+/**
+ * Result of an emergency-PIN check.
+ *
+ * "wrong" and "unavailable" have to be told apart. `check_emergency_pin` is
+ * granted to `authenticated` and not to `anon`, so a signed-out visitor gets a
+ * permission error — and collapsing that into `false` tells them their PIN is
+ * wrong and sends them hunting for digits, when the actual problem is that they
+ * are not signed in. On a line meant for someone watching a wall cloud, that is
+ * the worst possible moment to give a misleading answer.
+ */
+export type PinResult = "ok" | "wrong" | "unavailable";
+
+export async function verifyEmergencyPin(candidate: string): Promise<PinResult> {
+  if (!isSupabaseConfigured) return "unavailable";
   const { data, error } = await supabase.rpc("check_emergency_pin", { candidate });
   if (error) {
     logger.error("Emergency PIN check failed", { scope: "auth", error });
-    return false;
+    return "unavailable";
   }
-  return data === true;
+  return data === true ? "ok" : "wrong";
+}
+
+/** Boolean form, for callers that genuinely only need pass/fail. */
+export async function checkEmergencyPin(candidate: string): Promise<boolean> {
+  return (await verifyEmergencyPin(candidate)) === "ok";
 }

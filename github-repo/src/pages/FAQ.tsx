@@ -89,7 +89,7 @@ export default function FAQ() {
       <div className="bg-card border border-border rounded-xl p-4 space-y-2">
         <h3 className="text-sm font-semibold">Still need help?</h3>
         <div className="text-xs text-muted-foreground space-y-1">
-          <div className="flex items-center gap-2"><Mail className="w-3 h-3 text-primary" /> <a href="mailto:customerservice@stormsync.media" className="hover:text-primary">customerservice@stormsync.media</a> — general support</div>
+          <div className="flex items-center gap-2"><Mail className="w-3 h-3 text-primary" /> <Link href="/contact" className="hover:text-primary">Customer Service</Link> — billing, access and account matters, routed to SSWX Internal Affairs</div>
           <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-red-400" /> <Link href="/contact" className="hover:text-primary">Emergency Storm Contact</Link> — Tier 4 only, PIN required</div>
         </div>
       </div>

@@ -119,12 +119,16 @@ function LocationSearch({ onSetLocation }: { onSetLocation: (loc: Location) => v
   const [suggestions, setSuggestions] = useState<Location[]>([]);
   const [searching, setSearching] = useState(false);
   const [open, setOpen] = useState(false);
+  // On a phone the field is collapsed to its icon until tapped. See the render
+  // below for why.
+  const [expanded, setExpanded] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) setOpen(false);
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) { setOpen(false); setExpanded(false); }
     }
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
@@ -147,21 +151,39 @@ function LocationSearch({ onSetLocation }: { onSetLocation: (loc: Location) => v
   }, [query]);
 
   const select = (loc: Location) => {
-    onSetLocation(loc); setQuery(""); setSuggestions([]); setOpen(false);
+    onSetLocation(loc); setQuery(""); setSuggestions([]); setOpen(false); setExpanded(false);
   };
 
   return (
+    // The field is 174px and cannot shrink. Beside the saved-locations menu, the
+    // bell, the GPS button and the avatar that came to 332px inside a 328px
+    // content column on a 390px phone: the page title was squeezed to zero width
+    // and the whole document scrolled 32px sideways, on every route. So below
+    // `sm` it collapses to its own icon and opens over the header when tapped.
     <div className="relative" ref={containerRef}>
-      <div className="flex items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-3 py-1.5">
+      <button
+        type="button"
+        onClick={() => { setExpanded(true); requestAnimationFrame(() => inputRef.current?.focus()); }}
+        aria-label="Search for a city"
+        aria-expanded={expanded}
+        className={`${expanded ? "hidden" : "flex"} sm:hidden p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-muted transition-colors`}
+      >
+        <Search className="w-4 h-4" />
+      </button>
+      <div className={`${expanded ? "flex absolute right-0 top-1/2 -translate-y-1/2 z-50 w-[min(64vw,240px)]" : "hidden"} sm:flex sm:static sm:translate-y-0 sm:w-auto items-center gap-1.5 bg-muted/40 border border-border rounded-lg px-3 py-1.5`}>
         <Search className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
         <input
+          ref={inputRef}
           type="text"
           placeholder="City..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && suggestions.length > 0) select(suggestions[0]); }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && suggestions.length > 0) select(suggestions[0]);
+            if (e.key === "Escape") { setOpen(false); setExpanded(false); }
+          }}
           onFocus={() => { if (suggestions.length > 0) setOpen(true); }}
-          className="bg-transparent outline-none text-sm w-32 placeholder:text-muted-foreground"
+          className="bg-transparent outline-none text-sm w-full min-w-0 sm:w-32 placeholder:text-muted-foreground"
           autoComplete="off" spellCheck={false}
         />
         {searching && <div className="w-3 h-3 border border-primary border-t-transparent rounded-full animate-spin shrink-0" />}

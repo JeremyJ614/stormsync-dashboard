@@ -79,6 +79,7 @@ const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"
 const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"), "/duel");
 const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glossary");
 const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
+const WinterCenter = lazyRoute(() => import("./pages/WinterCenter"), "/winter");
 const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"), "/mosquito");
 const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"), "/lightning-globe");
 
@@ -171,6 +172,7 @@ function AppInner() {
         <Route path="/duel" component={() => <PW name="AI Forecast Duel"><Gated path="/duel"><AIForecastDuel location={location} /></Gated></PW>} />
         <Route path="/glossary" component={() => <PW name="Glossary"><Gated path="/glossary"><WeatherGlossary /></Gated></PW>} />
         <Route path="/chasing" component={() => <PW name="Storm Chasing"><Gated path="/chasing"><StormChasingOutlook location={location} /></Gated></PW>} />
+        <Route path="/winter" component={() => <PW name="Winter Center"><Gated path="/winter"><WinterCenter location={location} /></Gated></PW>} />
         <Route path="/mosquito" component={() => <PW name="Mosquito Index"><Gated path="/mosquito"><MosquitoIndex location={location} /></Gated></PW>} />
         <Route path="/lightning-globe" component={() => <PW name="Lightning Density"><Gated path="/lightning-globe"><LightningHeatGlobe location={location} /></Gated></PW>} />
         <Route path="/loyalty" component={() => <PW name="Loyalty"><Gated path="/loyalty"><Loyalty /></Gated></PW>} />

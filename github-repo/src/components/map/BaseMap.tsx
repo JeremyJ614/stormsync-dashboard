@@ -33,6 +33,24 @@ export interface RasterOverlay {
   underLabels?: boolean;
 }
 
+/**
+ * A single georeferenced image, pinned to a bounding box.
+ *
+ * Plenty of the products worth showing are not tile pyramids. The WPC winter
+ * storm severity images are one transparent CONUS PNG each, and an ArcGIS
+ * MapServer `export` call returns one PNG for whatever box you ask for. Both
+ * are useful and neither fits a `{z}/{x}/{y}` template, so the map takes them
+ * as images with corners rather than making every caller invent a tile server.
+ */
+export interface ImageOverlay {
+  id: string;
+  url: string;
+  /** [west, south, east, north] in degrees. */
+  bounds: [number, number, number, number];
+  opacity?: number;
+  underLabels?: boolean;
+}
+
 export interface BaseMapHandle {
   map(): maplibregl.Map | null;
   flyTo(lat: number, lon: number, zoom?: number): void;
@@ -44,6 +62,7 @@ interface Props {
   zoom?: number;
   height?: number | string;
   overlays?: RasterOverlay[];
+  images?: ImageOverlay[];
   /** Fires once the style is loaded and the royal basemap is applied. */
   onReady?: (map: maplibregl.Map, beneath: string | undefined) => void;
   /** Raster tile telemetry, so a dead product cannot masquerade as clear weather. */
@@ -53,7 +72,7 @@ interface Props {
 }
 
 export const BaseMap = forwardRef<BaseMapHandle, Props>(function BaseMap(
-  { center, zoom = 6, height = 420, overlays = [], onReady, onTiles, interactive = true, className }, ref,
+  { center, zoom = 6, height = 420, overlays = [], images = [], onReady, onTiles, interactive = true, className }, ref,
 ) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -142,6 +161,48 @@ export const BaseMap = forwardRef<BaseMapHandle, Props>(function BaseMap(
       mounted.current.add(o.id);
     }
   }, [overlays, ready]);
+
+  // ── image overlays ─────────────────────────────────────────────────────────
+  // Same diffing shape as the raster overlays above, but MapLibre's `image`
+  // source takes four corners rather than a tile template, and its url and
+  // coordinates can be updated in place — which matters here, because scrubbing
+  // through forecast hours changes only the url and rebuilding the layer each
+  // time makes the map blink.
+  const mountedImages = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+
+    const wanted = new Map(images.map((o) => [o.id, o]));
+    for (const id of [...mountedImages.current.keys()]) {
+      if (wanted.has(id)) continue;
+      if (m.getLayer(`img-${id}`)) m.removeLayer(`img-${id}`);
+      if (m.getSource(`img-${id}`)) m.removeSource(`img-${id}`);
+      mountedImages.current.delete(id);
+    }
+
+    for (const o of images) {
+      const sid = `img-${o.id}`;
+      const [w, s2, e, n] = o.bounds;
+      const corners: [[number, number], [number, number], [number, number], [number, number]] =
+        [[w, n], [e, n], [e, s2], [w, s2]];
+      const existing = m.getSource(sid) as maplibregl.ImageSource | undefined;
+      if (existing) {
+        if (mountedImages.current.get(o.id) !== o.url) {
+          existing.updateImage({ url: o.url, coordinates: corners });
+          mountedImages.current.set(o.id, o.url);
+        }
+        m.setPaintProperty(sid, "raster-opacity", o.opacity ?? 1);
+        continue;
+      }
+      m.addSource(sid, { type: "image", url: o.url, coordinates: corners });
+      m.addLayer(
+        { id: sid, type: "raster", source: sid, paint: { "raster-opacity": o.opacity ?? 1 } },
+        o.underLabels ? beneath.current : undefined,
+      );
+      mountedImages.current.set(o.id, o.url);
+    }
+  }, [images, ready]);
 
   // Tile telemetry — counted from the map's own data events.
   useEffect(() => {

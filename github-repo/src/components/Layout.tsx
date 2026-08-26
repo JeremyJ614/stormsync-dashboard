@@ -42,7 +42,7 @@ const NAV_SECTIONS = [
     label: "Severe Weather",
     items: [
       { label: "SSWXCon Score",           path: "/sswxcon",     icon: Activity },
-      { label: "Warning Center",          path: "/warnings",    icon: AlertCircle },
+      { label: "Warnings & Reports",      path: "/warnings",    icon: AlertCircle },
       { label: "SPC Outlook",             path: "/spc",         icon: Globe },
       { label: "Mesoscale Discussions",   path: "/meso",        icon: Layers },
       { label: "Atmosphere Ingredients",  path: "/ingredients", icon: FlaskConical },

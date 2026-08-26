@@ -154,7 +154,7 @@ function AppInner() {
         <Route path="/ingredients" component={() => <PW name="Storm Ingredients"><Gated path="/ingredients"><StormIngredients location={location} /></Gated></PW>} />
         <Route path="/swti" component={() => <PW name="Threat Index"><Gated path="/swti"><SWTIPage location={location} /></Gated></PW>} />
         <Route path="/timing" component={() => <PW name="Severe Timing"><Gated path="/timing"><SevereWeatherTiming location={location} /></Gated></PW>} />
-        <Route path="/warnings" component={() => <PW name="Warning Center"><Gated path="/warnings"><WarningCenter location={location} /></Gated></PW>} />
+        <Route path="/warnings" component={() => <PW name="Warnings & Reports"><Gated path="/warnings"><WarningCenter location={location} /></Gated></PW>} />
         <Route path="/aqi" component={() => <PW name="AQI Forecast"><Gated path="/aqi"><AQIForecast location={location} /></Gated></PW>} />
         <Route path="/hazards" component={() => <PW name="Hazards & Drought"><Gated path="/hazards"><HazardsMap location={location} /></Gated></PW>} />
         <Route path="/rivers" component={() => <PW name="River & Flood Gauges"><Gated path="/rivers"><RiverGauges location={location} /></Gated></PW>} />

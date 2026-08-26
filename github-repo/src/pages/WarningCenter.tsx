@@ -4,6 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useState, useMemo } from "react";
 import { fetchAllUSAlerts, fetchStormReports, type NWSAlertFeature } from "../utils/weatherApi";
+import { motion, LayoutGroup } from "framer-motion";
+import { ModuleShell } from "../components/ModuleShell";
+import { ReportsTab } from "../components/warnings/ReportsTab";
+import { ROYAL, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
@@ -105,7 +109,8 @@ function useStormReportsQ() {
   });
 }
 
-export default function WarningCenter({ location: _location }: Props) {
+export default function WarningCenter({ location }: Props) {
+  const [tab, setTab] = useState<"warnings" | "reports">("warnings");
   const { data: alerts = [], isLoading, error, refetch, isFetching } = useNationwideWarnings();
   const { data: reports } = useStormReportsQ();
   const [selectedState, setSelectedState] = useState("");
@@ -138,18 +143,54 @@ export default function WarningCenter({ location: _location }: Props) {
   const flashFlood = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("flash flood warning"));
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-wide">Warning Center</h2>
-        </div>
+    <ModuleShell
+      eyebrow="NWS Active Alerts · IEM Local Storm Reports"
+      title={<>Warnings &amp; Reports</>}
+      subtitle="What the Weather Service has warned, and what people on the ground have actually reported."
+      actions={
         <button onClick={() => refetch()} disabled={isFetching}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded border border-border hover:border-primary/40 transition-colors disabled:opacity-50">
           <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} /> Refresh
         </button>
-      </div>
-      <p className="text-sm text-muted-foreground">Nationwide · Live NWS Active Alerts Feed</p>
+      }
+      status={
+        // A warning says what a radar expects; a report says what somebody
+        // standing outside saw. During an event you want to flip between the
+        // two without leaving the page — hence subtabs rather than two modules.
+        <LayoutGroup id="wc-tabs">
+          <div className="grid grid-cols-2 gap-1 rounded-xl p-1.5"
+               style={{ background: "hsl(var(--muted) / 0.3)", border: "1px solid hsl(var(--border))" }}>
+            {([
+              { id: "warnings", label: "Active Warnings", icon: AlertCircle, count: activeAlerts.length },
+              { id: "reports", label: "Storm Reports", icon: Radio, count: null },
+            ] as const).map((t) => {
+              const Icon = t.icon;
+              const on = tab === t.id;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className="relative py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                  style={{ color: on ? "#17141f" : "hsl(var(--muted-foreground))", zIndex: 1 }}>
+                  {on && (
+                    <motion.span layoutId="wc-tab-slab"
+                      transition={prefersReducedMotion() ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 30 }}
+                      className="absolute inset-0 rounded-lg -z-10"
+                      style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a55f)` }} />
+                  )}
+                  <Icon className="w-4 h-4" /> {t.label}
+                  {t.count !== null && t.count > 0 && (
+                    <span className="tabular-nums text-[11px] opacity-80">{t.count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </LayoutGroup>
+      }
+    >
+      {tab === "reports" ? (
+        <ReportsTab lat={location.lat} lon={location.lon} place={location.name} />
+      ) : (
+      <div className="space-y-5">
 
       {/* Summary counts */}
       {!isLoading && (
@@ -303,7 +344,9 @@ export default function WarningCenter({ location: _location }: Props) {
           })}
         </div>
       )}
-    </div>
+      </div>
+      )}
+    </ModuleShell>
   );
 }
 

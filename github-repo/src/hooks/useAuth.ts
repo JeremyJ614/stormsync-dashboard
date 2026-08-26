@@ -56,7 +56,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/ingredients", label: "Storm Ingredients" },
   { id: "/swti", label: "Threat Index" },
   { id: "/timing", label: "Severe Timing" },
-  { id: "/warnings", label: "Warning Center" },
+  { id: "/warnings", label: "Warnings & Reports" },
   { id: "/aqi", label: "AQI Forecast" },
   { id: "/hazards", label: "Hazards & Drought" },
   { id: "/rivers", label: "River & Flood Gauges" },

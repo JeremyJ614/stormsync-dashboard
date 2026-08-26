@@ -219,7 +219,7 @@ export default function Home() {
         {[
           { label: "Dashboard", icon: "📊", path: "/dashboard" },
           { label: "SPC Outlook", icon: "⚡", path: "/spc" },
-          { label: "Warning Center", icon: "🚨", path: "/warnings" },
+          { label: "Warnings & Reports", icon: "🚨", path: "/warnings" },
           { label: "Forecast Game", icon: "🎮", path: "/game" },
         ].map(t => (
           <Link key={t.label} href={t.path} className="bg-card border border-border rounded-xl p-4 text-center hover:border-primary/40 transition-colors">

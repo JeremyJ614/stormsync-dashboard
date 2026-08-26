@@ -131,7 +131,7 @@ function generateBriefing(data: {
       nationalSummary += `This includes ${items.join(", ")}. `;
     }
     nationalSummary += nationwideTornado > 0 || nationwideSvr > 0
-      ? "Active severe weather is occurring across portions of the country. Check the Warning Center for the full nationwide alert feed."
+      ? "Active severe weather is occurring across portions of the country. Check Warnings & Reports for the full nationwide alert feed."
       : "Severe weather activity is relatively limited nationally at this time.";
     paragraphs.push(nationalSummary);
   } else {

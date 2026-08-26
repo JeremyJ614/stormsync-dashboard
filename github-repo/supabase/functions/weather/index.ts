@@ -178,6 +178,198 @@ function kmlToFeatures(kml: string): GeoJSON.FeatureCollection {
   return { type: "FeatureCollection", features };
 }
 
+
+// ─── traffic and hazard cameras ─────────────────────────────────────────────
+/**
+ * Public camera networks, normalised into one shape.
+ *
+ * Every network here was probed live and needs no API key. Most state 511
+ * systems DO need one — Idaho, Alaska, Pennsylvania and the rest of the CARS
+ * vendor family all answer "Invalid Key" — so they are absent rather than
+ * half-built. Adding one later is a single entry in NETWORKS.
+ *
+ * The lists are cached for six hours because a camera roster changes rarely.
+ * The pictures are not cached at all: the browser loads those straight from the
+ * source so they are always current, which is the whole point of a camera.
+ *
+ * Requests are answered by bounding box. The full national list is roughly
+ * 6,700 cameras and about 1.5 MB normalised, which is not a payload to send to
+ * a phone during a storm.
+ */
+interface Cam {
+  id: string;
+  net: string;
+  name: string;
+  lat: number;
+  lon: number;
+  /** Still image, refreshed by the browser. */
+  img: string;
+  /** HLS stream, where the network publishes one. */
+  stream?: string;
+  road?: string;
+  place?: string;
+  dir?: string;
+}
+
+const CAM_UA = { "User-Agent": UA, Accept: "application/json" };
+
+async function caltrans(): Promise<Cam[]> {
+  const out: Cam[] = [];
+  const districts = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+  const pages = await Promise.all(districts.map(async (d) => {
+    try {
+      const r = await fetch(`https://cwwp2.dot.ca.gov/data/d${d}/cctv/cctvStatusD${String(d).padStart(2, "0")}.json`, { headers: CAM_UA });
+      if (!r.ok) return [];
+      // deno-lint-ignore no-explicit-any
+      return ((await r.json()) as any).data ?? [];
+    } catch { return []; }
+  }));
+  for (const page of pages) {
+    // deno-lint-ignore no-explicit-any
+    for (const row of page as any[]) {
+      const c = row?.cctv;
+      const loc = c?.location, img = c?.imageData;
+      const lat = Number(loc?.latitude), lon = Number(loc?.longitude);
+      const still = img?.static?.currentImageURL;
+      if (!Number.isFinite(lat) || !Number.isFinite(lon) || !still) continue;
+      if (lat === 0 && lon === 0) continue;
+      if (String(c.inService) === "false") continue;
+      out.push({
+        id: `ct-${loc.district}-${c.index}`,
+        net: "caltrans",
+        name: String(loc.locationName ?? "").replace(/^\S+\s*--\s*/, "") || "Caltrans camera",
+        lat, lon,
+        img: still,
+        stream: img?.streamingVideoURL || undefined,
+        road: loc.route || undefined,
+        place: loc.nearbyPlace || loc.county || undefined,
+        dir: loc.direction || undefined,
+      });
+    }
+  }
+  return out;
+}
+
+async function alertCalifornia(): Promise<Cam[]> {
+  try {
+    const r = await fetch("https://cameras.alertcalifornia.org/public-camera-data/all_cameras-v3.json", { headers: CAM_UA });
+    if (!r.ok) return [];
+    // deno-lint-ignore no-explicit-any
+    const d = (await r.json()) as any;
+    const out: Cam[] = [];
+    for (const f of d.features ?? []) {
+      const [lon, lat] = f?.geometry?.coordinates ?? [];
+      const p = f?.properties ?? {};
+      // Roughly half the roster has null coordinates. A camera we cannot place
+      // is a camera we cannot show on a map, so it is dropped rather than
+      // pinned at zero.
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      if (!p.id) continue;
+      out.push({
+        id: `ac-${p.id}`,
+        net: "alertca",
+        name: String(p.name || p.id),
+        lat, lon,
+        img: `https://cameras.alertcalifornia.org/public-camera-data/${p.id}/latest-frame.jpg`,
+        place: [p.county, p.state].filter(Boolean).join(", ") || undefined,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
+async function michigan(): Promise<Cam[]> {
+  try {
+    const r = await fetch("https://mdotjboss.state.mi.us/MiDrive/camera/list", { headers: CAM_UA });
+    if (!r.ok) return [];
+    // deno-lint-ignore no-explicit-any
+    const rows = (await r.json()) as any[];
+    const out: Cam[] = [];
+    for (const row of rows) {
+      // MiDrive returns HTML fragments inside its JSON fields. The coordinates
+      // live in a link and the picture in an <img> tag, so both are pulled out
+      // by pattern. All 806 rows parsed when this was written; if the shape
+      // changes the network simply returns nothing rather than bad pins.
+      const at = /lat=([-\d.]+)&lon=([-\d.]+)/.exec(String(row?.county ?? ""));
+      const img = /src="([^"]+)"/.exec(String(row?.image ?? ""));
+      if (!at || !img) continue;
+      const lat = Number(at[1]), lon = Number(at[2]);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const county = String(row.county ?? "").replace(/<[^>]*>/g, "").trim();
+      // MiDrive links a thumbnail path that 301s to the real file on every
+      // request. On a grid of forty cameras that is forty wasted round trips,
+      // so the redirect is resolved here once instead.
+      const src = img[1].replace("/thumbs/", "/").replace(".flv.jpg", ".jpg");
+      out.push({
+        id: `mi-${lat.toFixed(5)},${lon.toFixed(5)}`,
+        net: "midrive",
+        name: `${String(row.route ?? "").trim()} ${String(row.location ?? "").trim()}`.trim() || "MDOT camera",
+        lat, lon,
+        img: src,
+        road: String(row.route ?? "").trim() || undefined,
+        place: county || undefined,
+        dir: String(row.direction ?? "").replace(/^Traffic closest to camera is traveling /, "").replace(/\.$/, "") || undefined,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
+async function driveBC(): Promise<Cam[]> {
+  try {
+    const r = await fetch("https://www.drivebc.ca/api/webcams", { headers: CAM_UA, redirect: "follow" });
+    if (!r.ok) return [];
+    // deno-lint-ignore no-explicit-any
+    const rows = (await r.json()) as any[];
+    const out: Cam[] = [];
+    for (const c of rows) {
+      // `location` is GeoJSON Point, so the coordinates are [lon, lat] in that
+      // order. Reading it as {latitude, longitude} returned zero cameras.
+      const [lon, lat] = c?.location?.coordinates ?? [];
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const path = c?.links?.imageDisplay;
+      if (!path) continue;
+      // The feed marks cameras that are switched off or known stale. A picture
+      // from three days ago on a road-conditions map is worse than no picture.
+      if (c.is_on === false || c.should_appear === false || c.marked_stale === true) continue;
+      out.push({
+        id: `bc-${c.id}`,
+        net: "drivebc",
+        name: String(c.name_override || c.name || `Camera ${c.id}`),
+        lat, lon,
+        img: path.startsWith("http") ? path : `https://www.drivebc.ca${path}`,
+        road: c.highway_display ? `Hwy ${c.highway_display}` : undefined,
+        place: c.region_name || undefined,
+        dir: c.orientation || undefined,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
+const NETWORKS: { id: string; label: string; region: string; load: () => Promise<Cam[]> }[] = [
+  { id: "caltrans", label: "Caltrans", region: "California highways", load: caltrans },
+  { id: "alertca", label: "ALERTCalifornia", region: "California wildfire cameras", load: alertCalifornia },
+  { id: "midrive", label: "MDOT MiDrive", region: "Michigan", load: michigan },
+  { id: "drivebc", label: "DriveBC", region: "British Columbia", load: driveBC },
+];
+
+interface CamCache { cams: Cam[]; nets: { id: string; label: string; region: string; count: number }[]; at: string }
+
+async function allCameras(): Promise<CamCache> {
+  const hit = await cacheGet("cameras:all", 6 * 3600) as CamCache | null;
+  if (hit) return hit;
+
+  const results = await Promise.all(NETWORKS.map(async (n) => ({ n, cams: await n.load() })));
+  const cams = results.flatMap((r) => r.cams);
+  const nets = results.map((r) => ({ id: r.n.id, label: r.n.label, region: r.n.region, count: r.cams.length }));
+  const out: CamCache = { cams, nets, at: new Date().toISOString() };
+  // Only cache a run that actually got something; caching a total outage for
+  // six hours would turn a blip into an afternoon.
+  if (cams.length > 0) await cacheSet("cameras:all", out);
+  return out;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
 
@@ -186,6 +378,38 @@ Deno.serve(async (req) => {
   const route = url.pathname.replace(/^\/functions\/v1\/weather/, "").replace(/^\/weather/, "") || "/";
 
   try {
+    // ---- public cameras ---------------------------------------------------
+    if (route === "/cameras") {
+      const { cams, nets, at } = await allCameras();
+      const bbox = url.searchParams.get("bbox");
+      const netFilter = (url.searchParams.get("net") ?? "").split(",").filter(Boolean);
+      const limit = Math.min(Number(url.searchParams.get("limit") ?? 400) || 400, 1200);
+
+      let list = cams;
+      if (netFilter.length) list = list.filter((c) => netFilter.includes(c.net));
+
+      let inBox = list.length;
+      if (bbox) {
+        const [w, s2, e, n] = bbox.split(",").map(Number);
+        if ([w, s2, e, n].every(Number.isFinite)) {
+          list = list.filter((c) => c.lon >= w && c.lon <= e && c.lat >= s2 && c.lat <= n);
+          inBox = list.length;
+          // Too many for one view: thin evenly across the box rather than
+          // returning the first N, which would pile every pin in one corner.
+          if (list.length > limit) {
+            const step = list.length / limit;
+            const thinned: typeof list = [];
+            for (let i = 0; i < limit; i++) thinned.push(list[Math.floor(i * step)]);
+            list = thinned;
+          }
+        }
+      } else {
+        list = list.slice(0, limit);
+      }
+
+      return json({ cameras: list, shown: list.length, matched: inBox, total: cams.length, networks: nets, fetched_at: at });
+    }
+
     // ---- NWS points -------------------------------------------------------
     if (route === "/nws/points") {
       const lat = url.searchParams.get("lat");

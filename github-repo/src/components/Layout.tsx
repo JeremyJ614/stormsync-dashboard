@@ -13,7 +13,7 @@ import {
   Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
   Gamepad2, LogIn, User as UserIcon, Settings, BookMarked,
   CloudRain, Satellite, Target, RotateCcw, ChevronRight,
-  History, X, Sun, Waves, CreditCard, Flame, Snowflake,
+  History, X, Sun, Waves, CreditCard, Flame, Snowflake, Video,
 } from "lucide-react";
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
@@ -62,6 +62,7 @@ const NAV_SECTIONS = [
       { label: "River & Flood Gauges", path: "/rivers",     icon: Waves },
       { label: "Fire Weather",     path: "/fire",            icon: Flame },
       { label: "Winter Center",      path: "/winter",   icon: Snowflake },
+      { label: "Traffic Cameras",    path: "/cameras",  icon: Video },
       { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
     ],
   },

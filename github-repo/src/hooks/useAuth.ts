@@ -62,6 +62,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/rivers", label: "River & Flood Gauges" },
   { id: "/fire", label: "Fire Weather" },
   { id: "/winter", label: "Winter Center" },
+  { id: "/cameras", label: "Traffic Cameras" },
   { id: "/summary", label: "Daylight Tracker" },
   { id: "/sswxcon", label: "SSWXCon Score" },
   { id: "/mosquito", label: "Mosquito Index" },

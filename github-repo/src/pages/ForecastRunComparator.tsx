@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { REGIONS, regionTransform } from "../lib/modelProjection";
 import { ROYAL, HEADING } from "../lib/royal";
 import { ModuleShell } from "../components/ModuleShell";
+import { NowcastTab } from "../components/models/NowcastTab";
+import type { Location } from "../hooks/useLocation";
 import { useQuery } from "@tanstack/react-query";
 import {
   Satellite, Play, Pause, ChevronLeft, ChevronRight, Download, Share2,
@@ -32,8 +34,15 @@ const SPEEDS = [
   { label: "Fast", ms: 250 },
 ];
 
-export default function ForecastRunComparator() {
-  const [model, setModel] = useState<ModelId>("hrrr");
+interface Props { location: Location }
+
+export default function ForecastRunComparator({ location }: Props) {
+  // "nowcast" is not a model here — it is a third view. The maps are national
+  // and pre-rendered four times a day; the nowcast is this one point, stepped
+  // every fifteen minutes, and answers what a map structurally cannot.
+  const [view, setView] = useState<"hrrr" | "gfs" | "nowcast">("hrrr");
+  const model: ModelId = view === "nowcast" ? "hrrr" : view;
+  const setModel = (m: ModelId) => setView(m);
   const [runIdx, setRunIdx] = useState(0);
   const [paramKey, setParamKey] = useState<string | null>(null);
   const [frameIdx, setFrameIdx] = useState(0);
@@ -169,18 +178,27 @@ export default function ForecastRunComparator() {
     <ModuleShell
       eyebrow="NOAA · NOMADS"
       title="Model Runs"
-      subtitle="HRRR and GFS severe-weather maps, rendered from NOAA model data."
+      subtitle="HRRR and GFS severe-weather maps rendered from NOAA model data, plus a fifteen-minute nowcast for your location."
     >
-      {/* Model tabs */}
-      <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
-        {(["hrrr", "gfs"] as ModelId[]).map((m) => (
-          <button key={m} onClick={() => setModel(m)}
-            className={`py-2.5 rounded-lg text-sm font-semibold uppercase tracking-wide ${model === m ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-            {m === "hrrr" ? "HRRR · 3 km" : "GFS · 13 km"}
+      {/* Views */}
+      <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
+        {([
+          { id: "hrrr", label: "HRRR · 3 km" },
+          { id: "gfs", label: "GFS · 13 km" },
+          { id: "nowcast", label: "Nowcast · 15 min" },
+        ] as const).map((v) => (
+          <button key={v.id} onClick={() => setView(v.id)}
+            className={`py-2.5 rounded-lg text-[13px] font-semibold uppercase tracking-wide ${view === v.id ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
+            {v.label}
           </button>
         ))}
       </div>
 
+      {view === "nowcast" && (
+        <NowcastTab lat={location.lat} lon={location.lon} place={location.name} />
+      )}
+
+      {view !== "nowcast" && (<>
       {/* Run status / archive */}
       <div className="bg-card border border-border rounded-xl p-3 flex flex-wrap items-center gap-x-5 gap-y-2">
         {runs.isLoading ? (
@@ -398,6 +416,7 @@ export default function ForecastRunComparator() {
         times daily out to F018; GFS out to F048 in 3-hour steps. Model guidance is not a
         forecast — always defer to official NWS products.
       </p>
+      </>)}
     </ModuleShell>
   );
 }

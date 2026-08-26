@@ -118,7 +118,7 @@ export default function WarningCenter({ location }: Props) {
   // member's own location. See lib/calm — it is a rule, not a preference.
   const { calm, reason, event: calmEvent } = useCalm(location.lat, location.lon);
   const { data: alerts = [], isLoading, error, refetch, isFetching } = useNationwideWarnings();
-  const { data: reports } = useStormReportsQ();
+  const { data: reports, isError: reportsFailed } = useStormReportsQ();
   const [selectedState, setSelectedState] = useState("");
   const [selectedType, setSelectedType] = useState("");
 
@@ -211,8 +211,10 @@ export default function WarningCenter({ location }: Props) {
       ) : (
       <div className="space-y-5">
 
-      {/* Summary counts */}
-      {!isLoading && (
+      {/* Summary counts. Gated on `!error` as well as `!isLoading`: a row of
+          zeros is the loudest all-clear on the page, and during a feed outage
+          it is one we have not earned. */}
+      {!isLoading && !error && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: "Tornado Warnings", count: tornadoWarnings.length, color: "text-red-400", bg: "bg-red-500/10 border-red-500/30", icon: "🌪️" },
@@ -265,7 +267,16 @@ export default function WarningCenter({ location }: Props) {
         </div>
       )}
 
-      {/* Storm reports */}
+      {/* Storm reports. The counts used to fall back to zeros on failure, which
+          reads as "no tornadoes were reported today" — a claim we would not have
+          the data to make. Say the feed is down instead. */}
+      {reportsFailed && (
+        <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-destructive" />
+          Today's SPC storm reports are unavailable right now — this is not a report of zero.
+        </div>
+      )}
+
       {reports && (
         <div className="bg-card border border-border rounded-xl p-4">
           <h3 className="text-sm font-semibold uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -319,7 +330,10 @@ export default function WarningCenter({ location }: Props) {
         </div>
       )}
 
-      {!isLoading && activeAlerts.length === 0 && (
+      {/* Only claim an all-clear when the feed actually answered. On error the
+          banner above is the whole story — a green tick underneath it would be
+          telling people the country is quiet when we never got to look. */}
+      {!isLoading && !error && activeAlerts.length === 0 && (
         <div className="bg-card border border-border rounded-xl p-10 text-center">
           <div className="text-4xl mb-3">✅</div>
           <h3 className="font-semibold text-lg mb-1">No Active Alerts{selectedState ? ` in ${US_STATES[selectedState]}` : ""}</h3>

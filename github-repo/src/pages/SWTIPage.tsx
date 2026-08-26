@@ -1,4 +1,5 @@
 import { useOpenMeteo, useNWSAlerts, useNWSPoints } from "../hooks/useWeatherQuery";
+import DataUnavailable from "../components/DataUnavailable";
 import type { Location } from "../hooks/useLocation";
 import {
   computeSRHFromProfile, compute06kmShear, computeSWTI, cToF, msToMph,
@@ -79,7 +80,7 @@ function ScoreGauge({ score, color }: { score: number; color: string }) {
 }
 
 export default function SWTIPage({ location }: Props) {
-  const { data: weather, isLoading } = useOpenMeteo(location);
+  const { data: weather, isLoading, refetch } = useOpenMeteo(location);
   const { data: alerts = [] } = useNWSAlerts(location);
   const { data: nwsPoints } = useNWSPoints(location);
 
@@ -123,6 +124,12 @@ export default function SWTIPage({ location }: Props) {
     (a.properties.event ?? "").toLowerCase().includes("tornado") ||
     (a.properties.event ?? "").toLowerCase().includes("severe")
   );
+
+  // Every parameter above defaults to 0 when the profile is missing, and 0 CAPE
+  // with 0 shear scores as BENIGN. That is a reading we have not taken.
+  if (!isLoading && !hourly) {
+    return <DataUnavailable title="Storm Weather Threat Index" source="Open-Meteo" onRetry={() => refetch()} />;
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-5">

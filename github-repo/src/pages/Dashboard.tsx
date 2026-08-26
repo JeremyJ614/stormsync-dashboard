@@ -93,9 +93,22 @@ function AlertBanner({ alerts }: { alerts: ReturnType<typeof useNWSAlerts>["data
   );
 }
 
+function AlertFeedDown({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-200 rounded-lg p-3 flex items-start gap-2">
+      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+      <div className="text-xs leading-relaxed">
+        <span className="font-semibold block text-sm mb-0.5">Alerts could not be checked</span>
+        We could not reach the Weather Service just now, so this is not an all-clear.
+        <button onClick={onRetry} className="ml-1 underline underline-offset-2 hover:text-yellow-100">Try again</button>
+      </div>
+    </div>
+  );
+}
+
 export default function Dashboard({ location }: Props) {
   const { data: weather, isLoading, error } = useOpenMeteo(location);
-  const { data: alerts, isLoading: alertsLoading } = useNWSAlerts(location);
+  const { data: alerts, isLoading: alertsLoading, isError: alertsFailed, refetch: refetchAlerts } = useNWSAlerts(location);
   const { data: nwsPoints } = useNWSPoints(location);
 
   const [layout, setLayout] = useState<DashboardLayout>(getLayout);
@@ -184,7 +197,14 @@ export default function Dashboard({ location }: Props) {
         loading={isLoading}
       />
     ),
-    alerts: alertsLoading ? <AlertSkeleton /> : (alerts?.length ? <AlertBanner alerts={alerts} /> : null),
+    alerts: alertsLoading
+      ? <AlertSkeleton />
+      : alertsFailed
+        // An empty alerts slot on the dashboard reads as "nothing is out for
+        // you". When the feed is down we have not checked, so say that rather
+        // than render nothing and let the silence make the claim.
+        ? <AlertFeedDown onRetry={() => refetchAlerts()} />
+        : (alerts?.length ? <AlertBanner alerts={alerts} /> : null),
     stats: (
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
         {isLoading ? Array.from({ length: 6 }).map((_, i) => <StatSkeleton key={i} />) : (

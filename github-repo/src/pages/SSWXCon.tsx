@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
 import { fetchAllUSAlerts } from "../utils/weatherApi";
+import DataUnavailable from "../components/DataUnavailable";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { Activity, Info, RefreshCw, Sparkles } from "lucide-react";
@@ -262,7 +263,7 @@ export default function SSWXCon({ location }: Props) {
   // SSWXCon is a NATIONAL "DEFCON for storms" score — it must aggregate every
   // active NWS warning across the U.S., not just the user's point (otherwise it
   // reads ~0 whenever no warning is firing on their exact location).
-  const { data: alerts = [], isLoading: alertsLoading, refetch: refetchAlerts } = useQuery({
+  const { data: alerts = [], isLoading: alertsLoading, isError: alertsFailed, refetch: refetchAlerts } = useQuery({
     queryKey: ["all-us-alerts"],
     queryFn: fetchAllUSAlerts,
     staleTime: 2 * 60 * 1000,
@@ -295,6 +296,18 @@ export default function SSWXCon({ location }: Props) {
   const saturation = Math.round((total / ACTIVATION_THRESHOLD) * 100);
   const swti = computeSWTI({ cape, srh, shear06km: shear, liftedIndex: li, dewPointC: hourly?.dew_point_2m?.[0] ?? 10 });
 
+  // This score has two independent halves. The national one is NWS warning
+  // counts; the LOCAL INSTABILITY term (capped at 12 of ~377) is Open-Meteo. So
+  // the page still stands when either is down — but a component whose input has
+  // not arrived must read as absent, never as a measured zero. The components
+  // list renders outside the loading branch above, so this covers both the
+  // in-flight case and the failed one.
+  const localMissing = !hourly;
+  const componentState = (label: string) =>
+    label === "LOCAL INSTABILITY"
+      ? { missing: localMissing, why: wxLoading ? "Loading…" : "Unavailable — could not reach Open-Meteo" }
+      : { missing: alertsLoading || alertsFailed, why: alertsLoading ? "Loading…" : "Unavailable — could not reach the NWS alert feed" };
+
   const refresh = () => {
     refetchWx();
     refetchAlerts();
@@ -307,6 +320,19 @@ export default function SSWXCon({ location }: Props) {
     }, 60 * 1000);
     return () => clearInterval(interval);
   }, []);
+
+  // The national warning counts are ~97% of this score's range; without them
+  // there is no score, only a gauge that reads QUIET because nothing was
+  // counted. The local half is not enough to stand in for it.
+  if (!alertsLoading && alertsFailed) {
+    return (
+      <DataUnavailable
+        title="SSWXCon Score"
+        source="the national NWS alert feed"
+        onRetry={() => { refetchAlerts(); refetchWx(); }}
+      />
+    );
+  }
 
   const alertTypeBreakdown = [
     { label: "Tornado Warnings", count: tornadoWarnings, color: "#ef4444" },
@@ -429,20 +455,25 @@ export default function SSWXCon({ location }: Props) {
             <div className="text-xs text-muted-foreground uppercase tracking-widest font-medium">SCORE COMPONENTS</div>
           </div>
           <div className="divide-y divide-border">
-            {components.map(comp => (
+            {components.map(comp => {
+              const st = componentState(comp.label);
+              return (
               <div key={comp.label} className="px-4 py-3 flex items-center gap-3">
                 <div className="w-36 text-xs font-medium text-muted-foreground uppercase tracking-wide shrink-0">{comp.label}</div>
                 <div className="flex-1">
-                  <ComponentBar score={comp.score} max={60} />
+                  <ComponentBar score={st.missing ? 0 : comp.score} max={60} />
                 </div>
                 <div className="w-10 text-sm font-bold tabular-nums text-right shrink-0"
-                  style={{ color: comp.score > 0 ? levelColor : "#6b7280" }}>
-                  {comp.score.toFixed(1)}
+                  style={{ color: !st.missing && comp.score > 0 ? levelColor : "#6b7280" }}>
+                  {st.missing ? "—" : comp.score.toFixed(1)}
                 </div>
                 <div className="w-10 text-xs text-muted-foreground text-right shrink-0 font-mono">{comp.multiplier}</div>
-                <div className="text-xs text-muted-foreground min-w-0 truncate hidden sm:block">{comp.desc}</div>
+                <div className="text-xs text-muted-foreground min-w-0 truncate hidden sm:block">
+                  {st.missing ? st.why : comp.desc}
+                </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -473,7 +504,7 @@ export default function SSWXCon({ location }: Props) {
                   <div className="text-sm font-medium">SWTI Score Contribution</div>
                   <div className="text-xs text-muted-foreground">Storm threat index factor</div>
                 </div>
-                <div className="text-xl font-bold tabular-nums text-primary">{swti.score.toFixed(1)}</div>
+                <div className="text-xl font-bold tabular-nums text-primary">{localMissing ? "—" : swti.score.toFixed(1)}</div>
               </div>
             </div>
           </div>

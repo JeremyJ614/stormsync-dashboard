@@ -5,6 +5,7 @@ import { Bug, ExternalLink, Info } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 import { format, parseISO } from "date-fns";
 import { cToF, msToMph } from "../utils/weatherCalc";
+import DataUnavailable from "../components/DataUnavailable";
 
 interface Props { location: Location }
 
@@ -145,7 +146,7 @@ const PREVENTION = [
 ];
 
 export default function MosquitoIndex({ location }: Props) {
-  const { data: weather, isLoading } = useOpenMeteo(location);
+  const { data: weather, isLoading, refetch } = useOpenMeteo(location);
 
   const hourly = weather?.hourly;
   const tempC = hourly?.temperature_2m?.[0] ?? 20;
@@ -176,6 +177,10 @@ export default function MosquitoIndex({ location }: Props) {
       </div>
     </div>
   );
+
+  // Loading is over and the hourly profile never arrived: every number below
+  // would come from the `?? 20` / `?? 60` fallbacks, not from the atmosphere.
+  if (!hourly) return <DataUnavailable title="Mosquito Activity Index" source="Open-Meteo" onRetry={() => refetch()} />;
 
   return (
     <div className="p-4 md:p-6 space-y-5">

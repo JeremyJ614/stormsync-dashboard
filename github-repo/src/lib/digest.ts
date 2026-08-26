@@ -95,9 +95,15 @@ export async function buildDigest(
   lat: number, lon: number, wanted: SectionKey[],
 ): Promise<DigestSection[]> {
   const need = new Set(wanted);
+  // `null` from the alert fetch means "we could not ask the Weather Service",
+  // which is a different answer from `[]` ("we asked, nothing is out"). The
+  // digest is the thing people read instead of opening the app, so it must not
+  // report an all-clear it never actually received.
   const [wx, alerts, pollen] = await Promise.all([
     fetchOpenMeteo(lat, lon).catch(() => null),
-    need.has("alerts") || need.has("severe") ? fetchNWSAlerts(lat, lon).catch(() => []) : Promise.resolve([]),
+    need.has("alerts") || need.has("severe")
+      ? fetchNWSAlerts(lat, lon).catch(() => null)
+      : Promise.resolve([] as NWSAlertFeature[]),
     need.has("pollen") ? fetchDispersal(lat, lon).catch(() => []) : Promise.resolve([]),
   ]);
 
@@ -128,14 +134,23 @@ export async function buildDigest(
   }
 
   if (need.has("alerts")) {
-    const live = (alerts as NWSAlertFeature[]).filter((a) => a.properties.messageType !== "Cancel");
-    const worst = live.find((a) => isCalmEvent(a.properties.event)) ?? live[0];
-    out.set("alerts", {
-      key: "alerts", label: "Active alerts",
-      value: live.length === 0 ? "None" : `${live.length}`,
-      detail: worst?.properties.event ?? "Nothing in effect for your location.",
-      tone: worst ? (isCalmEvent(worst.properties.event) ? "#e2373c" : "#e8bb4d") : undefined,
-    });
+    if (alerts === null) {
+      out.set("alerts", {
+        key: "alerts", label: "Active alerts",
+        value: "Unknown",
+        detail: "We could not reach the Weather Service, so this is not an all-clear. Check the app.",
+        tone: "#e8bb4d",
+      });
+    } else {
+      const live = alerts.filter((a) => a.properties.messageType !== "Cancel");
+      const worst = live.find((a) => isCalmEvent(a.properties.event)) ?? live[0];
+      out.set("alerts", {
+        key: "alerts", label: "Active alerts",
+        value: live.length === 0 ? "None" : `${live.length}`,
+        detail: worst?.properties.event ?? "Nothing in effect for your location.",
+        tone: worst ? (isCalmEvent(worst.properties.event) ? "#e2373c" : "#e8bb4d") : undefined,
+      });
+    }
   }
 
   if (need.has("severe") && hourly) {

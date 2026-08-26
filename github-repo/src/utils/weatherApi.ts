@@ -96,21 +96,27 @@ export interface NWSAlertFeature {
 
 export async function fetchNWSAlerts(lat: number, lon: number): Promise<NWSAlertFeature[]> {
   const res = await fetch(API(`api/nws/alerts?point=${lat.toFixed(4)},${lon.toFixed(4)}`));
-  if (!res.ok) return [];
+  // Never swallow this into an empty list. An empty list means "the Weather
+  // Service has nothing out for you", and a caller cannot tell that apart from
+  // "we could not ask". On a severe-weather product those are opposite answers,
+  // so a failed request has to surface as a failure.
+  if (!res.ok) throw new Error(`NWS alerts unavailable (${res.status})`);
   const data = await res.json();
   return data.features || [];
 }
 
 export async function fetchAllUSAlerts(): Promise<NWSAlertFeature[]> {
   const res = await fetch(API(`api/nws/alerts?limit=500`));
-  if (!res.ok) return [];
+  // Same reasoning as fetchNWSAlerts: [] here would score as a quiet nation.
+  if (!res.ok) throw new Error(`National NWS alert feed unavailable (${res.status})`);
   const data = await res.json();
   return data.features || [];
 }
 
 export async function fetchStormReports(): Promise<{ today: { tornado: number; hail: number; wind: number }; yesterday: { tornado: number; hail: number; wind: number } }> {
   const res = await fetch(API(`api/spc/storm-reports`));
-  if (!res.ok) return { today: { tornado: 0, hail: 0, wind: 0 }, yesterday: { tornado: 0, hail: 0, wind: 0 } };
+  // Zeros would read as "no tornadoes were reported today", which is a claim.
+  if (!res.ok) throw new Error(`SPC storm reports unavailable (${res.status})`);
   return res.json();
 }
 

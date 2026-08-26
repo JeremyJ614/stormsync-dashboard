@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
+import DataUnavailable from "../components/DataUnavailable";
 import type { Location } from "../hooks/useLocation";
 import {
   computeSRHFromProfile, compute06kmShear, computeSWTI, mpsToKnots,
@@ -342,7 +343,7 @@ function ThreatBadge({ icon, label, value, color }: { icon: string; label: strin
 // ── Main component ────────────────────────────────────────────────────────────
 export default function StormIngredients({ location }: Props) {
   const [hourOffset, setHourOffset] = useState(0);
-  const { data: weather, isLoading } = useOpenMeteo(location);
+  const { data: weather, isLoading, refetch } = useOpenMeteo(location);
   const svgRef = useRef<SVGSVGElement>(null);
 
   const hourly = weather?.hourly;
@@ -476,6 +477,13 @@ export default function StormIngredients({ location }: Props) {
     const link = window.location.href;
     if (nav.share) { try { await nav.share({ title: "Storm Ingredients", text: `${location.name} storm ingredients`, url: link }); return; } catch { /**/ } }
     try { await navigator.clipboard.writeText(link); } catch { /**/ }
+  }
+
+  // Without the hourly profile every parameter below is its `?? 0` fallback, and
+  // a page reading CAPE 0 / SHEAR 0 / STP 0 tells a chaser the atmosphere is
+  // benign when in fact we never measured it. Refuse rather than mislead.
+  if (!isLoading && !hourly) {
+    return <DataUnavailable title="Storm Ingredients" source="Open-Meteo" onRetry={() => refetch()} />;
   }
 
   return (

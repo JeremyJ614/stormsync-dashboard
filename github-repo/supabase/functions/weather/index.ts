@@ -202,8 +202,8 @@ interface Cam {
   name: string;
   lat: number;
   lon: number;
-  /** Still image, refreshed by the browser. */
-  img: string;
+  /** Still image, refreshed by the browser. Absent on video-only networks. */
+  img?: string;
   /** HLS stream, where the network publishes one. */
   stream?: string;
   road?: string;
@@ -347,11 +347,90 @@ async function driveBC(): Promise<Cam[]> {
   } catch { return []; }
 }
 
+/**
+ * New York State 511.
+ *
+ * Open, no key. About 2,900 sites of which ~1,875 are live and ~1,570 publish an
+ * HLS stream; the feed has no still images at all, so these are stream-only and
+ * the app renders them as video tiles. Disabled and blocked cameras are dropped
+ * rather than shown dark — a camera that is down is not information.
+ */
+async function ny511(): Promise<Cam[]> {
+  try {
+    const r = await fetch("https://511ny.org/api/getcameras?format=json", { headers: { "User-Agent": UA } });
+    if (!r.ok) return [];
+    const rows = await r.json() as Array<Record<string, unknown>>;
+    const out: Cam[] = [];
+    for (const c of rows) {
+      if (c.Disabled === true || c.Blocked === true) continue;
+      const stream = typeof c.VideoUrl === "string" ? c.VideoUrl : "";
+      if (!stream) continue;                       // nothing to show without one
+      const lat = Number(c.Latitude), lon = Number(c.Longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const road = typeof c.RoadwayName === "string" ? c.RoadwayName : undefined;
+      const dir = typeof c.DirectionOfTravel === "string" && c.DirectionOfTravel !== "Unknown"
+        ? c.DirectionOfTravel : undefined;
+      out.push({
+        id: `ny-${String(c.ID)}`, net: "ny511",
+        name: String(c.Name ?? road ?? "Camera"),
+        lat, lon, stream, road, dir,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
+/**
+ * Ohio — OHGO (Ohio DOT).
+ *
+ * Needs a free API key (register at https://publicapi.ohgo.com). Without
+ * OHGO_API_KEY set this returns nothing and the network simply does not appear,
+ * rather than erroring the whole camera load.
+ *
+ * The response shape is read defensively: OHGO's schema is behind the same
+ * authentication as its data, so this maps the field spellings its docs use and
+ * tolerates the plausible variants instead of asserting one. If the key is set
+ * and this still returns nothing, the shape is what to check first.
+ */
+async function ohgo(): Promise<Cam[]> {
+  const key = Deno.env.get("OHGO_API_KEY");
+  if (!key) return [];
+  try {
+    const r = await fetch("https://publicapi.ohgo.com/api/v1/cameras?page-size=500", {
+      headers: { "Authorization": `APIKEY ${key}`, "User-Agent": UA },
+    });
+    if (!r.ok) return [];
+    const body = await r.json() as Record<string, unknown>;
+    const rows = (Array.isArray(body) ? body : body.results ?? body.items ?? []) as Array<Record<string, unknown>>;
+    const out: Cam[] = [];
+    for (const c of rows) {
+      const lat = Number(c.latitude ?? c.Latitude);
+      const lon = Number(c.longitude ?? c.Longitude);
+      if (!Number.isFinite(lat) || !Number.isFinite(lon)) continue;
+      const views = (c.cameraViews ?? c.CameraViews ?? []) as Array<Record<string, unknown>>;
+      const v = Array.isArray(views) ? views[0] : undefined;
+      const img = typeof v?.largeUrl === "string" ? v.largeUrl
+        : typeof v?.smallUrl === "string" ? v.smallUrl
+        : typeof c.imageUrl === "string" ? c.imageUrl : "";
+      if (!img) continue;
+      out.push({
+        id: `oh-${String(c.id ?? c.Id ?? out.length)}`, net: "ohgo",
+        name: String(c.description ?? c.location ?? c.Description ?? "Ohio camera"),
+        lat, lon, img,
+        road: typeof c.routeName === "string" ? c.routeName : undefined,
+      });
+    }
+    return out;
+  } catch { return []; }
+}
+
 const NETWORKS: { id: string; label: string; region: string; load: () => Promise<Cam[]> }[] = [
   { id: "caltrans", label: "Caltrans", region: "California highways", load: caltrans },
   { id: "alertca", label: "ALERTCalifornia", region: "California wildfire cameras", load: alertCalifornia },
   { id: "midrive", label: "MDOT MiDrive", region: "Michigan", load: michigan },
   { id: "drivebc", label: "DriveBC", region: "British Columbia", load: driveBC },
+  { id: "ny511", label: "511NY", region: "New York State", load: ny511 },
+  { id: "ohgo", label: "OHGO", region: "Ohio", load: ohgo },
 ];
 
 interface CamCache { cams: Cam[]; nets: { id: string; label: string; region: string; count: number }[]; at: string }
@@ -360,7 +439,17 @@ async function allCameras(): Promise<CamCache> {
   const hit = await cacheGet("cameras:all", 6 * 3600) as CamCache | null;
   if (hit) return hit;
 
-  const results = await Promise.all(NETWORKS.map(async (n) => ({ n, cams: await n.load() })));
+  // A network that hangs used to hold the whole response behind it, which is
+  // what made a cold load feel broken. Each one now gets its own budget and an
+  // empty result past it, so a slow feed costs its own cameras and nothing else.
+  const withTimeout = async (n: typeof NETWORKS[number]) => {
+    const cams = await Promise.race([
+      n.load(),
+      new Promise<Cam[]>((res) => setTimeout(() => res([]), 12_000)),
+    ]);
+    return { n, cams };
+  };
+  const results = await Promise.all(NETWORKS.map(withTimeout));
   const cams = results.flatMap((r) => r.cams);
   const nets = results.map((r) => ({ id: r.n.id, label: r.n.label, region: r.n.region, count: r.cams.length }));
   const out: CamCache = { cams, nets, at: new Date().toISOString() };

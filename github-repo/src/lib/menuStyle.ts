@@ -1,77 +1,113 @@
 /**
- * How the member opens navigation.
+ * How navigation opens — an admin decision, not a per-device preference.
  *
- * Six presentations of one model. The classic rail is the default because it is
- * the one that survives every screen size and every hurry; the other five are
- * chosen deliberately by someone who wants them. All six read the same sections
- * from navModel, so a module added to the sidebar appears in all of them at
- * once, and none of them can drift out of agreement about what a member may see.
+ * The menu is part of how the product presents itself, so the owner picks it
+ * for everyone from the admin panel, and picks separately for the panel itself.
+ * That lets a style be tried on the admin side while members stay on another.
  *
- * Persisted per device, like the dashboard layout: this is a preference about
- * the screen in front of you, not a property of the account.
+ * The value is read from `app_config.menu_styles` (public-readable, admin-
+ * writable) and mirrored into localStorage purely so the first paint after a
+ * reload draws the right menu instead of flashing the default and swapping.
  */
-export const MENU_STYLES = ["rail", "spiral", "gooey", "push", "fan", "singularity"] as const;
+import { supabase, isSupabaseConfigured } from "./supabase";
+import { logger } from "./logger";
+
+export const MENU_STYLES = ["rail", "spiral", "push", "gooey", "singularity"] as const;
 export type MenuStyle = (typeof MENU_STYLES)[number];
+
+export interface MenuStyleConfig { customer: MenuStyle; admin: MenuStyle }
+const FALLBACK: MenuStyleConfig = { customer: "rail", admin: "rail" };
 
 export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: string }> = {
   rail: {
     label: "Classic Rail",
-    blurb: "The sidebar you know. Icons down the left, labels when you expand it.",
-    hint: "Fastest to scan, and the safest on a small screen.",
+    blurb: "The original sidebar. Icons down the left, labels when it expands.",
+    hint: "The only style that keeps a permanent 62px rail on screen.",
   },
   spiral: {
     label: "Golden Spiral",
-    blurb: "Sections unfurl as Fibonacci tiles, largest last. Tap one and the spiral re-forms around its modules.",
-    hint: "The spiral is recursive — the same shape at both levels.",
-  },
-  gooey: {
-    label: "Gooey Orb",
-    blurb: "A single orb that stretches into an arc of sections like liquid, then re-flows into the modules inside one.",
-    hint: "Thumb-reachable: everything arcs from the bottom-right.",
+    blurb: "Sections unfurl as Fibonacci tiles, largest last, over a champagne bloom. Tap one and the spiral re-forms around its modules.",
+    hint: "Recursive — the same shape at both levels.",
   },
   push: {
     label: "Canvas Push",
-    blurb: "The whole app tilts back in 3D and the full menu stands behind it.",
-    hint: "The only one that shows every section at once.",
+    blurb: "The app tilts away in 3D and the full menu stands behind it, lit along a champagne seam.",
+    hint: "Shows every section at once; the trigger morphs as it opens.",
   },
-  fan: {
-    label: "Holographic Fan",
-    blurb: "Glass cards fan out from the bottom. Pick a section and its modules deal out as a second fan.",
-    hint: "Swipe across the fan to riffle through it.",
+  gooey: {
+    label: "Gooey Orb",
+    blurb: "An orb that stretches into arcs of liquid blobs at the thumb, paging when a section is large.",
+    hint: "Everything stays inside thumb reach.",
   },
   singularity: {
     label: "Singularity",
-    blurb: "The trigger collapses into a black hole and the sections orbit it. Tap a planet and its modules become moons.",
-    hint: "The most theatrical, and the heaviest — best on a good screen.",
+    blurb: "A collapsing core with an accretion disc; sections orbit it and become moons when chosen.",
+    hint: "The most theatrical. Best on a good screen.",
   },
 };
 
-const STORAGE = "stormsync_menu_style_v1";
+// ── store ────────────────────────────────────────────────────────────────────
+const CACHE = "stormsync_menu_styles_v2";
+const listeners = new Set<() => void>();
+let current: MenuStyleConfig = readCache();
+let loaded = false;
 
-export function getMenuStyle(): MenuStyle {
-  try {
-    const raw = localStorage.getItem(STORAGE);
-    if (raw && (MENU_STYLES as readonly string[]).includes(raw)) return raw as MenuStyle;
-  } catch { /* private mode, or storage disabled */ }
-  return "rail";
+function coerce(v: unknown): MenuStyle | null {
+  return typeof v === "string" && (MENU_STYLES as readonly string[]).includes(v) ? (v as MenuStyle) : null;
 }
 
-export function saveMenuStyle(style: MenuStyle): void {
-  try { localStorage.setItem(STORAGE, style); } catch { /* nothing to do */ }
+function readCache(): MenuStyleConfig {
+  try {
+    const raw = localStorage.getItem(CACHE);
+    if (raw) {
+      const v = JSON.parse(raw) as Partial<MenuStyleConfig>;
+      return { customer: coerce(v.customer) ?? FALLBACK.customer, admin: coerce(v.admin) ?? FALLBACK.admin };
+    }
+  } catch { /* private mode, or nothing stored yet */ }
+  return FALLBACK;
+}
+
+function publish(next: MenuStyleConfig) {
+  if (next.customer === current.customer && next.admin === current.admin) return;
+  current = next;
+  try { localStorage.setItem(CACHE, JSON.stringify(next)); } catch { /* nothing to do */ }
   listeners.forEach((l) => l());
 }
 
-// A tiny store so the layout re-renders the moment the picker changes, without
-// threading the preference through every component in between.
-const listeners = new Set<() => void>();
-export function subscribeMenuStyle(fn: () => void): () => void {
+/** Fetch the live configuration. Safe to call repeatedly; it is cheap and cached. */
+export async function loadMenuStyles(): Promise<MenuStyleConfig> {
+  if (!isSupabaseConfigured) return current;
+  const { data, error } = await supabase.from("app_config").select("value").eq("key", "menu_styles").maybeSingle();
+  if (error || !data?.value) {
+    if (error) logger.error("loadMenuStyles failed", { scope: "menu", error });
+    loaded = true;
+    return current;
+  }
+  const v = data.value as Partial<MenuStyleConfig>;
+  publish({ customer: coerce(v.customer) ?? FALLBACK.customer, admin: coerce(v.admin) ?? FALLBACK.admin });
+  loaded = true;
+  return current;
+}
+
+export async function saveMenuStyles(next: MenuStyleConfig): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+  const { error } = await supabase.from("app_config").update({ value: next }).eq("key", "menu_styles");
+  if (error) { logger.error("saveMenuStyles failed", { scope: "menu", error }); return { ok: false, error: error.message }; }
+  publish(next);
+  return { ok: true };
+}
+
+export function subscribeMenuStyles(fn: () => void): () => void {
+  // The first subscriber triggers the fetch, so nothing loads it on a page that
+  // never renders navigation.
+  if (!loaded) void loadMenuStyles();
   listeners.add(fn);
   return () => { listeners.delete(fn); };
 }
-let cached: MenuStyle | null = null;
-export function getMenuStyleSnapshot(): MenuStyle {
-  const v = getMenuStyle();
-  if (v !== cached) cached = v;
-  return cached;
+export function getMenuStylesSnapshot(): MenuStyleConfig { return current; }
+export function getMenuStylesServerSnapshot(): MenuStyleConfig { return FALLBACK; }
+
+/** The style that applies to a given viewer. */
+export function styleFor(cfg: MenuStyleConfig, isAdmin: boolean): MenuStyle {
+  return isAdmin ? cfg.admin : cfg.customer;
 }
-export function getMenuStyleServerSnapshot(): MenuStyle { return "rail"; }

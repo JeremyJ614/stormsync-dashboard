@@ -3,7 +3,7 @@ import { Link } from "wouter";
 import { motion } from "framer-motion";
 import { ChevronLeft, Lock, Plus, X } from "lucide-react";
 import type { MenuNav } from "./useMenuNav";
-import { ROYAL } from "../../../lib/royal";
+import { ROYAL, HEADING, EASE } from "../../../lib/royal";
 
 /**
  * The Golden Spiral.
@@ -45,7 +45,7 @@ export function GoldenSpiralMenu({ nav }: { nav: MenuNav }) {
   const entries = current
     ? current.items.map((it) => ({ key: it.path, label: it.label, icon: it.icon, to: it.path, locked: it.locked }))
     : sections
-        .map((s, i) => ({ key: s.label, label: s.label, icon: s.items[0]?.icon, to: null as string | null, index: i, count: s.items.length }))
+        .map((s, i) => ({ key: s.label, label: s.label, icon: s.icon, to: null as string | null, index: i, count: s.items.length }))
         .sort((a, b) => a.count - b.count);
 
   // Scale the whole tiling to fit, rather than reflowing it: a Fibonacci spiral
@@ -83,6 +83,22 @@ export function GoldenSpiralMenu({ nav }: { nav: MenuNav }) {
         transition={{ duration: calm ? 0 : 0.35 }}
         onClick={close}
         aria-hidden={!open}
+      />
+
+      {/* Champagne bloom — the light the tiling sits in. */}
+      <motion.div
+        className="absolute pointer-events-none"
+        style={{
+          left: "50%", bottom: 24, width: BOX_W, height: BOX_H,
+          transform: `translateX(-50%) scale(${scale})`,
+          transformOrigin: "bottom center",
+          background: `radial-gradient(60% 45% at 22% 78%, ${ROYAL.goldFaint}, transparent 70%)`,
+          filter: "blur(24px)",
+        }}
+        initial={false}
+        animate={{ opacity: open ? 1 : 0, scale: open ? scale : scale * 0.85 }}
+        transition={{ duration: calm ? 0 : 0.8, ease: EASE }}
+        aria-hidden
       />
 
       <div
@@ -167,6 +183,30 @@ export function GoldenSpiralMenu({ nav }: { nav: MenuNav }) {
           );
         })}
 
+        {/* The spiral itself.
+            Five real quarter-arcs, each centred on the corner its square shares
+            with the next, so the curve is the golden spiral this tiling encodes
+            rather than a swoosh drawn to look like one. It draws itself on as
+            the tiles land, and is decoration only — pointer-events off, hidden
+            from the tree. */}
+        <svg
+          className="absolute pointer-events-none"
+          width={BOX_W} height={BOX_H} viewBox={`0 0 ${BOX_W} ${BOX_H}`}
+          style={{ left: 0, bottom: 0, overflow: "visible", zIndex: 1 }}
+          fill="none" aria-hidden
+        >
+          <motion.path
+            d="M 0 0 A 320 320 0 0 1 320 320 A 200 200 0 0 1 120 520 A 80 80 0 0 0 40 440 A 40 40 0 0 1 0 480 A 40 40 0 0 0 40 520"
+            stroke={ROYAL.gold}
+            strokeWidth={1.6}
+            strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 9px ${ROYAL.gold})` }}
+            initial={false}
+            animate={{ pathLength: open ? 1 : 0, opacity: open ? 1 : 0 }}
+            transition={calm ? { duration: 0 } : { duration: 1.15, delay: 0.25, ease: EASE }}
+          />
+        </svg>
+
         {/* Tile 5 — the 320² square, subdivided by φ to carry everything else. */}
         <motion.div
           className="absolute overflow-hidden flex flex-col"
@@ -183,10 +223,10 @@ export function GoldenSpiralMenu({ nav }: { nav: MenuNav }) {
           transition={springIn(SMALL_SLOTS)}
         >
           <div className="px-4 pt-4 pb-2 shrink-0">
-            <div className="text-[10px] uppercase tracking-[0.3em]" style={{ color: ROYAL.dim }}>
+            <div className="text-[10px] uppercase tracking-[0.3em]" style={{ color: ROYAL.gold }}>
               {current ? current.label : "StormSync"}
             </div>
-            <div className="text-2xl font-extrabold" style={{ color: ROYAL.text }}>
+            <div className="text-2xl font-extrabold" style={{ color: ROYAL.text, fontFamily: HEADING }}>
               {current ? `${current.items.length} modules` : "Where to?"}
             </div>
           </div>

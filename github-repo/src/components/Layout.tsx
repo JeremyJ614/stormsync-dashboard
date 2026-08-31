@@ -14,7 +14,7 @@ import { useAuth } from "../hooks/useAuth";
 import { ALL_NAV_ITEMS, useNavSections } from "../lib/navModel";
 import { MenuHost } from "./nav/MenuHost";
 import { useMenuNav } from "./nav/menus/useMenuNav";
-import { subscribeMenuStyle, getMenuStyleSnapshot, getMenuStyleServerSnapshot } from "../lib/menuStyle";
+import { subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot, styleFor } from "../lib/menuStyle";
 import { SavedLocations } from "./SavedLocations";
 import { NotificationBell } from "./NotificationBell";
 import { MorphToggle } from "./nav/MorphToggle";
@@ -145,10 +145,13 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
 
   const visibleSections = useNavSections(user);
 
-  // Which menu the member chose. The classic rail is the default; the other five
-  // replace it entirely rather than sitting alongside it, so there is only ever
-  // one way to open navigation on screen at a time.
-  const menuStyle = useSyncExternalStore(subscribeMenuStyle, getMenuStyleSnapshot, getMenuStyleServerSnapshot);
+  // Which menu is in play. Set by the admin, separately for members and for
+  // admins, so a style can be tried on one side without changing the other.
+  // Whatever it is, it replaces the rail rather than sitting alongside it —
+  // there is only ever one way to open navigation on screen at a time, and the
+  // four non-rail styles give the content the full width back.
+  const menuCfg = useSyncExternalStore(subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot);
+  const menuStyle = styleFor(menuCfg, Boolean(user?.isAdmin));
   const menuNav = useMenuNav(location);
   const railed = menuStyle === "rail";
   // Canvas Push tilts the app itself away, which only Layout can do.

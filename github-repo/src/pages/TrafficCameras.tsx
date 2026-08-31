@@ -306,7 +306,19 @@ function CameraCard({
       style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}
     >
       <div className="relative" style={{ aspectRatio: "4 / 3", background: "#06060f" }}>
-        {failed ? (
+        {!cam.img ? (
+          // Video-only network (511NY publishes no stills at all). Rendering an
+          // HLS player into every tile would pull hundreds of streams at once,
+          // so the tile is a placard and the stream starts when it is opened.
+          <div className="absolute inset-0 grid place-items-center text-[11px] px-3 text-center"
+               style={{ color: ROYAL.dim, background: "radial-gradient(circle at 50% 40%, rgba(217,183,117,0.10), transparent 70%)" }}>
+            <span>
+              <Video className="w-6 h-6 mx-auto mb-1.5" style={{ color: tone }} />
+              <span className="block font-semibold" style={{ color: ROYAL.text }}>Live video</span>
+              <span className="block opacity-70">Tap to watch</span>
+            </span>
+          </div>
+        ) : failed ? (
           <div className="absolute inset-0 grid place-items-center text-[11px] px-3 text-center"
                style={{ color: ROYAL.dim }}>
             <span>
@@ -414,7 +426,8 @@ function CameraMap({
 function Lightbox({
   cam, nonce, still, onClose,
 }: { cam: Camera; nonce: number; still: boolean; onClose: () => void }) {
-  const [showStream, setShowStream] = useState(false);
+  // A video-only camera has no still to fall back to, so it opens playing.
+  const [showStream, setShowStream] = useState(!cam.img && Boolean(cam.stream));
   const [ownNonce, setOwnNonce] = useState(nonce);
   const tone = netColor(cam.net);
 
@@ -487,16 +500,19 @@ function Lightbox({
 
         <div className="px-4 py-3 flex items-center gap-2 flex-wrap"
              style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
-          <button onClick={() => setOwnNonce(Date.now())}
-            className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
-            style={{ background: "rgba(255,255,255,0.06)", color: ROYAL.text }}>
-            <RefreshCw className="w-3.5 h-3.5" /> New frame
-          </button>
-          {cam.stream && (
+          {/* Nothing to re-fetch on a video-only camera. */}
+          {cam.img && (
+            <button onClick={() => setOwnNonce(Date.now())}
+              className="px-3 py-1.5 rounded-lg text-xs font-semibold flex items-center gap-1.5"
+              style={{ background: "rgba(255,255,255,0.06)", color: ROYAL.text }}>
+              <RefreshCw className="w-3.5 h-3.5" /> New frame
+            </button>
+          )}
+          {cam.stream && cam.img && (
             <button onClick={() => setShowStream((v) => !v)}
               className="px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5"
               style={{ background: tone, color: "#0d0d18" }}>
-              <Play className="w-3.5 h-3.5" /> {showStream ? "Back to still" : "Live video"}
+              <Play className="w-3.5 h-3.5" /> {!cam.img ? "Live video" : showStream ? "Back to still" : "Live video"}
             </button>
           )}
           {cam.stream && (

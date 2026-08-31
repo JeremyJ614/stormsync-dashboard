@@ -22,6 +22,7 @@ import { AdminMoneyTab } from "../components/AdminMoneyTab";
 import { AdminHealthTab } from "../components/AdminHealthTab";
 import { AdminUsageTab } from "../components/AdminUsageTab";
 import { AdminAuditTab } from "../components/AdminAuditTab";
+import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
 import { getAdminLayout, resolveLayout, DEFAULT_LAYOUT, type AdminLayout } from "../lib/adminGroups";
 import { audit } from "../lib/adminAudit";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
@@ -940,6 +941,7 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <AdminMenuStyleCard />
       <EmergencyRecipientsCard />
       <LoyaltyRulesCard />
       <div className="bg-card border border-border rounded-xl p-4">

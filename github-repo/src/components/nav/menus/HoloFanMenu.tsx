@@ -6,7 +6,12 @@ import type { MenuNav } from "./useMenuNav";
 import { ROYAL } from "../../../lib/royal";
 
 /**
- * The Holographic Fan.
+ * The Holographic Fan — PARKED.
+ *
+ * Deliberately not wired into the menu system: it is being kept for a different
+ * surface. It still compiles and still works against MenuNav, so bringing it
+ * back is a one-line case in MenuHost. Do not delete it on the grounds that
+ * nothing imports it.
  *
  * Glass cards fanned from a pivot below the screen, like a hand you are holding.
  * The spread widens with the count instead of the cards shrinking: three cards
@@ -28,7 +33,7 @@ export function HoloFanMenu({ nav }: { nav: MenuNav }) {
 
   const entries = current
     ? current.items.map((it) => ({ key: it.path, label: it.label, icon: it.icon, to: it.path as string | null, locked: it.locked, index: -1 }))
-    : sections.map((s, i) => ({ key: s.label, label: s.label, icon: s.items[0]?.icon, to: null as string | null, locked: false, index: i, count: s.items.length }));
+    : sections.map((s, i) => ({ key: s.label, label: s.label, icon: s.icon, to: null as string | null, locked: false, index: i, count: s.items.length }));
 
   // Reset the riffle whenever the hand changes, or the fan opens facing sideways.
   useEffect(() => { setSpin(0); }, [section, open]);

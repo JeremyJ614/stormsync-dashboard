@@ -31,8 +31,9 @@ export interface Camera {
   name: string;
   lat: number;
   lon: number;
-  /** Still image. Cache-busted on refresh by the caller. */
-  img: string;
+  /** Still image. Cache-busted on refresh by the caller. Absent on
+   *  video-only networks such as 511NY, where `stream` is the only source. */
+  img?: string;
   /** HLS playlist, where the network publishes one. */
   stream?: string;
   road?: string;
@@ -60,6 +61,8 @@ export const NETWORK_META: Record<string, { label: string; color: string; kind: 
   caltrans: { label: "Caltrans", color: "#e8bb4d", kind: "Highway" },
   alertca: { label: "ALERTCalifornia", color: "#ff8a3d", kind: "Wildfire watch" },
   midrive: { label: "MDOT MiDrive", color: "#89cff0", kind: "Highway" },
+  ny511: { label: "511NY", color: "#7fd6a0", kind: "Highway · live video" },
+  ohgo: { label: "OHGO", color: "#d98cf0", kind: "Highway" },
   drivebc: { label: "DriveBC", color: "#5fd9a8", kind: "Highway" },
 };
 
@@ -120,6 +123,8 @@ export function boxAround(lat: number, lon: number, miles: number): [number, num
  * refresh, and it costs nothing when they do not.
  */
 export function frameUrl(cam: Camera, nonce: number): string {
+  // Video-only networks have no still to bust the cache on.
+  if (!cam.img) return "";
   if (!nonce) return cam.img;
   return cam.img + (cam.img.includes("?") ? "&" : "?") + `sswx=${nonce}`;
 }

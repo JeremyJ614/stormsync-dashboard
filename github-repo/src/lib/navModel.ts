@@ -15,14 +15,16 @@ import {
   Moon, Wind, BarChart3, Activity, AlertCircle,
   Map, Tornado, Sparkles,
   Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
-  Gamepad2, Satellite, Target, RotateCcw,
+  Gamepad2, Satellite, Target, RotateCcw, ShieldAlert, ScanSearch,
+  GitCompareArrows, Radar, Waypoints, History, Compass,
   BookMarked, CloudRain, Sun, Waves, CreditCard, Flame, Snowflake, Video,
 } from "lucide-react";
 import { subscribeNav, getNavSnapshot, getNavServerSnapshot } from "./navConfig";
 import { hasModuleAccess, navVisible, ALL_MODULES, type User } from "../hooks/useAuth";
+import { sectionIcon } from "./navIcons";
 
 export interface NavEntry { label: string; path: string; icon: LucideIcon; locked?: boolean }
-export interface NavSection { label: string; items: NavEntry[] }
+export interface NavSection { label: string; icon: LucideIcon; items: NavEntry[] }
 
 export const NAV_SECTIONS = [
   {
@@ -41,27 +43,27 @@ export const NAV_SECTIONS = [
     items: [
       { label: "SSWXCon Score",           path: "/sswxcon",     icon: Activity },
       { label: "Warnings & Reports",      path: "/warnings",    icon: AlertCircle },
-      { label: "SPC Outlook",             path: "/spc",         icon: Globe },
-      { label: "Mesoscale Discussions",   path: "/meso",        icon: Layers },
+      { label: "SPC Outlook",             path: "/spc",         icon: ShieldAlert },
+      { label: "Mesoscale Discussions",   path: "/meso",        icon: ScanSearch },
       { label: "Atmosphere Ingredients",  path: "/ingredients", icon: FlaskConical },
       { label: "Severe Threat Index",     path: "/swti",        icon: Shield },
       { label: "Storm Timing",            path: "/timing",      icon: BarChart3 },
       { label: "Thunderstorm Probability",path: "/thunder",     icon: CloudRain },
-      { label: "Hurricane Tracker",       path: "/hurricane",   icon: Tornado },
+      { label: "Hurricane Tracker",       path: "/hurricane",   icon: Wind },
     ],
   },
   {
     label: "Environmental & Model Data",
     items: [
-      { label: "Model Runs",       path: "/comparator",      icon: Satellite },
+      { label: "Model Runs",       path: "/comparator",      icon: GitCompareArrows },
       { label: "Lightning Monitor",path: "/lightning-globe", icon: Zap },
-      { label: "Radar & MRMS",     path: "/rotation",        icon: Target },
+      { label: "Radar & MRMS",     path: "/rotation",        icon: Radar },
       { label: "Hazards & Drought",path: "/hazards",         icon: Map },
       { label: "River & Flood Gauges", path: "/rivers",     icon: Waves },
       { label: "Fire Weather",     path: "/fire",            icon: Flame },
       { label: "Winter Center",      path: "/winter",   icon: Snowflake },
       { label: "Traffic Cameras",    path: "/cameras",  icon: Video },
-      { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
+      { label: "Tornado Climatology",path:"/climatology",    icon: History },
     ],
   },
   {
@@ -74,9 +76,9 @@ export const NAV_SECTIONS = [
   {
     label: "Advanced Tools",
     items: [
-      { label: "Storm Chasing",        path: "/chasing",  icon: Tornado },
+      { label: "Storm Chasing",        path: "/chasing",  icon: Compass },
       { label: "Mosquito Index",       path: "/mosquito", icon: Bug },
-      { label: "Weather Patterns",     path: "/wpi",      icon: Brain },
+      { label: "Weather Patterns",     path: "/wpi",      icon: Waypoints },
       { label: "AI Knowledge Battle",  path: "/duel",     icon: Swords },
       { label: "Severe Weather History",path:"/history",  icon: BookMarked },
     ],
@@ -118,6 +120,7 @@ export function useNavSections(user: User | null): NavSection[] {
     if (!navCfg.loaded || navCfg.sections.length === 0) {
       return NAV_SECTIONS.map((sec) => ({
         ...sec,
+        icon: sectionIcon(sec.label, sec.items[0]?.icon as LucideIcon | undefined),
         items: sec.items
           .filter((item) => navVisible(user, item.path))
           .map((item) => ({ ...item, locked: !hasModuleAccess(user, item.path) })),
@@ -128,6 +131,7 @@ export function useNavSections(user: User | null): NavSection[] {
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((sec) => ({
         label: sec.name,
+        icon: sectionIcon(sec.name, ICON_BY_PATH[navCfg.modules.find((m) => m.sectionId === sec.id)?.moduleId ?? ""]),
         items: navCfg.modules
           .filter((m) => m.sectionId === sec.id && known.has(m.moduleId) && navVisible(user, m.moduleId))
           .sort((a, b) => a.sortOrder - b.sortOrder)

@@ -46,9 +46,23 @@ function arc(i: number, n: number, r: number) {
   return { dx: -r * Math.cos(rad), dy: -r * Math.sin(rad) };
 }
 
+const CORNER = 26;   // the orb anchor's inset from the right and bottom
+
 export function GooeyFabMenu({ nav }: { nav: MenuNav }) {
   const { open, section, current, sections, toggle, close, openSection, back, calm, containerRef } = nav;
   const [page, setPage] = useState(0);
+
+  // The label cap has to be measured, not assumed. The first version worked out
+  // the room from a hardcoded 390px phone, so on any wider screen every label
+  // was cut in the wrong place — which is exactly what it looked like on a real
+  // handset. Read the viewport instead.
+  const [vw, setVw] = useState(() => (typeof window === "undefined" ? 390 : window.innerWidth));
+  useEffect(() => {
+    const onResize = () => setVw(window.innerWidth);
+    onResize();
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // A new level always starts at its first page.
   useEffect(() => { setPage(0); }, [section, open]);
@@ -126,7 +140,7 @@ export function GooeyFabMenu({ nav }: { nav: MenuNav }) {
 
       {/* Labels sit outside the goo filter: a blurred-then-sharpened label is
           unreadable, so only the blobs go through it. */}
-      <div className="absolute pointer-events-none" style={{ right: 26, bottom: 26, width: 0, height: 0 }}>
+      <div className="absolute pointer-events-none" style={{ right: CORNER, bottom: CORNER, width: 0, height: 0 }}>
         {placed.map((e) => (
           // `right: 0` already right-aligns the pill against the corner anchor,
           // so the travel is the only transform needed. An extra translateX(-100%)
@@ -146,9 +160,10 @@ export function GooeyFabMenu({ nav }: { nav: MenuNav }) {
               title={e.label}
               className="whitespace-nowrap overflow-hidden text-ellipsis rounded-full px-2.5 py-0.5 text-[10.5px] font-medium"
               style={{
-                // The label's right edge lands at (corner + dx - 32); cap its
-                // width so the left edge cannot cross the screen edge.
-                maxWidth: Math.max(96, 324 + e.dx),
+                // The pill's right edge lands at (vw - CORNER + dx - BLOB/2 - 10).
+                // Cap the width so its left edge cannot cross the screen, with
+                // 10px of margin. Derived from the live viewport, not a guess.
+                maxWidth: Math.max(90, vw - CORNER + e.dx - BLOB / 2 - 20),
                 color: e.pager ? ROYAL.gold : ROYAL.text,
                 background: "rgba(8,8,16,0.94)",
                 border: `1px solid ${e.pager ? ROYAL.goldSoft : ROYAL.hairline}`,
@@ -162,7 +177,7 @@ export function GooeyFabMenu({ nav }: { nav: MenuNav }) {
 
       <div
         className="absolute"
-        style={{ right: 26, bottom: 26, filter: "url(#sswx-goo)", pointerEvents: "none" }}
+        style={{ right: CORNER, bottom: CORNER, filter: "url(#sswx-goo)", pointerEvents: "none" }}
       >
         {placed.map((e) => {
           const Icon = e.icon;

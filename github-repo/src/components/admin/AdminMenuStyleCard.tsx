@@ -28,16 +28,6 @@ function Preview({ style }: { style: MenuStyle }) {
           ))}
         </>
       )}
-      {style === "spiral" && (
-        <>
-          <div className={box} style={{ left: 4, bottom: 4, width: 6, height: 6, background: gold }} />
-          <div className={box} style={{ left: 4, bottom: 11, width: 6, height: 6, background: "rgba(255,255,255,.18)" }} />
-          <div className={box} style={{ left: 11, bottom: 4, width: 12, height: 12, background: "rgba(255,255,255,.14)" }} />
-          <div className={box} style={{ left: 4, bottom: 17, width: 19, height: 19, background: "rgba(255,255,255,.11)" }} />
-          <div className={box} style={{ left: 24, bottom: 4, width: 22, height: 32, background: "rgba(255,255,255,.09)" }} />
-          <div className={box} style={{ left: 4, bottom: 37, width: 42, height: 38, background: "rgba(255,255,255,.06)", border: `1px solid ${ROYAL.goldSoft}` }} />
-        </>
-      )}
       {style === "push" && (
         <>
           {[8, 19, 30, 41, 52].map((t) => (
@@ -73,6 +63,87 @@ function Preview({ style }: { style: MenuStyle }) {
             <div key={i} className="absolute rounded-full" style={{
               left: l, top: t, width: 7, height: 7,
               background: `radial-gradient(circle at 30% 30%, hsl(${i * 70} 80% 72%), hsl(${i * 70} 70% 38%))`,
+            }} />
+          ))}
+        </>
+      )}
+      {style === "fan" && (
+        <>
+          {[-24, -8, 8, 24].map((deg, i) => (
+            <div key={deg} className="absolute" style={{
+              left: 26 - 7, bottom: 8, width: 14, height: 30, borderRadius: 3,
+              transformOrigin: "bottom center", transform: `rotate(${deg}deg) translateY(-20px)`,
+              background: `linear-gradient(${130 + deg * 2}deg, rgba(255,120,220,.22), rgba(120,200,255,.22), rgba(255,215,140,.24))`,
+              border: `1px solid rgba(217,183,117,${i === 1 || i === 2 ? 0.7 : 0.3})`,
+            }} />
+          ))}
+          <div className="absolute rounded-full" style={{
+            left: 26 - 6, bottom: 4, width: 12, height: 12,
+            border: `1px solid ${gold}`, background: "rgba(217,183,117,.14)",
+          }} />
+        </>
+      )}
+      {style === "sweep" && (
+        <>
+          {[10, 17, 24].map((r) => (
+            <div key={r} className="absolute rounded-full" style={{
+              left: 26 - r, top: 42 - r, width: r * 2, height: r * 2,
+              border: `1px solid ${r === 24 ? ROYAL.goldSoft : "rgba(204,204,255,.12)"}`,
+            }} />
+          ))}
+          <div className="absolute" style={{
+            left: 26, top: 42, width: 0, height: 0,
+            borderLeft: `24px solid rgba(217,183,117,.22)`, borderBottom: "18px solid transparent",
+          }} />
+          <div className="absolute" style={{ left: 26, top: 42 - 24, width: 1, height: 24, background: gold }} />
+          {[[26, 18], [43, 42], [26, 66], [9, 42]].map(([l, t], i) => (
+            <div key={i} className="absolute rounded-full" style={{
+              left: l - 3.5, top: t - 3.5, width: 7, height: 7,
+              background: "rgba(10,10,22,.9)", border: `1px solid ${gold}`,
+            }} />
+          ))}
+          <div className="absolute rounded-full" style={{
+            left: 26 - 6, top: 42 - 6, width: 12, height: 12,
+            background: "rgba(217,183,117,.18)", border: `1px solid ${ROYAL.goldSoft}`,
+          }} />
+        </>
+      )}
+      {style === "strata" && (
+        <>
+          {[10, 26, 42, 58].map((t, i) => (
+            <div key={t} className={box} style={{
+              left: 6 + i * 0.5, top: t, width: 40 - i, height: 12, borderRadius: 3,
+              background: "rgba(255,255,255,.09)",
+              borderTop: `1px solid rgba(217,183,117,${0.5 - i * 0.1})`,
+            }} />
+          ))}
+          <div className={box} style={{ left: 9, top: 13, width: 6, height: 6, background: gold, opacity: .9 }} />
+          <div className={box} style={{ left: 9, top: 29, width: 6, height: 6, background: gold, opacity: .65 }} />
+          <div className={box} style={{ left: 9, top: 45, width: 6, height: 6, background: gold, opacity: .45 }} />
+          <div className={box} style={{ left: 9, top: 61, width: 6, height: 6, background: gold, opacity: .3 }} />
+        </>
+      )}
+      {style === "command" && (
+        <>
+          <div className="absolute" style={{
+            left: 5, top: 10, right: 5, height: 15, borderRadius: 4,
+            background: "rgba(255,255,255,.07)", border: `1px solid ${ROYAL.goldSoft}`,
+          }} />
+          <div className="absolute rounded-full" style={{
+            left: 9, top: 15, width: 5, height: 5, border: `1px solid ${gold}`,
+          }} />
+          <div className={box} style={{ left: 17, top: 16, width: 12, height: 2, background: gold, opacity: .8 }} />
+          {[30, 43, 56, 69].map((t, i) => (
+            <div key={t} className="absolute" style={{
+              left: 5, top: t, right: 5, height: 10, borderRadius: 3,
+              background: i === 0 ? "rgba(217,183,117,.14)" : "rgba(255,255,255,.04)",
+              boxShadow: i === 0 ? `inset 0 0 0 1px ${ROYAL.goldSoft}` : "none",
+            }} />
+          ))}
+          {[30, 43, 56, 69].map((t, i) => (
+            <div key={`b-${t}`} className={box} style={{
+              left: 8, top: t + 4, width: 22 - i * 3, height: 2,
+              background: i === 0 ? gold : "rgba(255,255,255,.3)",
             }} />
           ))}
         </>
@@ -147,8 +218,9 @@ export function AdminMenuStyleCard() {
       </h3>
       <p className="text-xs text-muted-foreground">
         Every style shows the same sections and modules and respects the same access rules — only the
-        presentation changes. Four of the five replace the sidebar entirely and hand the 62px rail back
-        to the content; Classic Rail keeps it. Changes apply to everyone on their next page load.
+        presentation changes. All but Classic Rail collapse to a single control and hand the 62px rail
+        back to the content, so modules get the whole page. Changes apply to everyone on their next
+        page load.
       </p>
 
       {err && <div className="text-xs text-destructive">{err}</div>}

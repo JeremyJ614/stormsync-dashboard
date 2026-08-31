@@ -98,9 +98,15 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
         aria-label="Navigation"
         aria-hidden={!open}
       >
-        <div className="px-6 pt-20 pb-4 shrink-0">
-          <div className="text-[10px] uppercase tracking-[0.35em]" style={{ color: ROYAL.gold }}>StormSync</div>
-          <div className="text-3xl font-extrabold" style={{ color: ROYAL.text, fontFamily: HEADING }}>Menu</div>
+        <div className="px-6 pt-9 pb-4 shrink-0">
+          <div className="text-[9.5px] uppercase tracking-[0.4em]" style={{ color: ROYAL.gold }}>StormSync</div>
+          <div className="text-[19px] font-semibold mt-1 leading-none"
+               style={{ color: ROYAL.text, fontFamily: HEADING, letterSpacing: "0.01em" }}>
+            Everything, in one place
+          </div>
+          <div className="text-[11px] mt-1.5" style={{ color: ROYAL.dim }}>
+            {sections.length} sections · {sections.reduce((n, s2) => n + s2.items.length, 0)} modules
+          </div>
           <div className="mt-3 h-px" style={{ background: `linear-gradient(90deg, ${ROYAL.gold}, transparent)` }} />
         </div>
 
@@ -152,11 +158,11 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
         aria-expanded={open}
         className="absolute grid place-items-center"
         style={{
-          top: 14, left: 14, width: 46, height: 46, zIndex: 70,
+          bottom: 26, left: 20, width: 52, height: 52, zIndex: 70,
           background: open ? "rgba(255,255,255,0.08)" : ROYAL.gold,
           color: open ? ROYAL.text : "#0b0b12",
           border: open ? `1px solid ${ROYAL.goldSoft}` : "none",
-          borderRadius: open ? 23 : 13,
+          borderRadius: open ? 26 : 15,
           boxShadow: open ? `0 0 22px -6px ${ROYAL.gold}` : "0 8px 20px rgba(0,0,0,.45)",
           pointerEvents: "auto",
           transition: calm ? "none" : "background .4s, color .4s, border-radius .5s, box-shadow .4s",

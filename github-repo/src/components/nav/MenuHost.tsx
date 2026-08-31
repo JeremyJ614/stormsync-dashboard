@@ -1,8 +1,11 @@
 import type { MenuStyle } from "../../lib/menuStyle";
 import type { MenuNav } from "./menus/useMenuNav";
-import { GoldenSpiralMenu } from "./menus/GoldenSpiralMenu";
 import { GooeyFabMenu } from "./menus/GooeyFabMenu";
 import { CanvasPushMenu } from "./menus/CanvasPushMenu";
+import { HoloFanMenu } from "./menus/HoloFanMenu";
+import { SweepMenu } from "./menus/SweepMenu";
+import { StrataMenu } from "./menus/StrataMenu";
+import { CommandMenu } from "./menus/CommandMenu";
 import { SingularityMenu } from "./menus/SingularityMenu";
 
 /**
@@ -12,10 +15,13 @@ import { SingularityMenu } from "./menus/SingularityMenu";
  */
 export function MenuHost({ style, nav }: { style: MenuStyle; nav: MenuNav }) {
   switch (style) {
-    case "spiral":      return <GoldenSpiralMenu nav={nav} />;
     case "gooey":       return <GooeyFabMenu nav={nav} />;
     case "push":        return <CanvasPushMenu nav={nav} />;
     case "singularity": return <SingularityMenu nav={nav} />;
+    case "fan":         return <HoloFanMenu nav={nav} />;
+    case "sweep":       return <SweepMenu nav={nav} />;
+    case "strata":      return <StrataMenu nav={nav} />;
+    case "command":     return <CommandMenu nav={nav} />;
     case "rail":        return null;   // the sidebar renders itself
   }
 }

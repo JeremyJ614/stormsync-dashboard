@@ -12,7 +12,7 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
 
-export const MENU_STYLES = ["rail", "spiral", "push", "gooey", "singularity"] as const;
+export const MENU_STYLES = ["rail", "push", "gooey", "singularity", "fan", "sweep", "strata", "command"] as const;
 export type MenuStyle = (typeof MENU_STYLES)[number];
 
 export interface MenuStyleConfig { customer: MenuStyle; admin: MenuStyle }
@@ -23,11 +23,6 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
     label: "Classic Rail",
     blurb: "The original sidebar. Icons down the left, labels when it expands.",
     hint: "The only style that keeps a permanent 62px rail on screen.",
-  },
-  spiral: {
-    label: "Golden Spiral",
-    blurb: "Sections unfurl as Fibonacci tiles, largest last, over a champagne bloom. Tap one and the spiral re-forms around its modules.",
-    hint: "Recursive — the same shape at both levels.",
   },
   push: {
     label: "Canvas Push",
@@ -43,6 +38,26 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
     label: "Singularity",
     blurb: "A collapsing core with an accretion disc; sections orbit it and become moons when chosen.",
     hint: "The most theatrical. Best on a good screen.",
+  },
+  fan: {
+    label: "Holographic Fan",
+    blurb: "Glass cards deal into a fanned hand. Drag to riffle; pick one and its modules deal out as a second hand.",
+    hint: "Six cards on screen at a readable size, however long the section; riffle for the rest.",
+  },
+  sweep: {
+    label: "Radar Sweep",
+    blurb: "A radar sweep paints the sections onto range rings as it passes them, then re-paints with the modules inside one.",
+    hint: "Built for this app — it reads like the instrument the rest of it is about.",
+  },
+  strata: {
+    label: "Strata",
+    blurb: "Sections as stacked layers that slide apart in depth; the chosen one comes forward and its modules unstack beneath it.",
+    hint: "The calmest of the set, and the fastest to scan.",
+  },
+  command: {
+    label: "Command",
+    blurb: "Type and go. A search-first palette that matches on module and section, with the ones you actually open kept at the top.",
+    hint: "Fastest way through 37 modules once you know their names.",
   },
 };
 

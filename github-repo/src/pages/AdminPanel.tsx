@@ -27,6 +27,7 @@ import { AdminHealthTab } from "../components/AdminHealthTab";
 import { AdminUsageTab } from "../components/AdminUsageTab";
 import { AdminAuditTab } from "../components/AdminAuditTab";
 import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
+import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { getAdminLayout, resolveLayout, DEFAULT_LAYOUT, type AdminLayout } from "../lib/adminGroups";
 import { audit } from "../lib/adminAudit";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
@@ -1066,6 +1067,8 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <AdminOwnerNotifyCard />
+
       <AdminMenuStyleCard />
       <EmergencyRecipientsCard />
       <LoyaltyRulesCard />

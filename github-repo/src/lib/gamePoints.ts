@@ -50,21 +50,20 @@ export async function getMyTotals(userId: string): Promise<Record<Period, number
   return out;
 }
 
-/** Award points. Idempotency is enforced upstream (unique per day / per question). */
-export async function awardPoints(input: {
-  userId: string; userName: string; source: PointSource;
-  points: number; earnedOn: string; detail?: Record<string, unknown>;
-}): Promise<{ ok: boolean; error?: string }> {
-  const { error } = await supabase.from("game_points").insert({
-    user_id: input.userId,
-    user_name: input.userName,
-    source: input.source,
-    points: input.points,
-    earned_on: input.earnedOn,
-    detail: input.detail ?? {},
-  });
-  return error ? { ok: false, error: error.message } : { ok: true };
-}
+/**
+ * Points are never minted from a browser.
+ *
+ * There used to be an `awardPoints` here that inserted straight into
+ * `game_points` from the client. It could not work and did not: the table is
+ * admin-write by policy, so every member's award was rejected by RLS and the
+ * caller ignored the error — the trivia page said "+100" and the ledger stayed
+ * empty. Every trivia point row in production belongs to an admin, which is
+ * exactly the shape that bug leaves behind.
+ *
+ * Awards now come from the two places that also decide they were earned:
+ * `submit_trivia_answer` in the database, and the storm engine when it scores a
+ * forecast-game round. Admin corrections still go through `adjustPoints` below.
+ */
 
 /** Podium styling for the top three. */
 export const PODIUM = [

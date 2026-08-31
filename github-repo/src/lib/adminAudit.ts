@@ -15,7 +15,7 @@ import { logger } from "./logger";
 
 export type AuditAction =
   | "user.create" | "user.delete" | "user.tier" | "user.modules" | "user.badges"
-  | "user.pin" | "user.referrals" | "user.viewas"
+  | "user.pin" | "user.referrals" | "user.viewas" | "user.submit_as"
   | "points.grant" | "points.deduct"
   | "billing.prices" | "billing.coupon"
   | "nav.reorder" | "nav.groups"
@@ -143,6 +143,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "user.pin": "Reset PIN",
   "user.referrals": "Adjusted referrals",
   "user.viewas": "Viewed app as member",
+  "user.submit_as": "Submitted on a member's behalf",
   "points.grant": "Granted points",
   "points.deduct": "Deducted points",
   "billing.prices": "Changed pricing",

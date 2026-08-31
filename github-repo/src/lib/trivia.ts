@@ -10,7 +10,8 @@
  * be pulled from the client.
  */
 import { supabase, isSupabaseConfigured } from "./supabase";
-import { awardPoints } from "./gamePoints";
+import { viewingAs } from "./impersonate";
+import { logger } from "./logger";
 
 export interface TriviaQuestion {
   id: string;
@@ -52,9 +53,13 @@ const toQ = (r: Row, withAnswer: boolean): TriviaQuestion => ({
 /** Today's active questions (answers withheld until the member responds). */
 export async function getTodayQuestions(): Promise<TriviaQuestion[]> {
   if (!isSupabaseConfigured) return [];
+  // Explicit columns, not `select *`: answer_index and explanation are no
+  // longer granted to members, and asking for them would fail the whole query.
+  // This is also what makes the docstring above true — before, the answer was
+  // in the response and merely dropped by the mapper.
   const { data, error } = await supabase
     .from("trivia_questions")
-    .select("*")
+    .select("id,ask_date,slot,category,question,choices,points,source,active")
     .eq("ask_date", todayUTC())
     .eq("active", true)
     .order("slot");
@@ -65,6 +70,22 @@ export async function getTodayQuestions(): Promise<TriviaQuestion[]> {
 /** This member's answers for the given question ids. */
 export async function getMyAnswers(userId: string, questionIds: string[]): Promise<Record<string, TriviaAnswer>> {
   if (!isSupabaseConfigured || !userId || questionIds.length === 0) return {};
+  // trivia_answers is readable only by its owner, so through the view-as lens
+  // this would come back empty and show a member who has answered as having
+  // answered nothing. The admin function reads the same four columns.
+  if (viewingAs()) {
+    const { data: rpcRows } = await supabase.rpc("admin_trivia_answers", {
+      p_user: userId, p_questions: questionIds,
+    });
+    const seen: Record<string, TriviaAnswer> = {};
+    for (const r of (rpcRows ?? []) as { question_id: string; choice_index: number; correct: boolean; points: number }[]) {
+      seen[r.question_id] = {
+        questionId: r.question_id, choiceIndex: r.choice_index,
+        correct: r.correct, points: r.points,
+      };
+    }
+    return seen;
+  }
   const { data } = await supabase
     .from("trivia_answers")
     .select("question_id,choice_index,correct,points")
@@ -88,46 +109,45 @@ export async function getMyAnswers(userId: string, questionIds: string[]): Promi
 export async function submitAnswer(
   q: TriviaQuestion, userId: string, userName: string, choiceIndex: number,
 ): Promise<{ ok: boolean; correct?: boolean; points?: number; answerIndex?: number; explanation?: string | null; error?: string }> {
-  const { data: row, error: readErr } = await supabase
-    .from("trivia_questions")
-    .select("answer_index,explanation,points")
-    .eq("id", q.id)
-    .maybeSingle();
-  if (readErr || !row) return { ok: false, error: readErr?.message ?? "Question unavailable" };
+  // Scoring happens in the database. The client sends a choice index and gets
+  // back a verdict — it never sees the answer key beforehand, and it never
+  // writes to the points ledger, because a browser that can mint points is a
+  // browser that will. Through the view-as lens the same work is done by the
+  // admin twin, which additionally records who did it.
+  const rpc = viewingAs()
+    ? supabase.rpc("admin_submit_trivia", {
+        p_user: userId, p_user_name: userName, p_question: q.id, p_choice: choiceIndex,
+      })
+    : supabase.rpc("submit_trivia_answer", { p_question: q.id, p_choice: choiceIndex });
 
-  const correct = choiceIndex === row.answer_index;
-  const points = correct ? (row.points ?? 100) : 0;
-
-  const { error } = await supabase.from("trivia_answers").insert({
-    question_id: q.id, user_id: userId, user_name: userName,
-    choice_index: choiceIndex, correct, points,
-  });
+  const { data: res, error } = await rpc;
   if (error) {
-    // 23505 = already answered; surface the existing result rather than erroring
-    if (error.code === "23505") {
-      const mine = await getMyAnswers(userId, [q.id]);
-      const a = mine[q.id];
-      return { ok: true, correct: a?.correct, points: a?.points, answerIndex: row.answer_index, explanation: row.explanation };
-    }
+    logger.error("submitAnswer failed", { scope: "trivia", error });
     return { ok: false, error: error.message };
   }
-  if (points > 0) {
-    await awardPoints({
-      userId, userName, source: "trivia", points, earnedOn: todayUTC(),
-      detail: { questionId: q.id, category: q.category, slot: q.slot },
-    });
-  }
-  return { ok: true, correct, points, answerIndex: row.answer_index, explanation: row.explanation };
+  const r = (res ?? {}) as {
+    ok?: boolean; error?: string; correct?: boolean; points?: number;
+    answer_index?: number; explanation?: string | null;
+  };
+  if (!r.ok) return { ok: false, error: r.error ?? "Could not record that answer." };
+  return {
+    ok: true,
+    correct: r.correct,
+    points: r.points,
+    answerIndex: r.answer_index,
+    explanation: r.explanation ?? null,
+  };
 }
 
 // ── Admin ───────────────────────────────────────────────────────────────────
 export async function adminListQuestions(fromDate: string, toDate: string): Promise<TriviaQuestion[]> {
-  const { data, error } = await supabase
-    .from("trivia_questions").select("*")
-    .gte("ask_date", fromDate).lte("ask_date", toDate)
-    .order("ask_date", { ascending: false }).order("slot");
+  // Through the RPC, because the editor is the one place that must see the
+  // answer key and the column grant no longer covers even admins.
+  const { data, error } = await supabase.rpc("admin_trivia_questions", {
+    p_from: fromDate, p_to: toDate,
+  });
   if (error) throw error;
-  return (data ?? []).map((r) => toQ(r as Row, true));
+  return ((data ?? []) as Row[]).map((r) => toQ(r, true));
 }
 
 export interface QuestionInput {

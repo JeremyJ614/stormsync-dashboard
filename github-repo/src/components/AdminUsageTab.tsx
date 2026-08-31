@@ -12,10 +12,13 @@
  * sat and read something.
  */
 import { useCallback, useEffect, useState } from "react";
-import { motion } from "framer-motion";
-import { BarChart3, Users2, Eye, Loader2, MoonStar, AlertTriangle } from "lucide-react";
-import { moduleUsage, usageByDay, unusedModules, type ModuleUsage, type UsageDay } from "../lib/moduleUsage";
-import { ROYAL, prefersReducedMotion } from "../lib/royal";
+import { AnimatePresence, motion } from "framer-motion";
+import { BarChart3, Users2, Eye, Loader2, MoonStar, AlertTriangle, ChevronRight } from "lucide-react";
+import {
+  moduleUsage, usageByDay, unusedModules, moduleViewers,
+  type ModuleUsage, type UsageDay, type ModuleViewer,
+} from "../lib/moduleUsage";
+import { ROYAL, EASE, prefersReducedMotion } from "../lib/royal";
 
 const WINDOWS = [7, 30, 90] as const;
 
@@ -25,6 +28,7 @@ export function AdminUsageTab() {
   const [trend, setTrend] = useState<UsageDay[]>([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
   const still = prefersReducedMotion();
 
   const load = useCallback(async () => {
@@ -40,7 +44,7 @@ export function AdminUsageTab() {
     }
   }, [days]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void load(); setOpen(null); }, [load]);
 
   const totalViews = usage.reduce((a, u) => a + u.views, 0);
   const peakViews = Math.max(1, ...usage.map((u) => u.views));
@@ -129,21 +133,51 @@ export function AdminUsageTab() {
             <div className="p-4 space-y-2.5">
               {usage.map((u, i) => (
                 <div key={u.moduleId}>
-                  <div className="flex items-baseline gap-2 text-xs mb-1">
-                    <span className="font-medium truncate">{u.label}</span>
-                    <code className="text-[10px] text-muted-foreground/70 truncate hidden sm:inline">{u.moduleId}</code>
-                    <span className="ml-auto tabular-nums shrink-0" style={{ color: ROYAL.gold }}>{u.views}</span>
-                    <span className="tabular-nums text-muted-foreground shrink-0 w-10 text-right">{u.uniques}</span>
-                  </div>
-                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
-                    <motion.div
-                      className="h-full rounded-full"
-                      initial={still ? false : { width: 0 }}
-                      animate={{ width: `${(u.views / peakViews) * 100}%` }}
-                      transition={{ duration: 0.55, delay: Math.min(i * 0.02, 0.5), ease: [0.22, 1, 0.36, 1] }}
-                      style={{ background: ROYAL.gold }}
-                    />
-                  </div>
+                  {/* The whole row is the control. A bar chart that answers
+                      "how many" and refuses "who" is half an answer, and the
+                      counters already know — they are keyed by member. */}
+                  <button
+                    onClick={() => setOpen(open === u.moduleId ? null : u.moduleId)}
+                    aria-expanded={open === u.moduleId}
+                    className="w-full text-left"
+                  >
+                    <div className="flex items-baseline gap-2 text-xs mb-1">
+                      <ChevronRight
+                        className="w-3 h-3 shrink-0 self-center transition-transform"
+                        style={{
+                          color: open === u.moduleId ? ROYAL.gold : ROYAL.dim,
+                          transform: open === u.moduleId ? "rotate(90deg)" : undefined,
+                        }}
+                      />
+                      <span className="font-medium truncate">{u.label}</span>
+                      <code className="text-[10px] text-muted-foreground/70 truncate hidden sm:inline">{u.moduleId}</code>
+                      <span className="ml-auto tabular-nums shrink-0" style={{ color: ROYAL.gold }}>{u.views}</span>
+                      <span className="tabular-nums text-muted-foreground shrink-0 w-10 text-right">{u.uniques}</span>
+                    </div>
+                    <div className="h-1.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.04)" }}>
+                      <motion.div
+                        className="h-full rounded-full"
+                        initial={still ? false : { width: 0 }}
+                        animate={{ width: `${(u.views / peakViews) * 100}%` }}
+                        transition={{ duration: 0.55, delay: Math.min(i * 0.02, 0.5), ease: [0.22, 1, 0.36, 1] }}
+                        style={{ background: ROYAL.gold }}
+                      />
+                    </div>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {open === u.moduleId && (
+                      <motion.div
+                        key="who"
+                        initial={still ? false : { height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: still ? 0 : 0.26, ease: EASE }}
+                        className="overflow-hidden"
+                      >
+                        <ViewerList moduleId={u.moduleId} days={days} expected={u.uniques} />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
               ))}
             </div>
@@ -182,6 +216,85 @@ export function AdminUsageTab() {
         tab-flipping does not inflate a module's standing. Views recorded while an admin is using
         “view as” are not counted against the member being viewed.
       </p>
+    </div>
+  );
+}
+
+/**
+ * The members behind one module's bar.
+ *
+ * Loaded when the row is opened rather than up front: pulling the viewer list
+ * for all 37 modules to show one of them would be most of a table nobody asked
+ * for. `expected` comes from the aggregate that is already on screen, so a
+ * mismatch between the two is visible rather than quietly reconciled.
+ */
+function ViewerList({ moduleId, days, expected }: { moduleId: string; days: number; expected: number }) {
+  const [rows, setRows] = useState<ModuleViewer[] | null>(null);
+  const [err, setErr] = useState("");
+
+  useEffect(() => {
+    let alive = true;
+    setRows(null); setErr("");
+    moduleViewers(moduleId, days)
+      .then((r) => { if (alive) setRows(r); })
+      .catch(() => { if (alive) setErr("Could not load the members for this module."); });
+    return () => { alive = false; };
+  }, [moduleId, days]);
+
+  const when = (iso: string | null) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    const mins = Math.round((Date.now() - d.getTime()) / 60000);
+    if (mins < 60) return `${Math.max(1, mins)}m ago`;
+    if (mins < 60 * 24) return `${Math.round(mins / 60)}h ago`;
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  return (
+    <div className="mt-2 mb-1 rounded-lg overflow-hidden"
+         style={{ background: "rgba(255,255,255,0.02)", border: `1px solid ${ROYAL.hairline}` }}>
+      {err && <p className="px-3 py-2.5 text-[11px]" style={{ color: "#f3a3a5" }}>{err}</p>}
+      {!err && rows === null && (
+        <p className="px-3 py-2.5 text-[11px] flex items-center gap-1.5" style={{ color: ROYAL.dim }}>
+          <Loader2 className="w-3 h-3 animate-spin" /> Loading members…
+        </p>
+      )}
+      {rows !== null && rows.length === 0 && (
+        <p className="px-3 py-2.5 text-[11px]" style={{ color: ROYAL.dim }}>
+          Nobody opened this in the last {days} days.
+        </p>
+      )}
+      {rows !== null && rows.length > 0 && (
+        <>
+          <div className="px-3 py-1.5 flex items-center gap-2 text-[10px] uppercase tracking-[0.18em]"
+               style={{ color: ROYAL.gold, borderBottom: `1px solid ${ROYAL.hairline}` }}>
+            <span>Who opened it</span>
+            <span className="ml-auto normal-case tracking-normal" style={{ color: ROYAL.dim }}>
+              views · days · last
+            </span>
+          </div>
+          {rows.map((r) => (
+            <div key={r.userId} className="px-3 py-1.5 flex items-center gap-2 text-[11.5px]"
+                 style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
+              <span className="truncate" style={{ color: ROYAL.text }}>{r.name || r.email || r.userId.slice(0, 8)}</span>
+              {r.name && r.email && (
+                <span className="truncate hidden sm:inline text-[10px]" style={{ color: ROYAL.dim }}>{r.email}</span>
+              )}
+              <span className="ml-auto tabular-nums shrink-0" style={{ color: ROYAL.gold }}>{r.views}</span>
+              <span className="tabular-nums shrink-0 w-8 text-right" style={{ color: ROYAL.dim }}>{r.daysSeen}</span>
+              <span className="shrink-0 w-16 text-right" style={{ color: ROYAL.dim }}>{when(r.lastSeen)}</span>
+            </div>
+          ))}
+          {rows.length !== expected && (
+            <p className="px-3 py-1.5 text-[10.5px]"
+               style={{ color: ROYAL.dim, borderTop: `1px solid ${ROYAL.hairline}` }}>
+              The bar counts {expected} distinct member{expected === 1 ? "" : "s"} and this list has {rows.length}.
+              The difference is accounts deleted since the views were recorded — their counters survive, their
+              profiles do not.
+            </p>
+          )}
+        </>
+      )}
     </div>
   );
 }

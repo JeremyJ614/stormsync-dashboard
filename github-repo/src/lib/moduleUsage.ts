@@ -81,3 +81,55 @@ export function unusedModules(usage: ModuleUsage[]): { id: string; label: string
     .filter((m) => !seen.has(m.id) && !NOT_WORTH_COUNTING.has(m.id))
     .map((m) => ({ id: m.id, label: m.label }));
 }
+
+/**
+ * Who opened a module, and how often.
+ *
+ * The aggregate answers "does this module earn its place"; this answers the
+ * question that always comes next. It is a grouping of counters that already
+ * existed rather than any new collection — still one row per member per module
+ * per day, still no per-click trail.
+ */
+export interface ModuleViewer {
+  userId: string;
+  name: string;
+  email: string;
+  tier: number;
+  views: number;
+  daysSeen: number;
+  lastSeen: string | null;
+}
+
+export async function moduleViewers(moduleId: string, days = 30): Promise<ModuleViewer[]> {
+  const { data, error } = await supabase.rpc("admin_module_viewers", { p_module: moduleId, p_days: days });
+  if (error) throw error;
+  const rows = (data ?? []) as {
+    user_id: string; name: string | null; email: string | null; tier: number | null;
+    views: number; days_seen: number; last_seen: string | null;
+  }[];
+  return rows.map((r) => ({
+    userId: r.user_id,
+    name: r.name ?? "",
+    email: r.email ?? "",
+    tier: Number(r.tier ?? 1),
+    views: Number(r.views),
+    daysSeen: Number(r.days_seen),
+    lastSeen: r.last_seen,
+  }));
+}
+
+/** The same rows on the other axis: everything one member has opened. */
+export interface MemberModule { moduleId: string; label: string; views: number; daysSeen: number; lastSeen: string | null }
+
+export async function memberModules(userId: string, days = 30): Promise<MemberModule[]> {
+  const { data, error } = await supabase.rpc("admin_member_modules", { p_user: userId, p_days: days });
+  if (error) throw error;
+  const rows = (data ?? []) as { module_id: string; views: number; days_seen: number; last_seen: string | null }[];
+  return rows.map((r) => ({
+    moduleId: r.module_id,
+    label: labelFor(r.module_id),
+    views: Number(r.views),
+    daysSeen: Number(r.days_seen),
+    lastSeen: r.last_seen,
+  }));
+}

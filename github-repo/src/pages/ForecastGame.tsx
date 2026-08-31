@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import { Link } from "wouter";
 import { useAuth } from "../hooks/useAuth";
+import { SubmittingAsNotice } from "../components/SubmittingAsNotice";
 import {
   getMyGuess, getLastScored, lockGuess, monthlyLeaderboard, getWinners,
   SEVERE_BANDS, SEVERE_MISS, TORNADO_BANDS, QUIET_DAY_BONUS,
@@ -487,6 +488,7 @@ export default function ForecastGame() {
                   <RotateCcw className="w-3.5 h-3.5" />
                 </button>
               )}
+              <SubmittingAsNotice what="A forecast" />
               <button onClick={submit} disabled={!severePin || locked || (!quietDay && !tornadoPin)}
                 className={`px-4 py-2 rounded-xl text-sm font-black flex items-center gap-1.5 transition-all border ${
                   !severePin || locked || (!quietDay && !tornadoPin)

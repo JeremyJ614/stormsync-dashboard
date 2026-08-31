@@ -4,6 +4,7 @@ import {
   Brain, CloudLightning, Sparkles, Check, X, Loader2, Trophy, Clock, Lock,
 } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { SubmittingAsNotice } from "../components/SubmittingAsNotice";
 import { Leaderboard } from "../components/Leaderboard";
 import {
   getTodayQuestions, getMyAnswers, submitAnswer, todayUTC,
@@ -101,6 +102,8 @@ export default function Trivia() {
               <div className="text-lg font-extrabold tabular-nums text-primary">{todayPoints}</div>
             </div>
           </div>
+
+          <SubmittingAsNotice what="An answer" />
 
           {questions.map((q) => {
             const mine = answers[q.id];

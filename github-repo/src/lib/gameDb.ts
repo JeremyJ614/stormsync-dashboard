@@ -13,6 +13,7 @@
  */
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
+import { viewingAs } from "./impersonate";
 
 export interface Pin { lat: number; lon: number; label: string }
 
@@ -81,6 +82,27 @@ export async function lockGuess(args: {
   severe: Pin; tornado: Pin | null;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+
+  // Through the view-as lens the row belongs to the member being viewed while
+  // the session is still the admin's, and the insert policy compares the two —
+  // so the write has to go through the audited admin function instead. Members
+  // never reach this branch; the lens is admin-only by construction.
+  if (viewingAs()) {
+    const { data, error } = await supabase.rpc("admin_lock_guess", {
+      p_user: args.userId, p_user_name: args.userName, p_date: args.date,
+      p_lat: args.severe.lat, p_lon: args.severe.lon, p_city_label: args.severe.label,
+      p_tor_lat: args.tornado?.lat ?? null,
+      p_tor_lon: args.tornado?.lon ?? null,
+      p_tor_city_label: args.tornado?.label ?? null,
+    });
+    if (error) {
+      logger.error("admin_lock_guess failed", { scope: "game", error });
+      return { ok: false, error: "Could not save those picks. Try again." };
+    }
+    if (data === "duplicate") return { ok: false, error: "They already locked in today's picks." };
+    return { ok: true };
+  }
+
   const { error } = await supabase.from("game_guesses").insert({
     user_id: args.userId, user_name: args.userName, guess_date: args.date,
     lat: args.severe.lat, lon: args.severe.lon, city_label: args.severe.label,

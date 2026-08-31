@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   DollarSign, Gift, Layers, Package, Ticket, Users2, Loader2, Plus, Trash2, Save, Check, Pencil,
+  Share2, Power, Clock,
 } from "lucide-react";
 import { ALL_MODULES, HIDDEN_MODULES } from "../hooks/useAuth";
 import {
@@ -12,9 +13,14 @@ import {
   listCoupons, createCoupon, updateCoupon, deleteCoupon, COUPON_KIND_LABELS, type Coupon, type CouponKind,
   getPromoCounter, savePromoCounter, type PromoCounter,
 } from "../lib/billingAdmin";
+import {
+  listPromos, savePromo, setPromoActive, rungsOf,
+  adminReferralOverview, adminReferrals, fulfilReferral,
+  type Promo, type ReferralOverviewRow, type ReferralRow,
+} from "../lib/promos";
 import { audit } from "../lib/adminAudit";
 
-type SubTab = "pricing" | "lifetime" | "bundles" | "addons" | "coupons" | "promo";
+type SubTab = "pricing" | "lifetime" | "bundles" | "addons" | "coupons" | "promo" | "referrals";
 
 const TIER_LABELS: Record<TierKey, string> = { free: "Free", basic: "Basic", vip: "VIP", advanced: "Advanced" };
 
@@ -34,7 +40,8 @@ export default function AdminBillingTab() {
           { id: "bundles", label: "Tier Bundles", icon: Layers },
           { id: "addons", label: "Module Add-Ons", icon: Package },
           { id: "coupons", label: "Coupons", icon: Ticket },
-          { id: "promo", label: "Promo Counter", icon: Users2 },
+          { id: "promo", label: "Promotions", icon: Users2 },
+          { id: "referrals", label: "Referrals", icon: Share2 },
         ] as { id: SubTab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
           const Icon = t.icon;
           return (
@@ -51,7 +58,8 @@ export default function AdminBillingTab() {
       {sub === "bundles" && <TierBundlesCard />}
       {sub === "addons" && <ModuleAddonsCard />}
       {sub === "coupons" && <CouponsCard />}
-      {sub === "promo" && <PromoCounterCard />}
+      {sub === "promo" && <PromotionsCard />}
+      {sub === "referrals" && <ReferralsCard />}
     </div>
   );
 }
@@ -115,8 +123,10 @@ function LifetimeDealsCard() {
   useEffect(() => { getLifetimeDeals().then(setDeals); }, []);
   if (!deals) return <LoadingRow />;
 
-  const keys: (keyof LifetimeDeals)[] = ["basic_lifetime", "advanced_lifetime"];
-  const titles: Record<keyof LifetimeDeals, string> = { basic_lifetime: "Basic Lifetime", advanced_lifetime: "Advanced Lifetime" };
+  const keys: (keyof LifetimeDeals)[] = ["basic_lifetime", "vip_lifetime", "advanced_lifetime"];
+  const titles: Record<keyof LifetimeDeals, string> = {
+    basic_lifetime: "Basic Lifetime", vip_lifetime: "VIP Lifetime", advanced_lifetime: "Advanced Lifetime",
+  };
 
   const set = (key: keyof LifetimeDeals, patch: Partial<LifetimeDeal>) =>
     setDeals({ ...deals, [key]: { ...deals[key], ...patch } });
@@ -148,7 +158,7 @@ function LifetimeDealsCard() {
               <input type="number" step="0.01" min={0} value={d.price} onChange={e => set(key, { price: parseFloat(e.target.value) || 0 })}
                 className="w-24 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
             </label>
-            {key === "basic_lifetime" && (
+            {key !== "advanced_lifetime" && (
               <label className="flex items-center gap-2 text-sm">
                 <span className="text-muted-foreground w-16">Modules</span>
                 <input type="number" min={0} value={d.choosableCount ?? 10} onChange={e => set(key, { choosableCount: parseInt(e.target.value) || 0 })}
@@ -181,7 +191,7 @@ function TierBundlesCard() {
   const purchasable = ALL_MODULES.filter(m => !m.alwaysOn && !m.adminOnly && !HIDDEN_MODULES.has(m.id));
 
   const setChoosable = (tier: TierKey, v: number) => setCfg({ ...cfg, choosableCount: { ...cfg.choosableCount, [tier]: v } });
-  const toggleBundled = (tier: "basic" | "vip", moduleId: string) => {
+  const toggleBundled = (tier: "free" | "basic" | "vip", moduleId: string) => {
     const list = cfg.bundledModules[tier];
     const next = list.includes(moduleId) ? list.filter(m => m !== moduleId) : [...list, moduleId];
     setCfg({ ...cfg, bundledModules: { ...cfg.bundledModules, [tier]: next } });
@@ -198,7 +208,7 @@ function TierBundlesCard() {
     <div className="space-y-4">
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">
         <h3 className="text-sm font-semibold flex items-center gap-2"><Layers className="w-4 h-4 text-primary" /> Choosable modules per tier</h3>
-        <p className="text-xs text-muted-foreground">On top of the bundled-free list below. Free has no bundle — this number is its only pick(s). Advanced gets everything, so it's fixed at 0.</p>
+        <p className="text-xs text-muted-foreground">On top of the bundled-free list below. Advanced gets everything, so it's fixed at 0.</p>
         <div className="flex flex-wrap gap-3">
           {TIER_KEYS.map(tier => (
             <label key={tier} className="flex items-center gap-2 text-sm bg-muted/20 border border-border rounded-lg px-3 py-2">
@@ -211,7 +221,7 @@ function TierBundlesCard() {
         </div>
       </div>
 
-      {(["basic", "vip"] as const).map(tier => (
+      {(["free", "basic", "vip"] as const).map(tier => (
         <div key={tier} className="bg-card border border-border rounded-xl p-4 space-y-3">
           <h3 className="text-sm font-semibold">{TIER_LABELS[tier]}'s bundled-free modules ({cfg.bundledModules[tier].length})</h3>
           <div className="grid sm:grid-cols-2 md:grid-cols-3 gap-1.5 max-h-72 overflow-y-auto pr-1">
@@ -548,6 +558,236 @@ function PromoCounterCard() {
       <button onClick={save} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 flex items-center gap-1.5">
         <Save className="w-3.5 h-3.5" /> {saved ? "Saved ✓" : "Save promo counter"}
       </button>
+    </div>
+  );
+}
+
+
+// ── promotions ───────────────────────────────────────────────────────────────
+/**
+ * Every offer, and its switch.
+ *
+ * Promos used to be one hard-coded counter. Three more were asked for, and the
+ * thing that makes four offers manageable is not four editors — it is one list
+ * where you can see at a glance what is running. The switch is the headline;
+ * the settings each promo actually has are underneath it, and only the ones
+ * that promo uses are shown.
+ *
+ * All three new ones ship off. Turning one on is the only thing that makes it
+ * do anything, and the copy says exactly what it will do.
+ */
+function PromotionsCard() {
+  const [promos, setPromos] = useState<Promo[] | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  const reload = () => listPromos().then(setPromos);
+  useEffect(() => { void reload(); }, []);
+  if (!promos) return <LoadingRow />;
+
+  async function toggle(p: Promo) {
+    setBusy(p.key); setErr(null);
+    const r = await setPromoActive(p.key, !p.active);
+    if (!r.ok) setErr(r.error ?? "Could not change that.");
+    else void audit("billing.promo", { type: "promo", id: p.key, label: p.label }, { active: !p.active });
+    await reload();
+    setBusy(null);
+  }
+
+  async function patchConfig(p: Promo, patch: Record<string, unknown>) {
+    setBusy(p.key); setErr(null);
+    const r = await savePromo({ ...p, config: { ...p.config, ...patch } });
+    if (!r.ok) setErr(r.error ?? "Could not save that.");
+    await reload();
+    setBusy(null);
+  }
+
+  const num = (p: Promo, k: string, fallback = 0) => Number((p.config?.[k] as number) ?? fallback);
+
+  return (
+    <div className="space-y-3">
+      {err && <p className="text-xs text-red-400">{err}</p>}
+      {promos.map((p) => {
+        const rungs = rungsOf(p);
+        return (
+          <div key={p.key} className="bg-card border border-border rounded-xl p-4 space-y-3">
+            <div className="flex items-start gap-3 flex-wrap">
+              <div className="min-w-0 flex-1">
+                <h3 className="text-sm font-semibold">{p.label}</h3>
+                <p className="text-xs text-muted-foreground mt-0.5">{p.blurb}</p>
+              </div>
+              <button onClick={() => toggle(p)} disabled={busy === p.key}
+                className={`text-xs px-3 py-2 rounded-lg border font-semibold flex items-center gap-1.5 shrink-0 disabled:opacity-60 ${
+                  p.active ? "bg-green-500/15 border-green-500/40 text-green-400" : "bg-muted/30 border-border text-muted-foreground"}`}>
+                {busy === p.key ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Power className="w-3.5 h-3.5" />}
+                {p.active ? "Running" : "Off"}
+              </button>
+            </div>
+
+            {/* Counter promos: how many have gone, how many there are. */}
+            {("total" in (p.config ?? {})) && (
+              <div className="flex flex-wrap gap-3 items-center">
+                <NumField label="Claimed" value={num(p, "claimed")} onCommit={(v) => patchConfig(p, { claimed: v })} />
+                <NumField label="Total"   value={num(p, "total", 25)} onCommit={(v) => patchConfig(p, { total: v })} />
+                <span className="text-xs text-muted-foreground">
+                  {Math.max(0, num(p, "total", 25) - num(p, "claimed"))} left
+                </span>
+              </div>
+            )}
+
+            {p.key === "addon_duo" && (
+              <div className="flex flex-wrap gap-3 items-center">
+                <NumField label="Add-ons needed" value={num(p, "addonsRequired", 2)} onCommit={(v) => patchConfig(p, { addonsRequired: v })} />
+                <NumField label="% off" value={num(p, "percentOff", 50)} onCommit={(v) => patchConfig(p, { percentOff: v })} />
+                <span className="text-xs text-muted-foreground">
+                  Issues a single-use coupon on their account and tells them the code.
+                </span>
+              </div>
+            )}
+
+            {p.key === "paid_25" && (
+              <div className="flex flex-wrap gap-3 items-center">
+                <NumField label="Extra add-ons" value={num(p, "extraAddons", 3)} onCommit={(v) => patchConfig(p, { extraAddons: v })} />
+                <NumField label="Alert levels up" value={num(p, "alertLevelUp", 1)} onCommit={(v) => patchConfig(p, { alertLevelUp: v })} />
+                <span className="text-xs text-muted-foreground">
+                  Applied by the billing webhook the moment their payment clears.
+                </span>
+              </div>
+            )}
+
+            {rungs.length > 0 && (
+              <div className="rounded-lg border border-border/70 divide-y divide-border/60">
+                {rungs.map((r) => (
+                  <div key={r.rank} className="px-3 py-2 flex items-center gap-2 text-xs">
+                    <span className="w-6 h-6 rounded-full grid place-items-center shrink-0 font-bold"
+                          style={{ background: "rgba(217,183,117,0.14)", color: "#d9b775" }}>{r.rank}</span>
+                    <span className="flex-1 min-w-0">{r.label}</span>
+                    <span className="text-muted-foreground shrink-0">
+                      {[r.percentOff ? `${r.percentOff}% off` : null,
+                        r.addons ? `${r.addons} add-on${r.addons === 1 ? "" : "s"}` : null,
+                        r.freeMonths ? `${r.freeMonths} month${r.freeMonths === 1 ? "" : "s"} free` : null,
+                        r.tier ? `→ ${r.tier}` : null].filter(Boolean).join(" · ")}
+                    </span>
+                  </div>
+                ))}
+                <p className="px-3 py-2 text-[11px] text-muted-foreground">
+                  A referral counts when the person referred actually pays, not when they sign up. Past the last
+                  rung the ladder keeps paying its top rung. Rewards are recorded as owed and fulfilled from the
+                  Referrals tab — what "50% off" means depends on what they are paying for, so it is your call,
+                  not arithmetic.
+                </p>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/** A small number field that only writes when you leave it. */
+function NumField({ label, value, onCommit }: { label: string; value: number; onCommit: (v: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  return (
+    <label className="flex items-center gap-2 text-sm bg-muted/20 border border-border rounded-lg px-3 py-2">
+      <span className="text-xs uppercase text-muted-foreground">{label}</span>
+      <input type="number" min={0} value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => onCommit(parseInt(draft, 10) || 0)}
+        className="w-20 bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-sm outline-none focus:border-primary/40" />
+    </label>
+  );
+}
+
+// ── referrals ────────────────────────────────────────────────────────────────
+/**
+ * Who brought whom, and what is owed.
+ *
+ * The list that matters is the unfulfilled one: a reward the programme has
+ * promised and nobody has actioned. So it sorts to the top and stays there
+ * until it is marked done.
+ */
+function ReferralsCard() {
+  const [rows, setRows] = useState<ReferralRow[] | null>(null);
+  const [people, setPeople] = useState<Record<string, ReferralOverviewRow>>({});
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const [r, o] = await Promise.all([adminReferrals(), adminReferralOverview()]);
+      setRows(r);
+      setPeople(Object.fromEntries(o.map((x) => [x.referrerId, x])));
+      setErr(null);
+    } catch (e) { setErr(String((e as Error)?.message ?? e)); setRows([]); }
+  };
+  useEffect(() => { void reload(); }, []);
+  if (!rows) return <LoadingRow />;
+
+  const owed = rows.filter((r) => r.convertedAt && !r.fulfilledAt);
+  const rest = rows.filter((r) => !(r.convertedAt && !r.fulfilledAt));
+  const who = (id: string) => people[id]?.name || people[id]?.email || id.slice(0, 8);
+
+  async function markDone(r: ReferralRow) {
+    setBusy(r.id);
+    const res = await fulfilReferral(r.id);
+    if (!res.ok) setErr(res.error ?? "Could not mark that done.");
+    else void audit("billing.referral", { type: "referral", id: r.id, label: who(r.referrerId) });
+    await reload();
+    setBusy(null);
+  }
+
+  return (
+    <div className="space-y-3">
+      {err && <p className="text-xs text-red-400">{err}</p>}
+
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" /> Rewards to hand out ({owed.length})
+          </h3>
+          <p className="text-[11px] text-muted-foreground">
+            Someone they referred started paying. Apply the reward however it makes sense — a coupon, a tier
+            change, a free month on their subscription — then mark it done so it leaves this list.
+          </p>
+        </div>
+        {owed.length === 0 ? (
+          <p className="px-4 py-4 text-xs text-muted-foreground">Nothing outstanding.</p>
+        ) : owed.map((r) => (
+          <div key={r.id} className="px-4 py-2.5 border-t border-border flex items-center gap-3 text-xs flex-wrap">
+            <span className="font-semibold">{who(r.referrerId)}</span>
+            <span className="text-muted-foreground">referral #{r.rank}</span>
+            <span className="flex-1 min-w-[160px]">{r.reward?.label ?? "—"}</span>
+            <button onClick={() => markDone(r)} disabled={busy === r.id}
+              className="px-2.5 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary font-semibold flex items-center gap-1.5 disabled:opacity-60">
+              {busy === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Check className="w-3 h-3" />} Mark done
+            </button>
+          </div>
+        ))}
+      </div>
+
+      <div className="bg-card border border-border rounded-xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold flex items-center gap-2">
+            <Share2 className="w-4 h-4 text-primary" /> Everything else ({rest.length})
+          </h3>
+        </div>
+        {rest.length === 0 ? (
+          <p className="px-4 py-4 text-xs text-muted-foreground">
+            Nobody has used a referral code yet. Codes only work while the referral programme is switched on.
+          </p>
+        ) : rest.slice(0, 60).map((r) => (
+          <div key={r.id} className="px-4 py-2 border-t border-border flex items-center gap-3 text-xs flex-wrap">
+            <span className="font-semibold">{who(r.referrerId)}</span>
+            <code className="text-muted-foreground">{r.code}</code>
+            <span className="flex-1 min-w-[120px] text-muted-foreground">
+              {r.convertedAt ? `converted · reward given` : "signed up, not paying yet"}
+            </span>
+            <span className="text-muted-foreground">{new Date(r.createdAt).toLocaleDateString()}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

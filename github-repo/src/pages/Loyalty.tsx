@@ -4,6 +4,7 @@ import { useAuth } from "../hooks/useAuth";
 import { getLoyaltyRules, getMyLoyalty, loyaltyKindLabel } from "../lib/loyalty";
 import { Trophy, Star, Users, Gift, History, Sparkles, TrendingUp, Lock } from "lucide-react";
 import { format, parseISO } from "date-fns";
+import { ReferralCard } from "../components/ReferralCard";
 
 export default function Loyalty() {
   const { user } = useAuth();
@@ -40,6 +41,8 @@ export default function Loyalty() {
         <Trophy className="w-6 h-6 text-yellow-400" />
         <h1 className="text-2xl font-bold tracking-wide uppercase">Loyalty Dashboard</h1>
       </div>
+
+      <ReferralCard />
 
       {/* Hero */}
       <div className="relative overflow-hidden rounded-3xl border border-yellow-400/30 bg-gradient-to-br from-yellow-950/40 via-card to-card p-6">

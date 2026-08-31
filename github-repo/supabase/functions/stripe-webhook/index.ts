@@ -80,6 +80,131 @@ async function grantPaidPlan(meta, stripeCustomerId) {
   if (couponCode) await admin.rpc("redeem_coupon", {
     p_code: couponCode
   });
+  await applyPromos(uid, tier, addonIds);
+}
+
+/**
+ * The promotions that fire when somebody starts paying.
+ *
+ * Each one is a row in `promos` with its own switch, and every one of them
+ * checks that switch first — they are all seeded off, so nothing here changes
+ * anything until the owner turns it on. Failures are logged and swallowed: a
+ * promo that cannot be applied must never cost somebody the plan they just
+ * paid for.
+ */
+async function applyPromos(uid, tier, addonIds) {
+  try {
+    const { data: rows } = await admin.from("promos").select("key,active,config");
+    const promos = new Map((rows ?? []).map((r)=>[
+        r.key,
+        r
+      ]));
+
+    // ── the referral ladder ──────────────────────────────────────────────────
+    // A referral counts when the person referred actually pays, which is now.
+    if (promos.get("referral_ladder")?.active) {
+      const { error } = await admin.rpc("mark_referral_converted", {
+        p_user: uid
+      });
+      if (error) console.error("mark_referral_converted failed", error);
+    }
+
+    // ── the next 25 paid signups ─────────────────────────────────────────────
+    // Bounded by its own counter, and the counter is incremented in the same
+    // breath as the grant so a burst of signups cannot overshoot it by much.
+    const paid25 = promos.get("paid_25");
+    if (paid25?.active && tier !== "free") {
+      const claimed = Number(paid25.config?.claimed ?? 0);
+      const total = Number(paid25.config?.total ?? 0);
+      if (claimed < total) {
+        const extra = Number(paid25.config?.extraAddons ?? 0);
+        const levelUp = Number(paid25.config?.alertLevelUp ?? 0);
+        // Extra add-ons: the cheapest modules they do not already have, so the
+        // gift is real rather than a duplicate of what they just bought.
+        if (extra > 0) {
+          const { data: prof } = await admin.from("profiles").select("enabled_modules").eq("id", uid).maybeSingle();
+          const have = new Set(prof?.enabled_modules ?? []);
+          const { data: mods } = await admin.from("module_addon_prices").select("module_id");
+          const spare = (mods ?? []).map((m)=>m.module_id).filter((m)=>!have.has(m)).slice(0, extra);
+          if (spare.length) {
+            await admin.from("profiles").update({
+              enabled_modules: [
+                ...have,
+                ...spare
+              ]
+            }).eq("id", uid);
+          }
+        }
+        // One rung above whatever their tier already includes. Advanced already
+        // includes the whole ladder, so there is nothing to give and we skip it
+        // rather than granting a level they hold.
+        const topIncluded = tier === "basic" ? 3 : tier === "vip" ? 4 : 5;
+        if (levelUp > 0 && topIncluded < 5) {
+          const level = Math.min(5, topIncluded + levelUp);
+          await admin.from("alert_entitlements").upsert({
+            user_id: uid,
+            level,
+            source: "granted",
+            note: "Next-25 paid signups promo"
+          }, {
+            onConflict: "user_id,level"
+          });
+        }
+        await admin.from("promos").update({
+          config: {
+            ...paid25.config,
+            claimed: claimed + 1
+          },
+          updated_at: new Date().toISOString()
+        }).eq("key", "paid_25");
+
+        await admin.from("notifications").insert({
+          user_id: uid,
+          kind: "promo",
+          severity: "info",
+          title: "You caught the launch offer",
+          body: "You are one of the first " + total + " paid members, so we have added some extra modules and bumped your alert level. Enjoy.",
+          link: "/subscription",
+          dedup_key: "paid25:" + uid
+        });
+      }
+    }
+
+    // ── two add-ons, half off next month ─────────────────────────────────────
+    // Issued as a single-use coupon against their account rather than applied
+    // to the live subscription: a coupon is something they can see, and it does
+    // not touch billing they have already agreed to.
+    const duo = promos.get("addon_duo");
+    if (duo?.active && addonIds.length >= Number(duo.config?.addonsRequired ?? 2)) {
+      const code = "DUO" + Math.floor(100000 + Math.random() * 900000);
+      const { error } = await admin.from("coupons").insert({
+        code,
+        kind: "first_month_percent_off",
+        value: Number(duo.config?.percentOff ?? 50),
+        active: true,
+        max_uses: 1,
+        applies_to_tiers: [
+          "basic",
+          "vip",
+          "advanced"
+        ]
+      });
+      if (!error) {
+        await admin.from("notifications").insert({
+          user_id: uid,
+          kind: "promo",
+          severity: "info",
+          title: "Half off next month",
+          body: "You added two paid modules, so here is " + Number(duo.config?.percentOff ?? 50) + "% off your next month. Use code " + code + " at checkout.",
+          link: "/subscription",
+          dedup_key: "duo:" + code
+        });
+      }
+    }
+  } catch (e) {
+    // Never let a promo failure undo a successful purchase.
+    console.error("applyPromos failed", e);
+  }
 }
 /**
  * A rung of the alert ladder, bought outright.

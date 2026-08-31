@@ -207,7 +207,9 @@ Deno.serve(async (req)=>{
     let isOneTime = false;
     let planLabel = `StormSync ${tier}`;
     if (period === "lifetime") {
-      const dealKey = tier === "basic" ? "basic_lifetime" : tier === "advanced" ? "advanced_lifetime" : null;
+      const dealKey = tier === "basic" ? "basic_lifetime"
+        : tier === "vip" ? "vip_lifetime"
+        : tier === "advanced" ? "advanced_lifetime" : null;
       const deal = dealKey ? lifetimeDeals[dealKey] : null;
       if (!deal?.active) return json({
         ok: false,

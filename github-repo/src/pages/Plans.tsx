@@ -158,6 +158,7 @@ export default function Plans() {
     if (!tierCfg || !selectedTier) return 0;
     if (selectedTier === "advanced") return 0; // everything, nothing to choose
     if (period === "lifetime" && selectedTier === "basic") return lifetimeDeals?.basic_lifetime.choosableCount ?? 10;
+    if (period === "lifetime" && selectedTier === "vip") return lifetimeDeals?.vip_lifetime.choosableCount ?? 20;
     return tierCfg.choosableCount[selectedTier];
   }, [tierCfg, selectedTier, period, lifetimeDeals]);
 
@@ -183,6 +184,7 @@ export default function Plans() {
   }
 
   const lifetimeAvailable = selectedTier === "basic" ? lifetimeDeals?.basic_lifetime.active
+    : selectedTier === "vip" ? lifetimeDeals?.vip_lifetime.active
     : selectedTier === "advanced" ? lifetimeDeals?.advanced_lifetime.active
     : false;
 
@@ -192,6 +194,7 @@ export default function Plans() {
     if (selectedTier === "free") return 0;
     if (period === "lifetime") {
       if (selectedTier === "basic") return lifetimeDeals?.basic_lifetime.price ?? 0;
+      if (selectedTier === "vip") return lifetimeDeals?.vip_lifetime.price ?? 0;
       if (selectedTier === "advanced") return lifetimeDeals?.advanced_lifetime.price ?? 0;
       return 0;
     }

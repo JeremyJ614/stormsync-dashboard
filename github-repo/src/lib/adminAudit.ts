@@ -17,7 +17,7 @@ export type AuditAction =
   | "user.create" | "user.delete" | "user.tier" | "user.modules" | "user.badges"
   | "user.pin" | "user.referrals" | "user.viewas" | "user.submit_as"
   | "points.grant" | "points.deduct"
-  | "billing.prices" | "billing.coupon"
+  | "billing.prices" | "billing.coupon" | "billing.promo" | "billing.referral"
   | "nav.reorder" | "nav.groups"
   | "badge.create" | "badge.update" | "badge.delete"
   | "news.publish" | "news.delete"
@@ -148,6 +148,8 @@ export const ACTION_LABEL: Record<string, string> = {
   "points.deduct": "Deducted points",
   "billing.prices": "Changed pricing",
   "billing.coupon": "Changed a coupon",
+  "billing.promo": "Changed a promotion",
+  "billing.referral": "Fulfilled a referral reward",
   "nav.reorder": "Reordered navigation",
   "nav.groups": "Changed admin groups",
   "badge.create": "Created badge",

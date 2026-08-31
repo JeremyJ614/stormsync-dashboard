@@ -6,103 +6,21 @@ import { cn } from "@/lib/utils";
 import { subscribeNav, getNavSnapshot, getNavServerSnapshot } from "../lib/navConfig";
 import type { LucideIcon } from "lucide-react";
 import {
-  LayoutDashboard, CalendarDays, MessageSquare, Zap, Layers,
-  Brain, Swords, BookOpen, FlaskConical,
-  Moon, Wind, BarChart3, Activity, AlertCircle, FileText,
-  Map, Star, Tornado, Sparkles, MapPin, Search, Navigation,
-  Bug, Globe, Home, HelpCircle, Mail, Shield, Trophy,
-  Gamepad2, LogIn, User as UserIcon, Settings, BookMarked,
-  CloudRain, Satellite, Target, RotateCcw, ChevronRight,
-  History, X, Sun, Waves, CreditCard, Flame, Snowflake, Video,
+  MapPin, Search, Navigation, Trophy, LogIn, User as UserIcon, Settings,
 } from "lucide-react";
 import { geocodeLocation } from "../utils/weatherApi";
 import type { Location } from "../hooks/useLocation";
-import { useAuth, hasModuleAccess, navVisible, ALL_MODULES } from "../hooks/useAuth";
+import { useAuth } from "../hooks/useAuth";
+import { ALL_NAV_ITEMS, useNavSections } from "../lib/navModel";
+import { MenuHost } from "./nav/MenuHost";
+import { useMenuNav } from "./nav/menus/useMenuNav";
+import { subscribeMenuStyle, getMenuStyleSnapshot, getMenuStyleServerSnapshot } from "../lib/menuStyle";
 import { SavedLocations } from "./SavedLocations";
 import { NotificationBell } from "./NotificationBell";
 import { MorphToggle } from "./nav/MorphToggle";
 import { NavItem } from "./nav/NavItem";
 import { ROYAL, SPRING, prefersReducedMotion } from "../lib/royal";
 const logoUrl = "/img/logo.webp";
-
-// ─── Navigation structure ────────────────────────────────────────────────────
-const NAV_SECTIONS = [
-  {
-    label: "Main",
-    items: [
-      { label: "Home",                path: "/",           icon: Home },
-      { label: "Dashboard",           path: "/dashboard",  icon: LayoutDashboard },
-      { label: "Daily Brief & Forecast", path: "/forecast",   icon: CalendarDays },
-      { label: "Forecast Discussion", path: "/discussion", icon: MessageSquare },
-      { label: "AQI Forecast",        path: "/aqi",        icon: Wind },
-      { label: "Daylight Tracker",      path: "/summary",    icon: Sun },
-    ],
-  },
-  {
-    label: "Severe Weather",
-    items: [
-      { label: "SSWXCon Score",           path: "/sswxcon",     icon: Activity },
-      { label: "Warnings & Reports",      path: "/warnings",    icon: AlertCircle },
-      { label: "SPC Outlook",             path: "/spc",         icon: Globe },
-      { label: "Mesoscale Discussions",   path: "/meso",        icon: Layers },
-      { label: "Atmosphere Ingredients",  path: "/ingredients", icon: FlaskConical },
-      { label: "Severe Threat Index",     path: "/swti",        icon: Shield },
-      { label: "Storm Timing",            path: "/timing",      icon: BarChart3 },
-      { label: "Thunderstorm Probability",path: "/thunder",     icon: CloudRain },
-      { label: "Hurricane Tracker",       path: "/hurricane",   icon: Tornado },
-    ],
-  },
-  {
-    label: "Environmental & Model Data",
-    items: [
-      { label: "Model Runs",       path: "/comparator",      icon: Satellite },
-      { label: "Lightning Monitor",path: "/lightning-globe", icon: Zap },
-      { label: "Radar & MRMS",     path: "/rotation",        icon: Target },
-      { label: "Hazards & Drought",path: "/hazards",         icon: Map },
-      { label: "River & Flood Gauges", path: "/rivers",     icon: Waves },
-      { label: "Fire Weather",     path: "/fire",            icon: Flame },
-      { label: "Winter Center",      path: "/winter",   icon: Snowflake },
-      { label: "Traffic Cameras",    path: "/cameras",  icon: Video },
-      { label: "Tornado Climatology",path:"/climatology",    icon: RotateCcw },
-    ],
-  },
-  {
-    label: "Astro Panel",
-    items: [
-      { label: "Moon & Astronomy",   path: "/moon",      icon: Moon },
-      { label: "Aurora & Star Gazing", path: "/aurora", icon: Sparkles },
-    ],
-  },
-  {
-    label: "Advanced Tools",
-    items: [
-      { label: "Storm Chasing",        path: "/chasing",  icon: Tornado },
-      { label: "Mosquito Index",       path: "/mosquito", icon: Bug },
-      { label: "Weather Patterns",     path: "/wpi",      icon: Brain },
-      { label: "AI Knowledge Battle",  path: "/duel",     icon: Swords },
-      { label: "Severe Weather History",path:"/history",  icon: BookMarked },
-    ],
-  },
-  {
-    label: "Everything Else",
-    items: [
-      { label: "Forecast Game",     path: "/game",     icon: Gamepad2 },
-      { label: "Daily Trivia",      path: "/trivia",   icon: Brain },
-      { label: "Loyalty Dashboard", path: "/loyalty",  icon: Trophy },
-      { label: "Weather Glossary",  path: "/glossary", icon: BookOpen },
-      { label: "Subscription",      path: "/subscription", icon: CreditCard },
-      { label: "FAQ",               path: "/faq",      icon: HelpCircle },
-      { label: "Contact Us",        path: "/contact",  icon: Mail },
-    ],
-  },
-];
-
-const ALL_NAV_ITEMS = NAV_SECTIONS.flatMap(s => s.items);
-
-// Icon lookup so DB-driven modules keep their icon; unknown ids fall back.
-const ICON_BY_PATH: Record<string, LucideIcon> = Object.fromEntries(
-  ALL_NAV_ITEMS.map(i => [i.path, i.icon as LucideIcon]),
-);
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 interface LayoutProps {
@@ -225,37 +143,16 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   // Close sidebar on route change
   useEffect(() => { setSidebarExpanded(false); }, [pathname]);
 
-  // Sidebar structure comes from the admin-managed DB config (P-2.1); until it
-  // loads (or if it fails) we render the hardcoded NAV_SECTIONS so the sidebar
-  // is never blank.
-  const navCfg = useSyncExternalStore(subscribeNav, getNavSnapshot, getNavServerSnapshot);
+  const visibleSections = useNavSections(user);
 
-  const visibleSections = useMemo(() => {
-    if (!navCfg.loaded || navCfg.sections.length === 0) {
-      return NAV_SECTIONS.map(sec => ({
-        ...sec,
-        items: sec.items
-          .filter(item => navVisible(user, item.path))
-          .map(item => ({ ...item, locked: !hasModuleAccess(user, item.path) })),
-      })).filter(sec => sec.items.length > 0);
-    }
-    const known = new Set(ALL_MODULES.map(m => m.id));
-    return [...navCfg.sections]
-      .sort((a, b) => a.sortOrder - b.sortOrder)
-      .map(sec => ({
-        label: sec.name,
-        items: navCfg.modules
-          .filter(m => m.sectionId === sec.id && known.has(m.moduleId) && navVisible(user, m.moduleId))
-          .sort((a, b) => a.sortOrder - b.sortOrder)
-          .map(m => ({
-            label: m.label ?? ALL_MODULES.find(x => x.id === m.moduleId)?.label ?? m.moduleId,
-            path: m.moduleId,
-            icon: ICON_BY_PATH[m.moduleId] ?? Layers,
-            locked: !hasModuleAccess(user, m.moduleId),
-          })),
-      }))
-      .filter(sec => sec.items.length > 0);
-  }, [user, navCfg]);
+  // Which menu the member chose. The classic rail is the default; the other five
+  // replace it entirely rather than sitting alongside it, so there is only ever
+  // one way to open navigation on screen at a time.
+  const menuStyle = useSyncExternalStore(subscribeMenuStyle, getMenuStyleSnapshot, getMenuStyleServerSnapshot);
+  const menuNav = useMenuNav(location);
+  const railed = menuStyle === "rail";
+  // Canvas Push tilts the app itself away, which only Layout can do.
+  const pushed = menuStyle === "push" && menuNav.open;
 
   const currentNav = ALL_NAV_ITEMS.find((n) => n.path === pathname);
 
@@ -265,16 +162,18 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   return (
     <div className="min-h-screen bg-background flex royal-ground">
 
+      {!railed && <MenuHost style={menuStyle} nav={menuNav} />}
+
       {/* ── Backdrop (expanded overlay) ── */}
-      {sidebarExpanded && (
+      {railed && sidebarExpanded && (
         <div
           className="fixed inset-0 z-30 bg-black/50 backdrop-blur-[2px]"
           onClick={() => setSidebarExpanded(false)}
         />
       )}
 
-      {/* ── Sidebar ── */}
-      <motion.aside
+      {/* ── Sidebar (classic rail only) ── */}
+      {railed && <motion.aside
         // Width is sprung rather than eased: the panel settles instead of
         // stopping dead, which is what makes the fold read as physical.
         animate={{ width: sidebarExpanded ? 242 : 62 }}
@@ -456,10 +355,31 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
             </div>
           </div>
         </div>
-      </motion.aside>
+      </motion.aside>}
 
-      {/* ── Main content — always offset by collapsed sidebar width ── */}
-      <div className="flex-1 min-w-0 ml-[62px] flex flex-col min-h-screen">
+      {/* ── Main content — offset by the rail only when the rail is there ── */}
+      <div
+        className={cn("flex-1 min-w-0 flex flex-col min-h-screen", railed && "ml-[62px]")}
+        style={pushed ? {
+          // The menu overlay paints at z-60, so the pushed app has to sit above
+          // it or the backdrop simply covers the thing that is supposed to be
+          // tilting away — which is the entire effect.
+          position: "relative",
+          zIndex: 65,
+          // Far enough right that the app clears the 340px menu column instead of
+          // sitting on top of its labels — the menu has to be readable, not just
+          // present.
+          transform: "perspective(900px) translateZ(-200px) translateX(62%) rotateY(-16deg)",
+          borderRadius: 28,
+          overflow: "hidden",
+          boxShadow: "-24px 24px 48px rgba(0,0,0,.8)",
+          opacity: 0.7,
+          pointerEvents: "none",
+          transition: menuNav.calm ? "none" : "transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s, border-radius .4s",
+        } : {
+          transition: menuNav.calm ? "none" : "transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s, border-radius .4s",
+        }}
+      >
 
         {/* Header */}
         <header className="sticky top-0 z-20 backdrop-blur-xl border-b relative"

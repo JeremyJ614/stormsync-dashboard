@@ -122,8 +122,22 @@ export default function WarningCenter({ location }: Props) {
   const [selectedState, setSelectedState] = useState("");
   const [selectedType, setSelectedType] = useState("");
 
+  // The national feed can carry the same alert id more than once — an update and
+  // its original, or the same product relayed by two offices. Left alone it
+  // renders the same warning twice and React complains about duplicate keys, so
+  // it is deduped once here rather than patched at each render site.
+  const unique = useMemo(() => {
+    const seen = new Set<string>();
+    return (alerts as NWSAlertFeature[]).filter((a) => {
+      const id = a.properties.id;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [alerts]);
+
   const activeAlerts = useMemo(() => {
-    let filtered = (alerts as NWSAlertFeature[]).filter(a => a.properties.messageType !== "Cancel");
+    let filtered = unique.filter(a => a.properties.messageType !== "Cancel");
     if (selectedState) filtered = filtered.filter(a => a.properties.areaDesc?.toUpperCase().includes(selectedState));
     if (selectedType) filtered = filtered.filter(a => a.properties.event?.toLowerCase().includes(selectedType.toLowerCase()));
     filtered.sort((a, b) => {
@@ -134,15 +148,15 @@ export default function WarningCenter({ location }: Props) {
       return (sevOrder[a.properties.severity] ?? 4) - (sevOrder[b.properties.severity] ?? 4);
     });
     return filtered;
-  }, [alerts, selectedState, selectedType]);
+  }, [unique, selectedState, selectedType]);
 
   // TOP 5 = most serious (lowest priority number) overall, ignoring state filter
   const top5 = useMemo(() => {
-    const all = (alerts as NWSAlertFeature[])
+    const all = unique
       .filter(a => a.properties.messageType !== "Cancel")
       .sort((a, b) => (EVENT_PRIORITY[a.properties.event] ?? 99) - (EVENT_PRIORITY[b.properties.event] ?? 99));
     return all.slice(0, 5);
-  }, [alerts]);
+  }, [unique]);
 
   const tornadoWarnings = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("tornado warning"));
   const severeThunderstorm = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("severe thunderstorm warning"));

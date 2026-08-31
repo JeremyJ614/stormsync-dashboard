@@ -19,10 +19,11 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import {
   Flower2, Wind, Droplets, CloudRain, Thermometer, Clock, Loader2,
-  AlertTriangle, Info, TrendingUp, Sunrise,
+  AlertTriangle, TrendingUp, Sunrise, Sprout,
 } from "lucide-react";
 import {
   fetchDispersal, fetchPollenForecast, todayHours, dailyPeaks, worstWindow,
+  clearestWindow, dispersalTerms, TERM_META, POLLEN_SEASONS,
   DISPERSAL_BAND, POLLEN_BAND, type DispersalHour,
 } from "../../lib/pollen";
 import { TTL } from "../../lib/queryClient";
@@ -50,6 +51,19 @@ export function PollenTab({ lat, lon, place }: { lat: number; lon: number; place
   const today = useMemo(() => todayHours(hours), [hours]);
   const peaks = useMemo(() => dailyPeaks(hours).slice(0, 5), [hours]);
   const worst = useMemo(() => worstWindow(hours), [hours]);
+  const clear = useMemo(() => clearestWindow(hours), [hours]);
+  // The four factors behind the current score, and whichever of them is holding
+  // it down — with a multiplicative model that is a single, answerable question.
+  const terms = useMemo(() => dispersalTerms({
+    temp: now?.temperature ?? 0, humidity: now?.humidity ?? 60,
+    wind: now?.wind ?? 0, gust: now?.gust ?? 0,
+    recentPrecip: now?.precip ?? 0, hour: now ? new Date(now.time).getHours() : 12,
+  }), [now]);
+  const limiter = useMemo(
+    () => (Object.keys(terms) as (keyof typeof terms)[]).reduce((a, b) => (terms[b] < terms[a] ? b : a)),
+    [terms],
+  );
+  const month = new Date().getMonth();
 
   if (disp.isLoading) {
     return (
@@ -147,6 +161,57 @@ export function PollenTab({ lat, lon, place }: { lat: number; lon: number; place
         </div>
       )}
 
+      {/* ── what is deciding the number ──────────────────────────────────── */}
+      <Panel title="What's driving it" aside={<span className="text-[10px]" style={{ color: ROYAL.dim }}>lowest factor sets the ceiling</span>}>
+        <div className="space-y-2">
+          {(Object.keys(TERM_META) as (keyof typeof TERM_META)[]).map((k) => {
+            const v = terms[k];
+            const meta = TERM_META[k];
+            const limiting = k === limiter;
+            return (
+              <div key={k} className="flex items-center gap-3">
+                <span className="w-20 shrink-0 text-[11px] font-medium"
+                      style={{ color: limiting ? ROYAL.gold : ROYAL.dim }}>{meta.label}</span>
+                <span className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.06)" }}>
+                  <motion.span
+                    className="block h-full rounded-full"
+                    style={{ background: limiting ? ROYAL.gold : ROYAL.iris, opacity: limiting ? 1 : 0.55 }}
+                    initial={still ? false : { width: 0 }}
+                    animate={{ width: `${Math.round(v * 100)}%` }}
+                    transition={still ? { duration: 0 } : { duration: 0.6, ease: EASE }}
+                  />
+                </span>
+                <span className="w-[126px] shrink-0 text-[10px] text-right"
+                      style={{ color: limiting ? ROYAL.gold : ROYAL.dim }}>
+                  {v >= 0.6 ? meta.high : meta.low}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[10.5px] mt-3 leading-relaxed" style={{ color: ROYAL.dim }}>
+          The four multiply rather than add, so the smallest one is the ceiling: today that is{" "}
+          <strong style={{ color: ROYAL.gold }}>{TERM_META[limiter].label.toLowerCase()}</strong>. Rain does not
+          take points off a windy day — it shuts the whole thing down.
+        </p>
+      </Panel>
+
+      {/* ── the calm counterpart to the worst window ─────────────────────── */}
+      {clear && (
+        <div className="rounded-xl px-4 py-3 flex items-start gap-3"
+             style={{ background: "rgba(95,217,168,0.10)", border: "1px solid rgba(95,217,168,0.34)" }}>
+          <Wind className="w-4 h-4 mt-0.5 shrink-0" style={{ color: "#5fd9a8" }} />
+          <p className="text-xs leading-relaxed">
+            <strong style={{ color: "#5fd9a8" }}>Clearest window:</strong>
+            <span style={{ color: ROYAL.dim }}>
+              {" "}{new Date(clear.start).toLocaleString(undefined, { weekday: "long", hour: "numeric" })}
+              {" "}— dispersal falls to {clear.score} of 100. If something has to be done outside today,
+              that is the hour to do it in.
+            </span>
+          </p>
+        </div>
+      )}
+
       {/* ── today, hour by hour ──────────────────────────────────────────── */}
       <Panel title="Through today" aside={<span className="text-[10px]" style={{ color: ROYAL.dim }}>peak release is mid-morning</span>}>
         <HourCurve hours={today} still={still} />
@@ -175,47 +240,45 @@ export function PollenTab({ lat, lon, place }: { lat: number; lon: number; place
         </div>
       </Panel>
 
-      {/* ── counts, when there is a source ───────────────────────────────── */}
-      <Panel title="Pollen counts by species" defer>
-        {pollen.isLoading ? (
-          <p className="text-xs flex items-center gap-2" style={{ color: ROYAL.dim }}>
-            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking for a counts source…
-          </p>
-        ) : pollen.data?.available ? (
+      {/* Counts render only if a source exists. There is no free US pollen-count
+          feed, so on most deployments this is simply absent rather than
+          explained — an empty panel apologising for itself is worse than no
+          panel. */}
+      {pollen.data?.available && (
+        <Panel title="Pollen counts by species" defer>
           <Counts days={pollen.data.days} still={still} />
-        ) : (
-          <div className="flex items-start gap-3">
-            <Info className="w-4 h-4 mt-0.5 shrink-0" style={{ color: ROYAL.iris }} />
-            <div className="text-xs leading-relaxed space-y-2" style={{ color: ROYAL.dim }}>
-              <p>
-                <strong style={{ color: ROYAL.text }}>No species counts are shown, on purpose.</strong>{" "}
-                There is no free, official, unauthenticated pollen-count feed covering the United States.
-                Open-Meteo's pollen fields exist but cover Europe only — every US hour comes back null.
-                The one endpoint that does cover US ZIP codes belongs to a commercial product and refuses
-                any request that does not forge a referring page, so this app does not use it.
-              </p>
-              <p>
-                Google's Pollen API is official, documented and US-wide, and gives tree, grass and weed
-                indices plus a per-species breakdown five days out. It needs an API key. Add{" "}
-                <code className="px-1 rounded" style={{ background: "rgba(255,255,255,0.06)", color: ROYAL.gold }}>
-                  GOOGLE_POLLEN_KEY
-                </code>{" "}
-                to the weather function and this panel fills in on its own.
-              </p>
-              <p style={{ color: ROYAL.dim }}>
-                Everything above this panel is measured, not estimated — and it is the half that actually
-                moves hour to hour.
-              </p>
-            </div>
-          </div>
-        )}
+        </Panel>
+      )}
+
+      {/* ── what is typically in season ──────────────────────────────────── */}
+      <Panel title="Typically in season now" aside={<span className="text-[10px]" style={{ color: ROYAL.dim }}>climatology, not a measurement</span>}>
+        <div className="grid sm:grid-cols-2 gap-2">
+          {POLLEN_SEASONS.map((s2) => {
+            const on = s2.months.includes(month);
+            return (
+              <div key={s2.key} className="rounded-xl px-3 py-2.5 flex items-start gap-2.5"
+                   style={{
+                     background: on ? `${ROYAL.gold}12` : "rgba(255,255,255,0.02)",
+                     border: `1px solid ${on ? ROYAL.goldSoft : ROYAL.hairline}`,
+                   }}>
+                <Sprout className="w-4 h-4 mt-0.5 shrink-0" style={{ color: on ? ROYAL.gold : ROYAL.dim }} />
+                <div className="min-w-0">
+                  <div className="text-xs font-semibold" style={{ color: on ? ROYAL.text : ROYAL.dim }}>
+                    {s2.label}{on ? "" : " · out of season"}
+                  </div>
+                  <div className="text-[10.5px] leading-snug mt-0.5" style={{ color: ROYAL.dim }}>{s2.note}</div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </Panel>
 
       <p className="text-[10.5px] text-center leading-relaxed" style={{ color: ROYAL.dim }}>
         The dispersal reading is computed from Open-Meteo forecast fields — wind, humidity, rainfall and
-        temperature — and describes how readily pollen is being released and carried. It is not a pollen count
-        and does not know which plants are in season where you are. If you have severe allergies, treat it as
-        timing guidance and follow your own medical advice.
+        temperature — and describes how readily pollen is being released and carried. It is not a pollen count,
+        and the season panel above is broad US climatology rather than a reading of what is flowering on your
+        street. If you have severe allergies, treat all of it as timing guidance and follow your own medical advice.
       </p>
     </div>
   );

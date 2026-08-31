@@ -1,4 +1,8 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
+import { ConGauge } from "../components/sswxcon/ConGauge";
+import { ThreatRadar } from "../components/sswxcon/ThreatRadar";
+import { ROYAL } from "../lib/royal";
+import { useCalm } from "../lib/calm";
 import { useQuery } from "@tanstack/react-query";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
 import { fetchAllUSAlerts } from "../utils/weatherApi";
@@ -25,226 +29,6 @@ const SCALE_RANGES = [
   { range: "150–250", label: "Extreme", color: "#991b1b" },
   { range: "250+", label: "Historic", color: "#ff0000" },
 ];
-
-function ArcGauge({ score, color }: { score: number; color: string }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    const cssW = 320, cssH = 260;
-    if (canvas.width !== cssW * dpr) {
-      canvas.width = cssW * dpr;
-      canvas.height = cssH * dpr;
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-    const W = cssW, H = cssH;
-    const cx = W / 2, cy = H * 0.60;
-    const R = Math.min(W, H) * 0.40;
-    const startAngle = Math.PI * 0.75;
-    const endAngle = Math.PI * 2.25;
-    const totalArc = endAngle - startAngle;
-    const pct = Math.min(1, score / GAUGE_MAX);
-    const fillAngle = startAngle + totalArc * pct;
-
-    ctx.clearRect(0, 0, W, H);
-
-    // Outer ambient glow ring
-    const ambient = ctx.createRadialGradient(cx, cy, R * 0.4, cx, cy, R * 1.6);
-    ambient.addColorStop(0, color + "22");
-    ambient.addColorStop(1, "rgba(0,0,0,0)");
-    ctx.fillStyle = ambient;
-    ctx.fillRect(0, 0, W, H);
-
-    // Outer thin ring
-    ctx.beginPath();
-    ctx.arc(cx, cy, R + 16, startAngle, endAngle);
-    ctx.strokeStyle = "rgba(148,163,184,0.18)";
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // Tick marks around arc (major every 10%, minor every 5%)
-    for (let i = 0; i <= 20; i++) {
-      const a = startAngle + (totalArc * i) / 20;
-      const isMajor = i % 2 === 0;
-      const inner = R - (isMajor ? 16 : 10);
-      const outer = R - 22;
-      const x1 = cx + outer * Math.cos(a);
-      const y1 = cy + outer * Math.sin(a);
-      const x2 = cx + inner * Math.cos(a);
-      const y2 = cy + inner * Math.sin(a);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.strokeStyle = isMajor ? "rgba(203,213,225,0.45)" : "rgba(148,163,184,0.25)";
-      ctx.lineWidth = isMajor ? 1.5 : 1;
-      ctx.stroke();
-    }
-
-    const segColors = [
-      { from: 0, to: 30 / GAUGE_MAX, color: "#4ade80" },
-      { from: 30 / GAUGE_MAX, to: 50 / GAUGE_MAX, color: "#fbbf24" },
-      { from: 50 / GAUGE_MAX, to: 70 / GAUGE_MAX, color: "#f97316" },
-      { from: 70 / GAUGE_MAX, to: 90 / GAUGE_MAX, color: "#ef4444" },
-      { from: 90 / GAUGE_MAX, to: 120 / GAUGE_MAX, color: "#cc2222" },
-      { from: 120 / GAUGE_MAX, to: 150 / GAUGE_MAX, color: "#b91c1c" },
-      { from: 150 / GAUGE_MAX, to: 1, color: "#991b1b" },
-    ];
-
-    // Dark base track
-    ctx.beginPath();
-    ctx.arc(cx, cy, R, startAngle, endAngle);
-    ctx.strokeStyle = "rgba(15,23,42,0.85)";
-    ctx.lineWidth = 22;
-    ctx.lineCap = "round";
-    ctx.stroke();
-
-    // Faint segmented background
-    segColors.forEach(seg => {
-      const sA = startAngle + totalArc * seg.from;
-      const eA = startAngle + totalArc * seg.to;
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, sA, eA);
-      ctx.strokeStyle = seg.color + "33";
-      ctx.lineWidth = 22;
-      ctx.lineCap = "butt";
-      ctx.stroke();
-    });
-
-    // Active fill — triple-layer dramatic glow
-    if (pct > 0) {
-      // Wide outer glow
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, startAngle, fillAngle);
-      ctx.strokeStyle = color + "55";
-      ctx.lineWidth = 34;
-      ctx.lineCap = "round";
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 28;
-      ctx.stroke();
-      ctx.restore();
-
-      // Mid glow
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, startAngle, fillAngle);
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 22;
-      ctx.lineCap = "round";
-      ctx.shadowColor = color;
-      ctx.shadowBlur = 18;
-      ctx.stroke();
-      ctx.restore();
-
-      // Inner bright core
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(cx, cy, R, startAngle, fillAngle);
-      ctx.strokeStyle = "rgba(255,255,255,0.85)";
-      ctx.lineWidth = 4;
-      ctx.lineCap = "round";
-      ctx.stroke();
-      ctx.restore();
-    }
-
-    // Tapered needle indicator
-    const needleAngle = fillAngle;
-    const nxOuter = cx + (R + 14) * Math.cos(needleAngle);
-    const nyOuter = cy + (R + 14) * Math.sin(needleAngle);
-    const nxInner = cx + (R - 14) * Math.cos(needleAngle);
-    const nyInner = cy + (R - 14) * Math.sin(needleAngle);
-    ctx.save();
-    ctx.shadowColor = "#fde047";
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-    ctx.moveTo(nxOuter, nyOuter);
-    ctx.lineTo(nxInner, nyInner);
-    ctx.strokeStyle = "#fde047";
-    ctx.lineWidth = 3;
-    ctx.lineCap = "round";
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(nxOuter, nyOuter, 4.5, 0, Math.PI * 2);
-    ctx.fillStyle = "#fef9c3";
-    ctx.fill();
-    ctx.restore();
-
-    // Inner dark dial face with gradient
-    const dial = ctx.createRadialGradient(cx, cy - R * 0.2, 4, cx, cy, R * 0.78);
-    dial.addColorStop(0, "rgba(30,41,59,0.95)");
-    dial.addColorStop(1, "rgba(2,6,23,0.95)");
-    ctx.beginPath();
-    ctx.arc(cx, cy, R - 22, 0, Math.PI * 2);
-    ctx.fillStyle = dial;
-    ctx.fill();
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = color + "44";
-    ctx.stroke();
-
-    // Score number — multi-pass glow for cinematic feel
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.font = `bold 54px ui-monospace, monospace`;
-    // outer halo
-    ctx.shadowColor = color;
-    ctx.shadowBlur = 30;
-    ctx.fillStyle = color;
-    ctx.fillText(score.toFixed(1), cx, cy - 6);
-    // sharper core
-    ctx.shadowBlur = 12;
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(score.toFixed(1), cx, cy - 6);
-    ctx.restore();
-
-    // Label inside dial
-    ctx.save();
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = "rgba(148,163,184,0.85)";
-    ctx.font = `600 10px ui-sans-serif, system-ui`;
-    ctx.fillText("SSWX SCORE", cx, cy + 24);
-    ctx.fillStyle = color;
-    ctx.font = `700 9px ui-sans-serif, system-ui`;
-    ctx.fillText(`${Math.round(pct * 100)}% OF MAX`, cx, cy + 38);
-    ctx.restore();
-
-    // End-of-scale labels
-    ctx.save();
-    ctx.fillStyle = "rgba(148,163,184,0.7)";
-    ctx.font = `600 10px ui-sans-serif, system-ui`;
-    ctx.textBaseline = "middle";
-    const lx1 = cx + (R + 28) * Math.cos(startAngle);
-    const ly1 = cy + (R + 28) * Math.sin(startAngle);
-    const lx2 = cx + (R + 28) * Math.cos(endAngle);
-    const ly2 = cy + (R + 28) * Math.sin(endAngle);
-    ctx.textAlign = "right";
-    ctx.fillText("0", lx1, ly1);
-    ctx.textAlign = "left";
-    ctx.fillText(String(GAUGE_MAX), lx2, ly2);
-    ctx.restore();
-  }, [score, color]);
-
-  return (
-    <div className="flex items-center justify-center relative">
-      <div
-        className="absolute inset-0 rounded-full blur-3xl opacity-30 pointer-events-none"
-        style={{ background: `radial-gradient(circle at center, ${color}, transparent 60%)` }}
-      />
-      <canvas
-        ref={canvasRef}
-        style={{ width: 320, height: 260 }}
-        className="relative w-full max-w-[320px]"
-      />
-    </div>
-  );
-}
 
 function ComponentBar({ score, max }: { score: number; max: number }) {
   const pct = Math.min(100, (score / Math.max(max, 1)) * 100);
@@ -303,6 +87,10 @@ export default function SSWXCon({ location }: Props) {
   // list renders outside the loading branch above, so this covers both the
   // in-flight case and the failed one.
   const localMissing = !hourly;
+  // The dial and the radar are ornament on top of a number, so they hold still
+  // during a warning for this member's own location — the app-wide rule — as
+  // well as under reduced motion.
+  const { calm: still } = useCalm(location.lat, location.lon);
   const componentState = (label: string) =>
     label === "LOCAL INSTABILITY"
       ? { missing: localMissing, why: wxLoading ? "Loading…" : "Unavailable — could not reach Open-Meteo" }
@@ -375,15 +163,36 @@ export default function SSWXCon({ location }: Props) {
       </div>
 
       <div className="bg-card border rounded-xl p-4" style={{ borderColor: levelColor + "50" }}>
-        {isLoading ? (
+        {/* Gated on the national feed alone, not on the local profile too. The
+            warning counts are ~97% of this score's range and usually arrive
+            first; waiting on the 12-point local term to draw the headline
+            instrument left the whole card saying "Loading" over a score that
+            was already known. The local term reads "—" until it lands. */}
+        {alertsLoading ? (
           <div className="h-48 flex items-center justify-center text-muted-foreground">Loading...</div>
         ) : (
           <>
-            <ArcGauge score={total} color={levelColor} />
-            <div className="text-center mt-2 mb-4">
-              <div className="inline-block px-6 py-1.5 rounded font-bold text-lg tracking-widest uppercase"
-                style={{ color: levelColor, backgroundColor: levelBg, border: `1px solid ${levelColor}40` }}>
-                {levelText}
+            {/* The dial and the shape of the situation, side by side: the number
+                says how bad, the polygon says what kind. A tornado outbreak and
+                a landfalling hurricane can score the same and look nothing
+                alike. */}
+            <div className="flex flex-col lg:flex-row items-center justify-center gap-2 lg:gap-8 mb-4">
+              <ConGauge
+                score={total} max={GAUGE_MAX} threshold={ACTIVATION_THRESHOLD}
+                color={levelColor} label={levelText} calm={still}
+              />
+              <div className="w-full lg:w-auto">
+                <div className="text-[10px] uppercase tracking-[0.3em] text-center mb-1"
+                     style={{ color: ROYAL.dim }}>Shape of it</div>
+                <ThreatRadar
+                  axes={components.map((c) => ({
+                    label: (c as { short?: string }).short ?? c.label,
+                    value: componentState(c.label).missing ? 0 : c.score,
+                    cap: (c as { cap?: number }).cap ?? 100,
+                  }))}
+                  color={levelColor}
+                  calm={still}
+                />
               </div>
             </div>
 

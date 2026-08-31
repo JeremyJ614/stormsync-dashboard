@@ -5,8 +5,12 @@
  * The one flourish this module earns — each risk polygon rises in weakest-first,
  * so the threat assembles rather than appearing, and the incident markers carry
  * a slow ember pulse scaled to fire size.
+ *
+ * The embers are tappable: each carries its InciWeb detail in its feature
+ * properties, because a click hands back properties rather than the row they
+ * were built from.
  */
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap } from "../../lib/basemap";
@@ -27,6 +31,13 @@ export function FireMap({ features, incidents, center, showIncidents, height = 4
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
   const beneath = useRef<string | undefined>(undefined);
+  // The data effects below need the sources to exist, and those are created on
+  // the map's `load`. Without this flag, data that arrives before load — which
+  // is the normal case once react-query has it cached — finds no source, bails
+  // out, and never runs again because its dependencies never change. That is
+  // why the incident embers were not drawing at all despite the legend counting
+  // fifty of them.
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     if (!box.current || map.current) return;
@@ -64,6 +75,44 @@ export function FireMap({ features, incidents, center, showIncidents, height = 4
         },
       });
 
+      // Tapping an ember opens what InciWeb actually says about that fire.
+      // Bound to the dot rather than the glow so the target matches what looks
+      // clickable, with the cursor changing to say so.
+      const popup = new maplibregl.Popup({ closeButton: true, maxWidth: "270px", offset: 12 });
+      m.on("click", "inc-dot", (e) => {
+        const f = e.features?.[0];
+        if (!f) return;
+        const p2 = f.properties as Record<string, unknown>;
+        const acres = typeof p2.acres === "number" ? p2.acres : null;
+        const when = typeof p2.published === "string" && p2.published
+          ? new Date(p2.published).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+          : null;
+        const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => (
+          { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string
+        ));
+        const bits = [
+          acres != null ? `${acres.toLocaleString()} acres` : null,
+          p2.state ? esc(p2.state) : null,
+          when ? `updated ${when}` : null,
+        ].filter(Boolean).join(" · ");
+        const link = typeof p2.link === "string" && p2.link
+          ? `<a href="${esc(p2.link)}" target="_blank" rel="noopener noreferrer"
+                style="color:#d9b775;font-size:11px;text-decoration:underline">Full report on InciWeb →</a>`
+          : "";
+        popup.setLngLat((f.geometry as GeoJSON.Point).coordinates as [number, number])
+          .setHTML(
+            `<div style="font-family:'DM Sans',sans-serif;color:#f1f4ff">
+               <div style="font-weight:700;font-size:13px;line-height:1.25;margin-bottom:2px">${esc(p2.title)}</div>
+               ${bits ? `<div style="font-size:11px;color:#a3a3cc;margin-bottom:6px">${bits}</div>` : ""}
+               ${p2.description ? `<div style="font-size:11px;color:#a3a3cc;line-height:1.45;margin-bottom:6px">${esc(p2.description)}…</div>` : ""}
+               ${link}
+             </div>`,
+          )
+          .addTo(m);
+      });
+      m.on("mouseenter", "inc-dot", () => { m.getCanvas().style.cursor = "pointer"; });
+      m.on("mouseleave", "inc-dot", () => { m.getCanvas().style.cursor = ""; });
+
       if (!prefersReducedMotion()) {
         let raf = 0;
         const tick = () => {
@@ -76,6 +125,7 @@ export function FireMap({ features, incidents, center, showIncidents, height = 4
         m.once("remove", () => cancelAnimationFrame(raf));
       }
     });
+    m.on("load", () => setReady(true));
     return () => { m.remove(); map.current = null; };
      
   }, []);
@@ -109,7 +159,7 @@ export function FireMap({ features, incidents, center, showIncidents, height = 4
     };
     raf = requestAnimationFrame(step);
     return () => cancelAnimationFrame(raf);
-  }, [features]);
+  }, [features, ready]);
 
   useEffect(() => {
     const m = map.current;
@@ -124,10 +174,20 @@ export function FireMap({ features, incidents, center, showIncidents, height = 4
       features: rows.map((i) => ({
         type: "Feature" as const,
         geometry: { type: "Point" as const, coordinates: [i.longitude!, i.latitude!] },
-        properties: { title: i.title, size: Math.min(1, (i.acres ?? 500) / maxAcres) },
+        properties: {
+          title: i.title,
+          size: Math.min(1, (i.acres ?? 500) / maxAcres),
+          // Everything the popup shows travels with the feature: MapLibre hands
+          // back only the properties on a click, not the row it came from.
+          acres: i.acres ?? null,
+          state: i.state ?? "",
+          link: i.link ?? "",
+          published: i.published ?? "",
+          description: (i.description ?? "").slice(0, 260),
+        },
       })),
     });
-  }, [incidents, showIncidents]);
+  }, [incidents, showIncidents, ready]);
 
   return <div ref={box} style={{ height }} className="w-full rounded-xl overflow-hidden" />;
 }

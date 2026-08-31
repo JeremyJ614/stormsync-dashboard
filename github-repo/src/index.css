@@ -501,3 +501,33 @@ h1 { letter-spacing: 0.02em; }
   filter: drop-shadow(0 0 4px rgba(176, 107, 224, 0.7));
 }
 @media (prefers-reduced-motion: reduce) { .sswx-drip { animation: none; opacity: 0; } }
+
+/* ── MapLibre popups ─────────────────────────────────────────────────────────
+   MapLibre ships a white popup with a white tip, which lands on the royal dark
+   basemap like a torch in the face. Restyled once here rather than per map, so
+   every popup in the app matches — the fire incidents are the first to use one.
+
+   Selectors are deliberately one level deeper than MapLibre's own. Its
+   stylesheet is imported inside the map components, so it lands after this file
+   in the bundle and wins any tie on specificity — which is exactly what left
+   the first version of this white. */
+.maplibregl-popup .maplibregl-popup-content {
+  background: rgba(12, 12, 24, 0.96);
+  border: 1px solid rgba(217, 183, 117, 0.28);
+  border-radius: 12px;
+  padding: 11px 13px;
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(10px);
+}
+.maplibregl-popup-tip { border-top-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup .maplibregl-popup-close-button {
+  color: #a3a3cc;
+  font-size: 17px;
+  padding: 2px 7px 4px;
+}
+.maplibregl-popup .maplibregl-popup-close-button:hover { background: transparent; color: #f1f4ff; }

@@ -210,6 +210,72 @@ export function dispersalScore(x: {
 
 const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+/**
+ * The same four factors the score multiplies, exposed 0–1 so the UI can show
+ * which one is actually deciding the number.
+ *
+ * Because the model is multiplicative, the lowest factor is the one holding the
+ * score down — there is a single honest answer to "why is it low today", and it
+ * is whichever of these is smallest.
+ */
+export interface DispersalTerms { release: number; dryness: number; carry: number; washout: number }
+
+export function dispersalTerms(x: {
+  temp: number; humidity: number; wind: number; gust: number; recentPrecip: number; hour: number;
+}): DispersalTerms {
+  const warmth = clamp01((x.temp - 42) / 38);
+  const diurnal =
+    x.hour >= 5 && x.hour <= 11 ? 1
+    : x.hour >= 12 && x.hour <= 17 ? 0.72
+    : x.hour >= 18 && x.hour <= 21 ? 0.4
+    : 0.18;
+  return {
+    release: warmth * diurnal,
+    dryness: 0.35 + 0.65 * clamp01((78 - x.humidity) / 42),
+    carry: 0.3 + 0.7 * (clamp01(x.wind / 18) * 0.7 + clamp01(x.gust / 32) * 0.3),
+    washout: x.recentPrecip >= 0.2 ? 0.06 : x.recentPrecip >= 0.05 ? 0.35 : x.recentPrecip > 0 ? 0.7 : 1,
+  };
+}
+
+export const TERM_META: Record<keyof DispersalTerms, { label: string; low: string; high: string }> = {
+  release: { label: "Release",  low: "too cool, or the wrong hour", high: "anthers open" },
+  dryness: { label: "Dry air",  low: "humidity is dropping grains", high: "grains staying up" },
+  carry:   { label: "Transport", low: "little wind to move it",     high: "wind carrying it" },
+  washout: { label: "Clear air", low: "rain washing it out",        high: "nothing clearing it" },
+};
+
+/**
+ * The calmest stretch in the next 24 hours — the counterpart to worstWindow.
+ *
+ * Returned only when it is meaningfully calmer than the day's peak; on a day
+ * that is flat there is no "good window" to name, and inventing one would send
+ * somebody outside on the basis of nothing.
+ */
+export function clearestWindow(hours: DispersalHour[]): { start: string; score: number } | null {
+  const soon = hours.slice(0, 24);
+  if (soon.length < 6) return null;
+  let low = soon[0], high = soon[0];
+  for (const h of soon) {
+    if (h.score < low.score) low = h;
+    if (h.score > high.score) high = h;
+  }
+  return high.score - low.score >= 18 ? { start: low.time, score: low.score } : null;
+}
+
+/**
+ * Which pollens are typically in season, by month.
+ *
+ * Climatology for the contiguous US, not a measurement — the UI says so. It is
+ * here because "moderate dispersal" means something different in April than in
+ * September, and without it the number has no subject.
+ */
+export const POLLEN_SEASONS: { key: string; label: string; months: number[]; note: string }[] = [
+  { key: "tree",  label: "Tree",  months: [2, 3, 4, 5],           note: "Oak, birch, maple, cedar. Heaviest on warm, dry spring mornings." },
+  { key: "grass", label: "Grass", months: [4, 5, 6, 7],           note: "Timothy, rye, Bermuda. Peaks late spring into summer." },
+  { key: "weed",  label: "Weed",  months: [7, 8, 9, 10],          note: "Ragweed above all, which sheds later in the day than tree or grass." },
+  { key: "mold",  label: "Mould", months: [5, 6, 7, 8, 9, 10],    note: "Spores off damp leaf litter; rises after rain rather than falling." },
+];
+
 /** The next window worth avoiding, if there is one in the next two days. */
 export function worstWindow(hours: DispersalHour[]): { start: string; score: number } | null {
   const soon = hours.slice(0, 48);

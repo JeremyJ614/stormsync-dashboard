@@ -22,9 +22,14 @@ import {
   getLifetimeDeals, type LifetimeDeals, startCheckout,
 } from "../lib/plans";
 import { getBillingStatus, openBillingPortal, tierKeyOf, addonPriceFor, moduleStateFor } from "../lib/subscription";
+import {
+  ALERT_LEVELS, fetchAlertPrices, fetchMyLevels, startAlertLevelCheckout, money as alertMoney,
+} from "../lib/alerts";
+import { AlertLadder } from "../components/alerts/AlertLadder";
+import { TTL } from "../lib/queryClient";
 import { ROYAL, HEADING, EASE, SPRING } from "../lib/royal";
 
-type TabId = "plan" | "modules" | "modify";
+type TabId = "plan" | "alerts" | "modules" | "modify";
 
 const TIER_LABEL: Record<TierKey, string> = { free: "Free", basic: "Basic", vip: "VIP", advanced: "Advanced" };
 const TIER_ICON: Record<TierKey, React.ComponentType<{ className?: string; style?: React.CSSProperties }>> =
@@ -185,6 +190,7 @@ export default function Subscription() {
   const sub = billingQ.data?.subscription ?? null;
   const TABS: { id: TabId; label: string }[] = [
     { id: "plan", label: "Your plan" },
+    { id: "alerts", label: "Alerts" },
     { id: "modules", label: "All modules" },
     { id: "modify", label: "Modify plan" },
   ];
@@ -350,6 +356,15 @@ export default function Subscription() {
                 })}
               </div>
             </Panel>
+          </motion.div>
+        )}
+
+        {/* ── ALERTS ────────────────────────────────────────────────────── */}
+        {tab === "alerts" && (
+          <motion.div key="alerts" initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.32, ease: EASE }}
+                      className="space-y-4">
+            <AlertLevelsPanel tier={tier} />
           </motion.div>
         )}
 
@@ -548,5 +563,110 @@ export default function Subscription() {
         Questions about a charge? <Link href="/contact" style={{ color: ROYAL.gold }}>Contact us</Link> — we answer every one.
       </p>
     </div>
+  );
+}
+
+/**
+ * Changing alert level, from the billing page.
+ *
+ * The ladder is already sold on the plans page and managed in the profile, but
+ * neither is where somebody goes when they are thinking about what they pay for.
+ * This is, so it belongs here too — and buying from here is the same checkout,
+ * priced server-side against the tier they are actually on.
+ */
+function AlertLevelsPanel({ tier }: { tier: TierKey }) {
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const pricesQ = useQuery({ queryKey: ["alert-prices"], queryFn: fetchAlertPrices, staleTime: TTL.config });
+  const levelsQ = useQuery({ queryKey: ["my-alert-levels"], queryFn: fetchMyLevels, staleTime: TTL.config });
+
+  const tierNum: Tier = tier === "free" ? 1 : tier === "basic" ? 2 : tier === "vip" ? 3 : 4;
+  const held = levelsQ.data ?? [];
+  const top = held.length ? Math.max(...held.map((h) => h.level)) : 0;
+  const bought = held.filter((h) => h.source === "purchased");
+  const monthly = bought.reduce((sum, h) => {
+    const row = (pricesQ.data ?? []).find((p) => p.level === h.level);
+    const raw = tierNum === 1 ? row?.free_price : tierNum === 2 ? row?.basic_price : row?.vip_price;
+    return sum + Number(raw ?? 0);
+  }, 0);
+
+  async function buy(level: number) {
+    setBusy(true); setErr(null);
+    const r = await startAlertLevelCheckout(level);
+    if (r.ok && r.url) { window.location.href = r.url; return; }
+    setErr(r.error ?? "Could not start checkout.");
+    setBusy(false);
+  }
+
+  if (pricesQ.isLoading || levelsQ.isLoading) {
+    return (
+      <div className="p-10 flex items-center justify-center gap-2" style={{ color: ROYAL.dim }}>
+        <Loader2 className="w-5 h-5 animate-spin" /> Loading your alert levels…
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Panel
+        title="Alert level"
+        hint="How far up the ladder you are, and what the next rung costs."
+        aside={
+          <span className="text-[11px] px-2 py-1 rounded-lg"
+                style={{ background: "rgba(217,183,117,0.12)", color: ROYAL.gold }}>
+            {top > 0 ? ALERT_LEVELS.find((l) => l.level === top)?.name ?? `Level ${top}` : "None yet"}
+          </span>
+        }
+      >
+        <p className="text-[12.5px] mb-3" style={{ color: ROYAL.dim }}>
+          Levels are cumulative and are billed monthly on their own, separate from your plan. Buying one takes
+          effect the moment the payment clears, and cancelling it in the billing portal removes that level and
+          nothing else. Anything your plan already includes stays yours for free.
+        </p>
+        {err && (
+          <p className="text-xs flex items-center gap-1.5 mb-3" style={{ color: "#f3a3a5" }}>
+            <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {err}
+          </p>
+        )}
+        <AlertLadder
+          tier={tierNum}
+          prices={pricesQ.data ?? []}
+          held={held}
+          onAdd={busy ? undefined : (level) => void buy(level)}
+        />
+      </Panel>
+
+      <Panel title="What alerts cost you" hint="On top of your plan.">
+        {bought.length === 0 ? (
+          <p className="text-[13px]" style={{ color: ROYAL.dim }}>
+            Nothing — every level you hold comes with your plan.
+          </p>
+        ) : (
+          <div className="space-y-2">
+            {bought.map((h) => {
+              const def = ALERT_LEVELS.find((l) => l.level === h.level);
+              const row = (pricesQ.data ?? []).find((p) => p.level === h.level);
+              const raw = tierNum === 1 ? row?.free_price : tierNum === 2 ? row?.basic_price : row?.vip_price;
+              return (
+                <div key={h.level} className="flex items-center gap-2 text-[13px]">
+                  <span className="font-semibold" style={{ color: def?.color ?? ROYAL.text }}>{def?.name}</span>
+                  <span className="ml-auto tabular-nums" style={{ color: ROYAL.text }}>
+                    {raw != null ? `${alertMoney(Number(raw))}/mo` : "—"}
+                  </span>
+                </div>
+              );
+            })}
+            <div className="flex items-center gap-2 pt-2 text-[13px] font-bold"
+                 style={{ borderTop: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }}>
+              Alerts total
+              <span className="ml-auto tabular-nums" style={{ color: ROYAL.gold }}>{alertMoney(monthly)}/mo</span>
+            </div>
+          </div>
+        )}
+        <p className="text-[11.5px] mt-3" style={{ color: ROYAL.dim }}>
+          Cancel or change a level any time from the billing portal on the Your&nbsp;plan tab.
+        </p>
+      </Panel>
+    </>
   );
 }

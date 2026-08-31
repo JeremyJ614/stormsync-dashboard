@@ -14,21 +14,22 @@ import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   BellRing, Users, Tag, Inbox, Loader2, Check, X, Search, Phone, Mail,
-  ShieldCheck, Save, AlertTriangle, MapPin,
+  ShieldCheck, Save, AlertTriangle, MapPin, Send, Smartphone, Radio,
 } from "lucide-react";
 import {
   ALERT_LEVELS, TIER_NAME, money,
   fetchAlertPrices, adminAlertRoster, adminSetAlertLevel, adminSaveAlertPrice,
-  adminAlertRequests, adminHandleAlertRequest,
-  type AlertPriceRow, type AlertRosterRow, type AdminRequest,
+  adminAlertRequests, adminHandleAlertRequest, sendManualAlert,
+  type AlertPriceRow, type AlertRosterRow, type AdminRequest, type ManualResult,
 } from "../../lib/alerts";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING, EASE, SPRING } from "../../lib/royal";
 
-type Pane = "roster" | "pricing" | "requests";
+type Pane = "roster" | "send" | "pricing" | "requests";
 
 const PANES: { id: Pane; label: string; icon: typeof Users }[] = [
   { id: "roster", label: "Who has what", icon: Users },
+  { id: "send", label: "Send an alert", icon: Send },
   { id: "pricing", label: "Prices", icon: Tag },
   { id: "requests", label: "Requests", icon: Inbox },
 ];
@@ -98,10 +99,228 @@ export function AdminAlertsTab() {
           initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
           transition={{ duration: 0.24, ease: EASE }}>
           {pane === "roster" && <RosterPane rows={roster} onChanged={reload} />}
+          {pane === "send" && <SendPane rows={roster} />}
           {pane === "pricing" && <PricingPane prices={prices} onChanged={reload} />}
           {pane === "requests" && <RequestsPane rows={requests} onChanged={reload} />}
         </motion.div>
       </AnimatePresence>
+    </div>
+  );
+}
+
+// ─── send an alert ───────────────────────────────────────────────────────────
+/**
+ * The manual half of the ladder.
+ *
+ * Level 5 is a promise that a person is watching and will make contact, and no
+ * amount of cron satisfies that. This is where a person keeps it: pick members
+ * (or everyone at a level), write the thing, choose the channels, send.
+ *
+ * Two guard rails, both deliberate. The result reports what actually went out
+ * per channel rather than claiming success, because a text that the carrier
+ * silently dropped is not a text that arrived. And the server re-checks
+ * entitlements, so nothing here can text somebody who never bought a level that
+ * includes text — a ladder you can route around is not a ladder.
+ */
+function SendPane({ rows }: { rows: AlertRosterRow[] }) {
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [minLevel, setMinLevel] = useState<number | null>(null);
+  const [title, setTitle] = useState("");
+  const [body, setBody] = useState("");
+  const [link, setLink] = useState("/");
+  const [severity, setSeverity] = useState<"moderate" | "severe" | "extreme">("moderate");
+  const [ch, setCh] = useState({ inapp: true, push: true, email: true, text: true });
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<ManualResult | null>(null);
+
+  const matches = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return rows.slice(0, 12);
+    return rows.filter((r) =>
+      r.name?.toLowerCase().includes(needle) || r.email?.toLowerCase().includes(needle)).slice(0, 12);
+  }, [rows, q]);
+
+  const toggle = (id: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  // Naming members and naming a level are two different sends, so choosing one
+  // clears the other rather than quietly doing both.
+  const audience = picked.size > 0
+    ? `${picked.size} member${picked.size === 1 ? "" : "s"}`
+    : minLevel
+      ? `everyone at ${ALERT_LEVELS.find((l) => l.level === minLevel)?.name ?? `level ${minLevel}`} or above`
+      : null;
+
+  const canSend = Boolean(title.trim() && body.trim() && audience && !busy);
+
+  async function send() {
+    setBusy(true); setResult(null);
+    const r = await sendManualAlert({
+      ...(picked.size > 0 ? { userIds: [...picked] } : { minLevel: minLevel ?? undefined }),
+      title: title.trim(), body: body.trim(), link, severity, channels: ch,
+    });
+    setResult(r);
+    setBusy(false);
+    if (r.ok) {
+      void audit(
+        "alert.manual_send",
+        { type: "alert", label: title.trim() },
+        { recipients: r.recipients, inapp: r.inapp, push: r.push, emails: r.emails, texts: r.texts },
+      );
+      setTitle(""); setBody("");
+    }
+  }
+
+  const CHANNELS: { key: keyof typeof ch; label: string; icon: typeof Mail; need: string }[] = [
+    { key: "inapp", label: "In-app", icon: BellRing, need: "everyone" },
+    { key: "push", label: "Push", icon: Radio, need: "level 2+" },
+    { key: "email", label: "Email", icon: Mail, need: "level 3+, opted in" },
+    { key: "text", label: "Text", icon: Smartphone, need: "level 3+, opted in" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* ── who ─────────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl p-3.5" style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
+        <div className="text-[11px] uppercase tracking-[0.24em] font-bold mb-2.5" style={{ color: ROYAL.gold }}>
+          Who it goes to
+        </div>
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {ALERT_LEVELS.map((l) => {
+            const on = minLevel === l.level;
+            return (
+              <button key={l.level}
+                onClick={() => { setMinLevel(on ? null : l.level); setPicked(new Set()); }}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold"
+                style={on
+                  ? { background: `${l.color}26`, border: `1px solid ${l.color}`, color: l.color }
+                  : { background: "rgba(255,255,255,0.03)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
+                {l.name}+
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center gap-2 rounded-xl px-3 py-2 mb-2"
+             style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}` }}>
+          <Search className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.dim }} />
+          <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="…or find specific members"
+                 className="flex-1 bg-transparent outline-none text-sm" style={{ color: ROYAL.text }} />
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {matches.map((r) => {
+            const on = picked.has(r.user_id);
+            return (
+              <button key={r.user_id}
+                onClick={() => { toggle(r.user_id); setMinLevel(null); }}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5"
+                style={on
+                  ? { background: `${ROYAL.gold}22`, border: `1px solid ${ROYAL.gold}77`, color: ROYAL.gold }
+                  : { background: "rgba(255,255,255,0.03)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
+                {on && <Check className="w-3 h-3" />}{r.name || r.email}
+                <span className="opacity-55">L{Math.max(0, ...r.levels)}</span>
+              </button>
+            );
+          })}
+          {matches.length === 0 && (
+            <span className="text-[12px]" style={{ color: ROYAL.dim }}>Nobody matches that.</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── what ────────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl p-3.5 space-y-2.5" style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
+        <div className="text-[11px] uppercase tracking-[0.24em] font-bold" style={{ color: ROYAL.gold }}>
+          What it says
+        </div>
+        <input value={title} onChange={(e) => setTitle(e.target.value)} maxLength={90}
+               placeholder="Rotation on the storm heading for Findlay"
+               className="w-full rounded-xl px-3 py-2 text-sm"
+               style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }} />
+        <textarea value={body} onChange={(e) => setBody(e.target.value)} rows={3} maxLength={400}
+                  placeholder="I am watching this one for you. If it holds together it is at your place in about 25 minutes — get to your safe spot now and I will keep an eye on it."
+                  className="w-full rounded-xl px-3 py-2 text-sm resize-none"
+                  style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }} />
+        <div className="flex flex-wrap gap-2">
+          <select value={severity} onChange={(e) => setSeverity(e.target.value as typeof severity)}
+                  className="rounded-lg px-2.5 py-1.5 text-xs"
+                  style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }}>
+            <option value="moderate">Moderate</option>
+            <option value="severe">Severe</option>
+            <option value="extreme">Extreme</option>
+          </select>
+          <input value={link} onChange={(e) => setLink(e.target.value)} placeholder="/warnings"
+                 className="rounded-lg px-2.5 py-1.5 text-xs flex-1 min-w-[120px]"
+                 style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }} />
+        </div>
+        <p className="text-[11px]" style={{ color: ROYAL.dim }}>
+          A text is cut to 300 characters by the gateway, so put the thing they have to do first.
+        </p>
+      </div>
+
+      {/* ── how ─────────────────────────────────────────────────────────── */}
+      <div className="rounded-2xl p-3.5" style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
+        <div className="text-[11px] uppercase tracking-[0.24em] font-bold mb-2.5" style={{ color: ROYAL.gold }}>
+          How it reaches them
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          {CHANNELS.map(({ key, label, icon: Icon, need }) => {
+            const on = ch[key];
+            return (
+              <button key={key} onClick={() => setCh({ ...ch, [key]: !on })}
+                className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5"
+                style={on
+                  ? { background: `${ROYAL.gold}22`, border: `1px solid ${ROYAL.gold}77`, color: ROYAL.gold }
+                  : { background: "rgba(255,255,255,0.03)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
+                <Icon className="w-3.5 h-3.5" /> {label}
+                <span className="opacity-55 font-normal">{need}</span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] mt-2" style={{ color: ROYAL.dim }}>
+          Members who do not hold the level for a channel are skipped on that channel and still get the ones
+          they do hold. Nobody is dropped from the send entirely.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        <button onClick={() => void send()} disabled={!canSend}
+                className="px-4 py-2 rounded-lg text-sm font-semibold flex items-center gap-1.5 disabled:opacity-45"
+                style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a55f)`, color: "#17141f" }}>
+          {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+          Send {audience ? `to ${audience}` : ""}
+        </button>
+        {!audience && (
+          <span className="text-[12px]" style={{ color: ROYAL.dim }}>Pick a level or some members first.</span>
+        )}
+      </div>
+
+      {result && (
+        <div className="rounded-xl px-3.5 py-3 text-sm"
+             style={{
+               background: result.ok ? "rgba(95,217,168,0.10)" : "rgba(255,77,85,0.10)",
+               border: `1px solid ${result.ok ? "rgba(95,217,168,0.4)" : "rgba(255,77,85,0.4)"}`,
+               color: ROYAL.text,
+             }}>
+          {result.ok ? (
+            <>
+              Sent to {result.recipients} member{result.recipients === 1 ? "" : "s"} —{" "}
+              {result.inapp} in-app, {result.push} push, {result.emails} email, {result.texts} text.
+              {result.texts === 0 && ch.text && (
+                <span style={{ color: ROYAL.dim }}>
+                  {" "}No texts went out: nobody in this send holds level 3 with a number, a carrier and the
+                  text opt-in all set.
+                </span>
+              )}
+            </>
+          ) : result.error}
+        </div>
+      )}
     </div>
   );
 }

@@ -4,6 +4,16 @@
 // their saved locations against active NWS *warnings* and sends a push for any
 // warning it hasn't already notified that device about (deduped via `push_sent`).
 //
+// It shares push_sent with alerts-fanout, keyed by (endpoint, NWS alert id), so
+// the two can both run without ever double-pushing the same warning: whichever
+// reaches a device first records it and the other skips. This one exists to run
+// on a much tighter cadence than the full sweep.
+//
+// It answers to the same ladder the sweep does — level 2, the push_enabled
+// pref, the warnings pref and the member's chosen scope — because a member who
+// narrowed their alerts to one town should not have that undone by whichever
+// function happened to fire.
+//
 // AUTH: x-engine-secret header matching app_config.storm_engine_secret (cron),
 //       or an admin Bearer JWT (manual trigger).
 //
@@ -54,7 +64,24 @@ async function authorize(req: Request): Promise<boolean | Response> {
 }
 
 interface Sub { id: string; user_id: string; endpoint: string; keys: { p256dh: string; auth: string } }
-interface Loc { user_id: string; lat: number; lon: number; name: string }
+interface Loc { user_id: string; id: string; lat: number; lon: number; name: string; is_primary: boolean }
+type Scope = "state" | "location" | "multiple" | "all";
+interface Prefs { push_enabled: boolean; warnings: boolean; alert_scope: Scope; alert_location_ids: string[] | null }
+const DEFAULT_PREFS: Prefs = { push_enabled: true, warnings: true, alert_scope: "state", alert_location_ids: [] };
+
+/** The same rule the fan-out uses; see its copy for why state and all coincide. */
+function scopedLocations(all: Loc[], prefs: Prefs): Loc[] {
+  const chosen = prefs.alert_location_ids ?? [];
+  if (prefs.alert_scope === "location") {
+    const one = all.find((l) => chosen.includes(l.id)) ?? all.find((l) => l.is_primary) ?? all[0];
+    return one ? [one] : [];
+  }
+  if (prefs.alert_scope === "multiple") {
+    const picked = all.filter((l) => chosen.includes(l.id));
+    return picked.length ? picked : all;
+  }
+  return all;
+}
 interface AlertOut { id: string; event: string; headline: string; area: string; severe: boolean }
 
 // Active NWS warnings affecting a point (cached per point within a run).
@@ -113,9 +140,23 @@ Deno.serve(async (req: Request) => {
     return json({ ok: true, test: true, subscribers: subs.length, sent: tSent, removed_stale: tRemoved });
   }
   const userIds = [...new Set((subs as Sub[]).map((s) => s.user_id))];
-  const { data: locs } = await admin.from("saved_locations").select("user_id,lat,lon,name").in("user_id", userIds);
+  const { data: locs } = await admin.from("saved_locations").select("user_id,id,lat,lon,name,is_primary").in("user_id", userIds);
   const locsByUser = new Map<string, Loc[]>();
   for (const l of (locs ?? []) as Loc[]) { const a = locsByUser.get(l.user_id) ?? []; a.push(l); locsByUser.set(l.user_id, a); }
+
+  const { data: prefRows } = await admin.from("notification_prefs")
+    .select("user_id,push_enabled,warnings,alert_scope,alert_location_ids").in("user_id", userIds);
+  const prefsById = new Map((prefRows ?? []).map((p) => [p.user_id as string, p as unknown as Prefs]));
+
+  // Push is level 2. It is included from the free tier so this rarely excludes
+  // anybody, but reading the ladder rather than assuming it means a change to
+  // the ladder does not quietly leave this function behind.
+  const pushOk = new Map<string, boolean>();
+  await Promise.all(userIds.map(async (uid) => {
+    const { data } = await admin.rpc("alert_levels_for", { p_user: uid });
+    const held = ((data ?? []) as { level: number; source: string }[]).filter((r) => r.source !== "none");
+    pushOk.set(uid, held.some((r) => r.level === 2));
+  }));
 
   const pointCache = new Map<string, AlertOut[]>();
   async function getWarnings(lat: number, lon: number): Promise<AlertOut[]> {
@@ -126,7 +167,10 @@ Deno.serve(async (req: Request) => {
 
   let sent = 0, removed = 0;
   for (const s of subs as Sub[]) {
-    const myLocs = locsByUser.get(s.user_id) ?? [];
+    if (!pushOk.get(s.user_id)) continue;
+    const prefs = { ...DEFAULT_PREFS, ...(prefsById.get(s.user_id) ?? {}) };
+    if (!prefs.push_enabled || !prefs.warnings) continue;
+    const myLocs = scopedLocations(locsByUser.get(s.user_id) ?? [], prefs);
     if (myLocs.length === 0) continue;
     // Collect distinct warnings across this user's locations.
     const seen = new Map<string, { alert: AlertOut; locName: string }>();

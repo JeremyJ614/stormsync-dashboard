@@ -12,6 +12,7 @@
  * database, because that is a decision the admin makes and changes.
  */
 import { supabase } from "./supabase";
+import { logger } from "./logger";
 import type { Tier } from "../hooks/useAuth";
 
 export type AlertScope = "state" | "location" | "multiple" | "all";
@@ -210,14 +211,39 @@ export interface AlertPrefs {
   state: string | null;
   email: string | null;
   phone: string | null;
+  /** Carrier key for the email-to-SMS gateway. See CARRIERS. */
+  carrier: string | null;
   emailOptin: boolean;
   textOptin: boolean;
   directLineNote: string | null;
 }
 
+/**
+ * Carriers we can text, and how.
+ *
+ * Texts go out through the carrier's own email-to-SMS gateway, which is free and
+ * needs no account, but has to be addressed to the right domain — so the member
+ * tells us who they are with. If the owner ever wires up a paid SMS provider on
+ * the edge function this becomes irrelevant and every number just works.
+ */
+export const CARRIERS: { key: string; label: string; note?: string }[] = [
+  { key: "verizon", label: "Verizon" },
+  { key: "att", label: "AT&T" },
+  { key: "tmobile", label: "T-Mobile" },
+  { key: "uscellular", label: "US Cellular" },
+  { key: "cricket", label: "Cricket" },
+  { key: "boost", label: "Boost Mobile" },
+  { key: "metropcs", label: "Metro by T-Mobile" },
+  { key: "googlefi", label: "Google Fi" },
+  { key: "visible", label: "Visible", note: "on Verizon" },
+  { key: "xfinity", label: "Xfinity Mobile", note: "on Verizon" },
+  { key: "mint", label: "Mint Mobile", note: "on T-Mobile" },
+  { key: "consumercellular", label: "Consumer Cellular" },
+];
+
 export const DEFAULT_ALERT_PREFS: AlertPrefs = {
   scope: "state", locationIds: [], state: null,
-  email: null, phone: null, emailOptin: false, textOptin: false, directLineNote: null,
+  email: null, phone: null, carrier: null, emailOptin: false, textOptin: false, directLineNote: null,
 };
 
 export async function fetchAlertPrefs(): Promise<AlertPrefs> {
@@ -230,7 +256,7 @@ export async function fetchAlertPrefs(): Promise<AlertPrefs> {
   if (!uid) return DEFAULT_ALERT_PREFS;
   const { data } = await supabase
     .from("notification_prefs")
-    .select("alert_scope,alert_location_ids,alert_state,alert_email,alert_phone,email_optin,text_optin,direct_line_note")
+    .select("alert_scope,alert_location_ids,alert_state,alert_email,alert_phone,alert_carrier,email_optin,text_optin,direct_line_note")
     .eq("user_id", uid)
     .maybeSingle();
   if (!data) return DEFAULT_ALERT_PREFS;
@@ -240,6 +266,7 @@ export async function fetchAlertPrefs(): Promise<AlertPrefs> {
     state: data.alert_state ?? null,
     email: data.alert_email ?? null,
     phone: data.alert_phone ?? null,
+    carrier: data.alert_carrier ?? null,
     emailOptin: !!data.email_optin,
     textOptin: !!data.text_optin,
     directLineNote: data.direct_line_note ?? null,
@@ -257,6 +284,7 @@ export async function saveAlertPrefs(p: AlertPrefs): Promise<{ ok: boolean; erro
     alert_state: p.state,
     alert_email: p.email,
     alert_phone: p.phone,
+    alert_carrier: p.carrier,
     email_optin: p.emailOptin,
     text_optin: p.textOptin,
     direct_line_note: p.directLineNote,
@@ -301,27 +329,32 @@ export async function adminSaveAlertPrice(
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-// ─── requesting a paid level ─────────────────────────────────────────────────
+// ─── buying a level ──────────────────────────────────────────────────────────
 /**
- * Asking for a level that costs money.
+ * Buying a level, with a card.
  *
- * This files a request rather than opening a Stripe checkout, because the
- * `stripe-checkout` and `stripe-webhook` functions are deployed but their source
- * is not in this repository, so the checkout payload cannot be extended without
- * rewriting live billing from scratch. The member-facing flow is honest about
- * that: it says a request was sent, not that a card was charged.
+ * This used to file a request for an admin to approve by hand, because the
+ * `stripe-checkout` source had been deployed but never committed and so could
+ * not be extended. The source is recovered and in the repo now, so this opens a
+ * real Stripe Checkout session: the price is read server-side from
+ * `alert_level_prices` against the member's current tier, and the entitlement is
+ * written by the webhook — never by the client.
  *
- * When the checkout source is recovered this call swaps for a checkout session
- * and nothing else in the UI has to change.
+ * Cancelling the resulting subscription removes that level and nothing else.
  */
-export type RequestResult = "requested" | "already_held" | "not_for_sale" | "error";
-
-export async function requestAlertLevel(level: number): Promise<RequestResult> {
-  const { data, error } = await supabase.rpc("request_alert_level", { p_level: level });
-  if (error) return "error";
-  return (data as RequestResult) ?? "error";
+export async function startAlertLevelCheckout(level: number): Promise<{ ok: boolean; url?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("stripe-checkout", {
+    body: { kind: "alert_level", level },
+  });
+  if (error) return { ok: false, error: "Could not start checkout — try again." };
+  if (!data?.ok) return { ok: false, error: data?.error ?? "Could not start checkout." };
+  return { ok: true, url: data.url as string };
 }
 
+// ─── legacy requests ─────────────────────────────────────────────────────────
+// Nothing files new requests any more, but rows already in the table still have
+// to be visible and dismissable — both to the member who filed one and to the
+// admin looking at the queue.
 export async function withdrawAlertRequest(level: number): Promise<boolean> {
   const { error } = await supabase.rpc("withdraw_alert_request", { p_level: level });
   return !error;
@@ -357,4 +390,42 @@ export async function adminHandleAlertRequest(
     p_id: id, p_approve: approve, p_note: note ?? null,
   });
   return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+// ─── manual alerts ───────────────────────────────────────────────────────────
+/**
+ * A personal alert, sent by a person.
+ *
+ * Level 5 promises somebody is watching and will make contact; a cron cannot
+ * keep that promise, so this is how it is kept. It doubles as the general
+ * broadcast for anything the automated sweep would never think to send.
+ *
+ * Entitlements still apply on the server: a member who has not bought a level
+ * that includes text will not be texted, however this is called.
+ */
+export interface ManualAlert {
+  userIds?: string[];
+  /** Send to everyone holding at least this level, when no ids are given. */
+  minLevel?: number;
+  title: string;
+  body: string;
+  link?: string;
+  severity?: "moderate" | "severe" | "extreme";
+  channels?: { inapp?: boolean; push?: boolean; email?: boolean; text?: boolean };
+}
+export interface ManualResult {
+  ok: boolean; error?: string;
+  recipients?: number; inapp?: number; push?: number; emails?: number; texts?: number;
+}
+
+export async function sendManualAlert(a: ManualAlert): Promise<ManualResult> {
+  const { data, error } = await supabase.functions.invoke("alerts-fanout", {
+    body: { mode: "manual", ...a },
+  });
+  if (error) {
+    logger.error("sendManualAlert failed", { scope: "alerts", error });
+    return { ok: false, error: "Could not send that alert." };
+  }
+  if (!data?.ok) return { ok: false, error: data?.error ?? "Could not send that alert." };
+  return data as ManualResult;
 }

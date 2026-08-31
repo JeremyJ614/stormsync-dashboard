@@ -25,7 +25,7 @@ export type AuditAction =
   | "faq.change"
   | "trivia.change"
   | "alert.grant" | "alert.revoke" | "alert.price"
-  | "alert.request.approve" | "alert.request.decline"
+  | "alert.request.approve" | "alert.request.decline" | "alert.manual_send"
   | "settings.change";
 
 export interface AuditEntry {
@@ -161,6 +161,7 @@ export const ACTION_LABEL: Record<string, string> = {
   "alert.revoke": "Revoked an alert level",
   "alert.price": "Changed alert pricing",
   "alert.request.approve": "Approved an alert request",
+  "alert.manual_send": "Sent a personal alert",
   "alert.request.decline": "Declined an alert request",
   "settings.change": "Changed settings",
 };

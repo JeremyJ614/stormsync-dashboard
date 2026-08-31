@@ -16,11 +16,12 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   BellRing, Check, Loader2, Mail, MessageSquare, MapPin, Globe2, Layers,
   Phone, KeyRound, Copy, ShieldCheck, Clock, X,
+  Smartphone,
 } from "lucide-react";
 import {
   ALERT_LEVELS, SCOPE_LABEL, SCOPE_BLURB, money,
   fetchAlertPrices, fetchMyLevels, fetchAlertPrefs, saveAlertPrefs,
-  fetchMyEmergencyPin, requestAlertLevel, withdrawAlertRequest, fetchMyAlertRequests,
+  fetchMyEmergencyPin, startAlertLevelCheckout, withdrawAlertRequest, fetchMyAlertRequests, CARRIERS,
   DEFAULT_ALERT_PREFS, type AlertScope, type AlertPrefs,
 } from "../../lib/alerts";
 import { supabase } from "../../lib/supabase";
@@ -79,16 +80,13 @@ export function AlertSettings() {
     },
   });
 
+  // Adding a level charges for it. The price is decided server-side from the
+  // member's current tier, so nothing here can be talked into a cheaper one.
   const ask = useMutation({
-    mutationFn: requestAlertLevel,
+    mutationFn: startAlertLevelCheckout,
     onSuccess: (r) => {
-      setFlash(
-        r === "requested" ? "Request sent. We will confirm and set it up."
-        : r === "already_held" ? "You already have that one."
-        : r === "not_for_sale" ? "That level is not on sale at your tier yet."
-        : "Could not send that request.",
-      );
-      void qc.invalidateQueries({ queryKey: ["my-alert-requests"] });
+      if (r.ok && r.url) { window.location.href = r.url; return; }
+      setFlash(r.error ?? "Could not start checkout.");
       setTimeout(() => setFlash(null), 3500);
     },
   });
@@ -164,7 +162,9 @@ export function AlertSettings() {
             })}
           </div>
           <p className="text-[11px] mt-2" style={{ color: ROYAL.dim }}>
-            We confirm these by hand and add them to your next invoice, so nothing is charged until we have.
+            You asked for these before we took cards for alert levels, so they are still with us to set up by
+            hand. Nothing has been charged. You can withdraw one and buy it outright instead — that takes
+            effect immediately.
           </p>
         </div>
       )}
@@ -309,6 +309,41 @@ export function AlertSettings() {
             toggle={prefs.textOptin} onToggle={(v) => set({ textOptin: v })}
             toggleLabel="Text me too"
           />
+
+          {/* Texts go out through the carrier's own free email-to-SMS gateway,
+              which has to be addressed to the right domain — so we have to ask
+              who they are with. Said plainly rather than hidden, because a text
+              that silently never arrives is worse than one we warned about. */}
+          {prefs.textOptin && (
+            <div>
+              <label className="text-[11px] uppercase tracking-wider flex items-center gap-1.5 mb-1.5"
+                     style={{ color: ROYAL.dim }}>
+                <Smartphone className="w-3.5 h-3.5" /> Your carrier
+              </label>
+              <div className="flex flex-wrap gap-1.5">
+                {CARRIERS.map((c) => {
+                  const on = prefs.carrier === c.key;
+                  return (
+                    <button
+                      key={c.key} type="button" disabled={!canContact}
+                      onClick={() => set({ carrier: on ? null : c.key })}
+                      className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold disabled:cursor-not-allowed"
+                      style={on
+                        ? { background: `${ROYAL.gold}22`, border: `1px solid ${ROYAL.gold}77`, color: ROYAL.gold }
+                        : { background: "rgba(255,255,255,0.03)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
+                      {c.label}{c.note && <span className="opacity-60"> · {c.note}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="text-[11px] mt-1.5 leading-relaxed" style={{ color: ROYAL.dim }}>
+                Texts are sent through your carrier's free message gateway, so there is nothing to pay and
+                nothing to install — but carriers filter them at their own discretion, so treat texts as a
+                second way of hearing rather than the only one. Not on this list? Leave it blank and use
+                email and push.
+              </p>
+            </div>
+          )}
 
           {canDirect && (
             <div>

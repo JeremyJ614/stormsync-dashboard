@@ -8,7 +8,11 @@ import {
   getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
   getEmergencyRecipients, saveEmergencyRecipients,
 } from "../lib/userAdmin";
-import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
+import {
+  listBadgeDefs, createBadge, updateBadge, deleteBadge,
+  listBadgeRules, saveBadgeRule, deleteBadgeRule, backfillBadges, slugifyBadgeId,
+  BADGE_KINDS, BADGE_REGIONS, type BadgeRule,
+} from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { AdminNavTab } from "../components/AdminNavTab";
@@ -32,7 +36,7 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy, Activity, BarChart3, ScrollText } from "lucide-react";
+import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
 
 type Tab =
   | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
@@ -351,9 +355,11 @@ function AwardPointsCard({ userId, userName }: { userId: string; userName: strin
 
 const BADGE_GROUPS: Array<BadgeDef["group"]> = ["Role", "Tier", "Achievement"];
 
-function BadgeEditor({ initial, onSave, onCancel, saving }: {
+function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
   initial: Omit<BadgeDef, "id"> & { id?: string };
-  onSave: (b: Omit<BadgeDef, "id">) => void;
+  /** The automation attached to this badge, if it has one. */
+  rule?: BadgeRule;
+  onSave: (b: Omit<BadgeDef, "id">, rule: BadgeRule | null) => void;
   onCancel: () => void;
   saving: boolean;
 }) {
@@ -361,6 +367,14 @@ function BadgeEditor({ initial, onSave, onCancel, saving }: {
   const [color, setColor] = useState(initial.color);
   const [description, setDescription] = useState(initial.description);
   const [group, setGroup] = useState<BadgeDef["group"]>(initial.group);
+  // A badge with no rule is awarded by hand, which is still the right answer for
+  // the honorary ones — so automation is opt-in rather than assumed.
+  const [auto, setAuto] = useState(Boolean(rule));
+  const [kind, setKind] = useState(rule?.kind ?? "points_total");
+  const [threshold, setThreshold] = useState(String(rule?.threshold ?? 100));
+  const [region, setRegion] = useState(rule?.param ?? BADGE_REGIONS[0].key);
+  const [ruleOn, setRuleOn] = useState(rule?.enabled ?? true);
+  const kindMeta = BADGE_KINDS.find((k) => k.kind === kind);
   const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group };
 
   return (
@@ -384,9 +398,57 @@ function BadgeEditor({ initial, onSave, onCancel, saving }: {
           className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs font-mono" />
         <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="md" /></span>
       </div>
+      {/* ── what earns it ─────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-border/70 p-2.5 space-y-2" style={{ background: "rgba(255,255,255,0.02)" }}>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} className="accent-primary" />
+          <span className="font-semibold">Award this automatically</span>
+          <span className="text-muted-foreground">— otherwise you hand it out yourself</span>
+        </label>
+        {auto && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={kind} onChange={e => setKind(e.target.value)}
+                className="bg-card border border-border rounded px-2 py-1.5 text-xs">
+                {BADGE_KINDS.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+              </select>
+              {kind === "region" ? (
+                <select value={region} onChange={e => setRegion(e.target.value)}
+                  className="bg-card border border-border rounded px-2 py-1.5 text-xs">
+                  {BADGE_REGIONS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
+              ) : (
+                <>
+                  <span className="text-[11px] text-muted-foreground">reaches</span>
+                  <input value={threshold} onChange={e => setThreshold(e.target.value)} inputMode="numeric"
+                    className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs tabular-nums" />
+                  <span className="text-[11px] text-muted-foreground">{kindMeta?.unit}</span>
+                </>
+              )}
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground ml-auto cursor-pointer">
+                <input type="checkbox" checked={ruleOn} onChange={e => setRuleOn(e.target.checked)} className="accent-primary" />
+                Rule active
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {kind === "region"
+                ? "Awarded from the first location a member ever saved. Nothing to earn — it is a nickname for where they watch from."
+                : `Awarded the first time a member's ${kindMeta?.label.toLowerCase()} reaches this number. Existing members get it on their next visit, or immediately if you re-run the rules.`}
+            </p>
+          </>
+        )}
+      </div>
+
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="px-3 py-1 rounded bg-muted/30 border border-border text-xs">Cancel</button>
-        <button onClick={() => onSave({ label, color, description, group })} disabled={saving}
+        <button
+          onClick={() => onSave(
+            { label, color, description, group },
+            auto
+              ? { badgeId: initial.id ?? "", kind, threshold: Number(threshold) || 0, param: region, enabled: ruleOn }
+              : null,
+          )}
+          disabled={saving}
           className="px-3 py-1 rounded bg-primary/20 border border-primary/40 text-primary text-xs font-semibold disabled:opacity-60 flex items-center gap-1.5">
           {saving && <Loader2 className="w-3 h-3 animate-spin" />} Save
         </button>
@@ -399,6 +461,12 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rules, setRules] = useState<Record<string, BadgeRule>>({});
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillNote, setBackfillNote] = useState<string | null>(null);
+
+  const reloadRules = useCallback(() => { void listBadgeRules().then(setRules); }, []);
+  useEffect(() => { reloadRules(); }, [reloadRules]);
 
   async function doSave(fn: () => Promise<{ ok: boolean; error?: string }>) {
     setSaving(true);
@@ -410,6 +478,32 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
     } finally {
       setSaving(false);
     }
+  }
+
+  /**
+   * Persist the automation alongside the badge.
+   *
+   * A rule is a separate row keyed by badge id, so a new badge has to be saved
+   * before its rule can point at it — hence the id being resolved from the
+   * label when the caller does not have one yet.
+   */
+  async function persistRule(badgeId: string, rule: BadgeRule | null) {
+    const r = rule
+      ? await saveBadgeRule({ ...rule, badgeId })
+      : await deleteBadgeRule(badgeId);
+    if (!r.ok) alert(r.error ?? "The badge saved, but its rule did not.");
+    reloadRules();
+  }
+
+  async function runBackfill() {
+    if (!confirm("Re-run every badge rule against every member? Members who qualify for badges they do not have will be given them, and each gets one summary notification.")) return;
+    setBackfilling(true); setBackfillNote(null);
+    const r = await backfillBadges();
+    setBackfilling(false);
+    setBackfillNote(r.ok
+      ? `Awarded ${r.awarded} badge${r.awarded === 1 ? "" : "s"} across ${r.members} member${r.members === 1 ? "" : "s"}.`
+      : r.error ?? "The backfill failed.");
+    reloadBadges();
   }
 
   async function remove(b: BadgeDef) {
@@ -425,17 +519,31 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
           <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> Badge Library ({badgeDefs.length})</h3>
           <p className="text-[11px] text-muted-foreground">Create, edit, and delete badge definitions. Pick any hex color — the badge glows with it.</p>
         </div>
-        <button onClick={() => { setCreating(true); setEditingId(null); }}
-          className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/30">
-          <Plus className="w-3.5 h-3.5" /> New Badge
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {backfillNote && <span className="text-[11px] text-muted-foreground">{backfillNote}</span>}
+          <button onClick={runBackfill} disabled={backfilling} title="Award every badge that members have already earned"
+            className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+            {backfilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+            Re-run rules
+          </button>
+          <button onClick={() => { setCreating(true); setEditingId(null); }}
+            className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/30">
+            <Plus className="w-3.5 h-3.5" /> New Badge
+          </button>
+        </div>
       </div>
       <div className="p-3 space-y-3 max-h-[460px] overflow-y-auto">
         {creating && (
           <BadgeEditor saving={saving}
             initial={{ label: "", color: "#7B8FD9", description: "", group: "Achievement" }}
             onCancel={() => setCreating(false)}
-            onSave={async b => { if (await doSave(() => createBadge(b))) { void audit("badge.create", { type: "badge", label: b.label }); setCreating(false); } }} />
+            onSave={async (b, rule) => {
+              if (await doSave(() => createBadge(b))) {
+                void audit("badge.create", { type: "badge", label: b.label });
+                await persistRule(slugifyBadgeId(b.label), rule);
+                setCreating(false);
+              }
+            }} />
         )}
         {BADGE_GROUPS.map(g => {
           const inGroup = badgeDefs.filter(b => b.group === g);
@@ -445,14 +553,31 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{g} Badges</div>
               <div className="space-y-1.5">
                 {inGroup.map(b => editingId === b.id ? (
-                  <BadgeEditor key={b.id} saving={saving} initial={b}
+                  <BadgeEditor key={b.id} saving={saving} initial={b} rule={rules[b.id]}
                     onCancel={() => setEditingId(null)}
-                    onSave={async patch => { if (await doSave(() => updateBadge(b.id, patch))) { void audit("badge.update", { type: "badge", id: b.id, label: b.label }); setEditingId(null); } }} />
+                    onSave={async (patch, rule) => {
+                      if (await doSave(() => updateBadge(b.id, patch))) {
+                        void audit("badge.update", { type: "badge", id: b.id, label: b.label });
+                        await persistRule(b.id, rule);
+                        setEditingId(null);
+                      }
+                    }} />
                 ) : (
                   <div key={b.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
                     <BadgeChip id={b.id} defs={badgeDefs} />
                     <span className="text-xs text-muted-foreground flex-1 truncate">{b.description}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground/70">{b.color}</span>
+                    {rules[b.id] && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              background: rules[b.id].enabled ? "rgba(217,183,117,0.14)" : "rgba(255,255,255,0.05)",
+                              color: rules[b.id].enabled ? "#d9b775" : "#64748b",
+                            }}>
+                        {rules[b.id].kind === "region"
+                          ? BADGE_REGIONS.find(r => r.key === rules[b.id].param)?.label ?? "region"
+                          : `${BADGE_KINDS.find(k => k.kind === rules[b.id].kind)?.label ?? rules[b.id].kind} ≥ ${rules[b.id].threshold}`}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0">{b.color}</span>
                     <button onClick={() => { setEditingId(b.id); setCreating(false); }} title="Edit"
                       className="p-1.5 rounded hover:bg-primary/15 text-primary"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => remove(b)} title="Delete"

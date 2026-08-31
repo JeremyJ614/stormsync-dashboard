@@ -97,3 +97,114 @@ export async function deleteBadge(id: string): Promise<MutationResult> {
   }
   return { ok: true };
 }
+
+// ─── automation rules ────────────────────────────────────────────────────────
+/**
+ * What a badge can be earned for.
+ *
+ * These are the kinds the database evaluator understands; adding one here
+ * without adding it to `award_badges_for` gives you a rule that silently never
+ * fires, so the two lists are meant to be edited together. `region` is the odd
+ * one out: it is not a threshold, it matches the region a member's first saved
+ * location sits in.
+ */
+export const BADGE_KINDS: { kind: string; label: string; unit: string }[] = [
+  { kind: "points_total",      label: "Total points",              unit: "points" },
+  { kind: "points_day_best",   label: "Best single day",           unit: "points in a day" },
+  { kind: "referrals",         label: "Referrals",                 unit: "referrals" },
+  { kind: "modules_owned",     label: "Modules unlocked",          unit: "modules" },
+  { kind: "modules_explored",  label: "Distinct modules opened",   unit: "modules" },
+  { kind: "active_days",       label: "Days active",               unit: "days" },
+  { kind: "days_member",       label: "Days since joining",        unit: "days" },
+  { kind: "trivia_correct",    label: "Trivia answered correctly", unit: "correct" },
+  { kind: "trivia_answered",   label: "Trivia attempted",          unit: "answers" },
+  { kind: "game_plays",        label: "Forecast rounds played",    unit: "rounds" },
+  { kind: "game_wins",         label: "Forecast rounds won",       unit: "wins" },
+  { kind: "warnings_received", label: "Warnings received",         unit: "warnings" },
+  { kind: "locations_saved",   label: "Saved locations",           unit: "locations" },
+  { kind: "badges_earned",     label: "Badges earned",             unit: "badges" },
+  { kind: "alert_level",       label: "Alert level held",          unit: "level" },
+  { kind: "tier_at_least",     label: "Tier",                      unit: "tier" },
+  { kind: "region",            label: "Region of first location",  unit: "region" },
+];
+
+/** The regions `state_region()` can return, for the region-badge picker. */
+export const BADGE_REGIONS: { key: string; label: string }[] = [
+  { key: "lake-effect",  label: "Great Lakes" },
+  { key: "heartland",    label: "Upper Midwest" },
+  { key: "alley",        label: "Tornado Alley" },
+  { key: "dixie",        label: "Deep South" },
+  { key: "gulf",         label: "Gulf & Southeast" },
+  { key: "noreaster",    label: "Northeast" },
+  { key: "blue-ridge",   label: "Mid-Atlantic & Appalachians" },
+  { key: "high-country", label: "Rockies" },
+  { key: "dryline",      label: "Desert Southwest" },
+  { key: "pineapple",    label: "Pacific Northwest" },
+  { key: "golden",       label: "California" },
+  { key: "frontier",     label: "Alaska" },
+  { key: "island",       label: "Hawaii" },
+];
+
+export interface BadgeRule {
+  badgeId: string;
+  kind: string;
+  threshold: number;
+  param: string | null;
+  enabled: boolean;
+}
+
+export async function listBadgeRules(): Promise<Record<string, BadgeRule>> {
+  if (!isSupabaseConfigured) return {};
+  const { data, error } = await supabase.from("badge_rules").select("badge_id,kind,threshold,param,enabled");
+  if (error) { logger.error("Failed to list badge rules", { scope: "badges", error }); return {}; }
+  const out: Record<string, BadgeRule> = {};
+  for (const r of data as { badge_id: string; kind: string; threshold: number; param: string | null; enabled: boolean }[]) {
+    out[r.badge_id] = {
+      badgeId: r.badge_id, kind: r.kind, threshold: Number(r.threshold),
+      param: r.param, enabled: r.enabled,
+    };
+  }
+  return out;
+}
+
+/** Attach or update the rule that earns a badge. */
+export async function saveBadgeRule(rule: BadgeRule): Promise<MutationResult> {
+  if (!BADGE_KINDS.some((k) => k.kind === rule.kind)) return { ok: false, error: "Unknown rule kind" };
+  if (rule.kind === "region" && !rule.param) return { ok: false, error: "Pick a region" };
+  if (rule.kind !== "region" && !(rule.threshold > 0)) return { ok: false, error: "Threshold must be above zero" };
+  const { error } = await supabase.from("badge_rules").upsert({
+    badge_id: rule.badgeId,
+    kind: rule.kind,
+    threshold: rule.kind === "region" ? 1 : rule.threshold,
+    param: rule.kind === "region" ? rule.param : null,
+    enabled: rule.enabled,
+    updated_at: new Date().toISOString(),
+  }, { onConflict: "badge_id" });
+  if (error) { logger.error("Failed to save badge rule", { scope: "badges", error }); return { ok: false, error: error.message }; }
+  return { ok: true };
+}
+
+/** Make a badge manual again. The badge and everyone who has it are untouched. */
+export async function deleteBadgeRule(badgeId: string): Promise<MutationResult> {
+  const { error } = await supabase.from("badge_rules").delete().eq("badge_id", badgeId);
+  return error ? { ok: false, error: error.message } : { ok: true };
+}
+
+/**
+ * Re-run every rule against every member.
+ *
+ * The member-facing evaluator only ever runs for its caller, which is right and
+ * also means a newly added badge reaches nobody until they next sign in. This
+ * is the admin's way to close that gap; it is bounded by the member count and
+ * writes one summary notification each rather than one per badge.
+ */
+export async function backfillBadges(): Promise<{ ok: boolean; members?: number; awarded?: number; error?: string }> {
+  const { data, error } = await supabase.rpc("admin_backfill_badges");
+  if (error) { logger.error("Badge backfill failed", { scope: "badges", error }); return { ok: false, error: error.message }; }
+  const rows = (data ?? []) as { user_id: string; awarded: number }[];
+  return {
+    ok: true,
+    members: rows.filter((r) => Number(r.awarded) > 0).length,
+    awarded: rows.reduce((n, r) => n + Number(r.awarded), 0),
+  };
+}

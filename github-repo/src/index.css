@@ -531,3 +531,23 @@ h1 { letter-spacing: 0.02em; }
   padding: 2px 7px 4px;
 }
 .maplibregl-popup .maplibregl-popup-close-button:hover { background: transparent; color: #f1f4ff; }
+
+/* ── badge enamel ──────────────────────────────────────────────────────────
+   The specular sweep on BadgeChip. It plays once and stops: a profile showing
+   thirty badges should settle, not shimmer forever. Kept in CSS rather than
+   framer-motion because a badge is rendered dozens of times on a page and a
+   keyframe costs nothing per instance. */
+@keyframes sswx-badge-sheen {
+  0%   { transform: translateX(-160%); opacity: 0; }
+  12%  { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { transform: translateX(320%); opacity: 0; }
+}
+.sswx-badge-sheen {
+  left: 0;
+  transform: translateX(-160%);
+  animation: sswx-badge-sheen 1.5s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sswx-badge-sheen { display: none; }
+}

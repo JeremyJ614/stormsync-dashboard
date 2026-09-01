@@ -519,12 +519,33 @@ function deterministicPeriodNarrative(p: PeriodAgg): { headline: string; summary
 const DETAIL_BACKFILL_PER_RUN = 25;
 
 async function backfillDetails(): Promise<number> {
-  const { data } = await admin
-    .from("daily_report_counts").select("report_date")
-    .is("details_at", null)
-    .order("report_date", { ascending: false })
-    .limit(DETAIL_BACKFILL_PER_RUN);
-  const dates = (data ?? []).map((r: { report_date: string }) => r.report_date);
+  // Two kinds of work, not one.
+  //
+  // `details_at is null` is the original queue: rows written before these
+  // columns existed. But a day could also be *stamped* with nothing in it —
+  // which is exactly what happened to every recent day. Today's detail was
+  // written at 11:00 UTC from the SPC archive file for today, and SPC's
+  // convective day runs 12Z to 12Z, so that file is still a bare header when
+  // the engine reads it. The row got zeros and a `details_at`, and the queue
+  // never looked at it again.
+  //
+  // So a finished day that has reports but no superlative is work too.
+  const [{ data: never }, { data: empty }] = await Promise.all([
+    admin.from("daily_report_counts").select("report_date")
+      .is("details_at", null)
+      .order("report_date", { ascending: false })
+      .limit(DETAIL_BACKFILL_PER_RUN),
+    admin.from("daily_report_counts").select("report_date")
+      .is("top_state", null).is("max_hail_in", null).is("max_gust_kt", null)
+      .or("tornado.gt.0,hail.gt.0,wind.gt.0")
+      .lt("report_date", isoDate(new Date(Date.now() - 36 * 3600_000)))
+      .order("report_date", { ascending: false })
+      .limit(DETAIL_BACKFILL_PER_RUN),
+  ]);
+  const dates = [...new Set([
+    ...((never ?? []) as { report_date: string }[]).map((r) => r.report_date),
+    ...((empty ?? []) as { report_date: string }[]).map((r) => r.report_date),
+  ])].slice(0, DETAIL_BACKFILL_PER_RUN);
   for (const grp of chunk(dates, 5)) {
     await Promise.all(grp.map(async (d) => {
       const detail = await fetchDayDetail(d.slice(2).replace(/-/g, ""));
@@ -541,12 +562,20 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null; d
   const todayStr = isoDate(today);
   // 1) Record today's live counts AND superlatives. Today's row is rewritten on
   //    every run because reports keep landing through the day.
+  //
+  //    `details_at` is deliberately NOT set here. SPC's convective day runs 12Z
+  //    to 12Z, so the archive file for today is still filling — often a bare
+  //    header at the hour this runs. Stamping it would mark the day finished
+  //    and take it out of the backfill queue forever, which is how twenty-five
+  //    consecutive days ended up with a thousand wind reports and no peak gust.
+  //    The superlatives are still written, so the page shows what is known so
+  //    far; the day is stamped once it is over.
   const todayDetail = await fetchDayDetail(todayStr.slice(2).replace(/-/g, ""));
   await admin.from("daily_report_counts").upsert(
     {
       report_date: todayStr,
       tornado: src.reports_today.tornado, hail: src.reports_today.hail, wind: src.reports_today.wind,
-      ...todayDetail, details_at: new Date().toISOString(),
+      ...todayDetail,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "report_date" },

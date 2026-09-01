@@ -245,9 +245,9 @@ export default function WeatherPatternIndex(_: Props) {
               writes the narrative only, never the numbers.
               {(season.data?.pendingDetail ?? 0) > 0 && (
                 <> {" "}<span className="text-yellow-300/90">
-                  {season.data!.pendingDetail} earlier day{season.data!.pendingDetail === 1 ? "" : "s"} predate
-                  per-report detail and aren't yet counted toward top state / largest hail / peak gust — the
-                  engine backfills 25 a night.
+                  {season.data!.pendingDetail} day{season.data!.pendingDetail === 1 ? " is" : "s are"} still waiting
+                  on per-report detail, so {season.data!.pendingDetail === 1 ? "it is" : "they are"} not yet counted
+                  toward top state / largest hail / peak gust — the engine backfills 25 a night.
                 </span></>
               )}
             </p>

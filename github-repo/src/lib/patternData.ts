@@ -193,6 +193,8 @@ interface CountRow {
   state_tornadoes: Record<string, number> | null;
   max_hail_in: number | null; max_hail_place: string | null;
   max_gust_kt: number | null; max_gust_place: string | null;
+  /** Null until the day has been processed for superlatives. */
+  details_at: string | null;
 }
 const KT_TO_MPH = 1.15078;
 
@@ -205,7 +207,7 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
   const year = new Date().getUTCFullYear();
   const { data, error } = await supabase
     .from("daily_report_counts")
-    .select("report_date,tornado,hail,wind,state_tornadoes,max_hail_in,max_hail_place,max_gust_kt,max_gust_place")
+    .select("report_date,tornado,hail,wind,state_tornadoes,max_hail_in,max_hail_place,max_gust_kt,max_gust_place,details_at")
     .gte("report_date", `${year}-01-01`).order("report_date");
   if (error) { logger.error("season stats failed", { scope: "pattern", error }); return { tiles: [], trackingSince: null, days: 0, pendingDetail: 0 }; }
 
@@ -264,9 +266,20 @@ export async function getSeasonStats(): Promise<{ tiles: SeasonTile[]; trackingS
     .filter((r) => r.max_gust_kt != null)
     .sort((a, b) => (b.max_gust_kt ?? 0) - (a.max_gust_kt ?? 0))[0];
 
-  // Rows written before the detail columns existed have no superlatives yet;
-  // say so rather than showing a confidently wrong "—".
-  const pendingDetail = rows.filter((r) => r.max_hail_in == null && r.max_gust_kt == null
+  // A day with no superlatives is usually not a gap at all.
+  //
+  // This used to count every such day and report them as "predating per-report
+  // detail", which was wrong twice over: 54 of them are days when nothing
+  // happened, and three more are days whose only reports were damage without a
+  // measured speed — SPC files those as UNK, so there genuinely is no peak gust
+  // to name. Neither is missing data.
+  //
+  // A real gap is a day that has reports, has no superlative, and has not been
+  // processed yet. Anything else is the truth about a quiet day.
+  const pendingDetail = rows.filter((r) =>
+    r.details_at == null
+    && (r.tornado ?? 0) + (r.hail ?? 0) + (r.wind ?? 0) > 0
+    && r.max_hail_in == null && r.max_gust_kt == null
     && Object.keys(r.state_tornadoes ?? {}).length === 0).length;
 
   // LABELS: only claim the calendar year when the ledger actually covers it.

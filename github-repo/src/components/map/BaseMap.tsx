@@ -18,9 +18,9 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { applyRoyalBasemap } from "../../lib/basemap";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 
-export const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+export const DARK_STYLE = STORMSYNC_DARK;
 
 export interface RasterOverlay {
   /** Stable id — changing it replaces the layer. */

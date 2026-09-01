@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
-import { applyRoyalBasemap } from "../lib/basemap";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 import {
@@ -20,7 +20,7 @@ export type DisplayMode = "likelihood" | "intensity";
 
 // Free, no-API-key vector basemap (CARTO). Smooth 60fps vector zoom/pan --
 // no raster tiles, no per-tile-load cost.
-const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_STYLE = STORMSYNC_DARK;
 
 function kindFor(hazard: Hazard, mode: DisplayMode): Kind {
   if (hazard === "cat") return "cat";

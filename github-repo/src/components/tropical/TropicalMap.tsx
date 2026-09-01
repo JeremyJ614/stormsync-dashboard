@@ -10,13 +10,14 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { STORMSYNC_DARK } from "../../lib/basemap";
 import {
   type Storm, type ConeData, type RadiiData, type ModelsData,
   type TrackPoint, type GtwoData, type ReconMission,
   intensityColor, GOLD,
 } from "../../lib/tropical";
 
-const BASEMAP = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const BASEMAP = STORMSYNC_DARK;
 
 /** NASA GIBS MUR SST. The product lags ~3 days, so the date is stepped back. */
 export function sstDate(): string {

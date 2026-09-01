@@ -11,6 +11,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { STORMSYNC_DARK } from "../lib/basemap";
 import { NHC_API } from "../config";
 import {
   ArrowLeft, Search, ChevronDown, ChevronUp,
@@ -46,20 +47,6 @@ type SortMode = "season" | "intensity";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 const KT_TO_MPH = 1.15078;
-
-const CARTO_DARK_STYLE: maplibregl.StyleSpecification = {
-  version: 8,
-  glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-  sources: {
-    carto: {
-      type: "raster",
-      tiles: ["https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"],
-      tileSize: 256,
-      attribution: "© CartoDB © OpenStreetMap",
-    },
-  },
-  layers: [{ id: "carto-tiles", type: "raster", source: "carto" }],
-};
 
 function trackColor(winds_kt: number): string {
   if (winds_kt >= 137) return "#d946ef";
@@ -100,7 +87,7 @@ function TrackMap({ storm, animateStep, onResetView, onFullscreen }: TrackMapPro
 
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: CARTO_DARK_STYLE,
+      style: STORMSYNC_DARK,
       center: [-60, 25],
       zoom: 3,
       attributionControl: false,

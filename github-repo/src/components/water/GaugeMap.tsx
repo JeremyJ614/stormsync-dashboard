@@ -6,11 +6,11 @@
 import { useEffect, useRef } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { applyRoyalBasemap } from "../../lib/basemap";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 import { FLOOD_STYLE, type GaugeSummary } from "../../lib/riverGauges";
 import { prefersReducedMotion } from "../../lib/royal";
 
-const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_STYLE = STORMSYNC_DARK;
 
 interface Props {
   gauges: GaugeSummary[];

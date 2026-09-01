@@ -13,11 +13,11 @@
 import { useEffect, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { applyRoyalBasemap } from "../../lib/basemap";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 import { riskOf, type Incident } from "../../lib/fireWeather";
 import { prefersReducedMotion } from "../../lib/royal";
 
-const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_STYLE = STORMSYNC_DARK;
 
 interface Props {
   features: GeoJSON.Feature[];

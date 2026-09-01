@@ -44,9 +44,9 @@ function labelToPct(label: string): number | null {
 // Free GPU-accelerated vector tile basemap — CARTO Dark Matter GL style.
 // Renders city labels, state names, international borders and coastlines
 // at 60fps via WebGL with zero API key required.
-import { applyRoyalBasemap } from "../lib/basemap";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
 
-const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_STYLE = STORMSYNC_DARK;
 
 type Status = "loading" | "ok" | "empty" | "error";
 
@@ -76,8 +76,9 @@ function ProbMap({
       scrollZoom: false,
       dragRotate: false,
       pitchWithRotate: false,
-      // Required so getCanvas().toBlob() works for download/share
-      preserveDrawingBuffer: true,
+      // Required so getCanvas().toBlob() works for download/share. MapLibre v5
+      // moved the WebGL context flags into their own bag.
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     });
 
     map.addControl(

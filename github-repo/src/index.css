@@ -551,3 +551,54 @@ h1 { letter-spacing: 0.02em; }
 @media (prefers-reduced-motion: reduce) {
   .sswx-badge-sheen { display: none; }
 }
+
+/* ── the news editor surface ───────────────────────────────────────────────
+   TipTap renders bare tags; the feed's own markup carries Tailwind utility
+   classes inline. So the editable area gets its own stylesheet, written to
+   match what renderMarkdown() produces — an admin writing a post is looking at
+   the post, not at an approximation of it. The same class dresses the preview
+   pane, which is the real renderer's output. */
+.sswx-editor { line-height: 1.65; }
+.sswx-editor > * + * { margin-top: 0.6em; }
+.sswx-editor h1 { font-size: 1.35rem; font-weight: 700; line-height: 1.25; margin-top: 0.85em; }
+.sswx-editor h2 { font-size: 1.15rem; font-weight: 700; line-height: 1.3; margin-top: 0.8em; }
+.sswx-editor h3 { font-size: 1rem;    font-weight: 700; line-height: 1.35; margin-top: 0.75em; }
+.sswx-editor ul { list-style: disc; padding-left: 1.35rem; }
+.sswx-editor ol { list-style: decimal; padding-left: 1.35rem; }
+.sswx-editor li { margin: 0.18em 0; }
+.sswx-editor li > * + * { margin-top: 0.25em; }
+.sswx-editor blockquote {
+  border-left: 2px solid rgba(217, 183, 117, 0.5);
+  padding-left: 0.85rem;
+  font-style: italic;
+  color: #a3a3cc;
+}
+.sswx-editor pre {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(204, 204, 255, 0.12);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.8em;
+}
+.sswx-editor code { font-size: 0.85em; }
+.sswx-editor :not(pre) > code {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.32em;
+}
+.sswx-editor hr { border: 0; border-top: 1px solid rgba(204, 204, 255, 0.14); margin: 1em 0; }
+.sswx-editor a { color: #d9b775; text-decoration: underline; }
+.sswx-editor img { border-radius: 0.5rem; border: 1px solid rgba(204, 204, 255, 0.12); max-width: 100%; height: auto; }
+.sswx-editor img.ProseMirror-selectednode { outline: 2px solid #d9b775; }
+/* The placeholder only shows on a genuinely empty document, so it never
+   flickers between paragraphs. Drawn from the root rather than from the empty
+   paragraph, because attr() reads the element it is written on. */
+.sswx-editor.ProseMirror { position: relative; }
+.sswx-editor.ProseMirror:has(> p:only-child:empty)::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0.75rem auto auto 0.75rem;
+  color: #6f7490;
+  pointer-events: none;
+}

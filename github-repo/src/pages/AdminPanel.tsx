@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { Link } from "wouter";
 import { renderMarkdown } from "../lib/markdown";
 import { useAuth, ALL_MODULES, HIDDEN_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
@@ -28,6 +28,9 @@ import { AdminUsageTab } from "../components/AdminUsageTab";
 import { AdminAuditTab } from "../components/AdminAuditTab";
 import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
 import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
+// Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
+// when somebody opens the News tab, not when they open the admin panel.
+const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
 import { getAdminLayout, resolveLayout, DEFAULT_LAYOUT, type AdminLayout } from "../lib/adminGroups";
 import { audit } from "../lib/adminAudit";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
@@ -37,7 +40,7 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
+import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, ListOrdered, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
 
 type Tab =
   | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
@@ -811,37 +814,22 @@ function NewsTab({ adminName }: { adminName: string }) {
   const [status, setStatus] = useState<NewsStatus>("published");
   const [schedule, setSchedule] = useState("");      // datetime-local string
   const [minTier, setMinTier] = useState(1);
-  const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => { try { setItems(await listAllNews()); } catch { /* empty state */ } }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  const readMin = Math.max(1, Math.round(words / 200));
-
-  // Wrap the current textarea selection with markdown markers (or insert a snippet).
-  function fmt(before: string, after = before, placeholder = "text") {
-    const el = bodyRef.current; if (!el) return;
-    const start = el.selectionStart, end = el.selectionEnd;
-    const sel = body.slice(start, end) || placeholder;
-    const next = body.slice(0, start) + before + sel + after + body.slice(end);
-    setBody(next);
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + sel.length); });
-  }
-
   function reset() {
     setEditingId(null); setTitle(""); setExcerpt(""); setCategory(""); setTags([]); setTagInput("");
     setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPinned(false);
-    setStatus("published"); setSchedule(""); setMinTier(1); setPreview(false);
+    setStatus("published"); setSchedule(""); setMinTier(1); 
   }
   function loadForEdit(p: NewsPost) {
     setEditingId(p.id); setTitle(p.title); setExcerpt(p.excerpt ?? ""); setCategory(p.category ?? "");
     setTags(p.tags); setTagInput(""); setBody(p.body); setImageUrl(p.imageUrl ?? "");
     setVideoUrl(p.videoUrl ?? ""); setEmbedHtml(p.embedHtml ?? ""); setPinned(p.pinned);
-    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier); setPreview(false);
+    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier); 
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   function addTag(raw: string) {
@@ -873,21 +861,6 @@ function NewsTab({ adminName }: { adminName: string }) {
   }
   async function togglePin(p: NewsPost) { await patchNews(p.id, { pinned: !p.pinned }); void refresh(); }
   async function toggleStatus(p: NewsPost) { await patchNews(p.id, { status: p.status === "published" ? "draft" : "published" }); void refresh(); }
-
-  const TOOLS: { icon: typeof Bold; title: string; run: () => void }[] = [
-    { icon: Bold, title: "Bold", run: () => fmt("**") },
-    { icon: Italic, title: "Italic", run: () => fmt("*") },
-    { icon: Strikethrough, title: "Strikethrough", run: () => fmt("~~") },
-    { icon: Heading2, title: "Heading", run: () => fmt("## ", "", "Heading") },
-    { icon: Heading3, title: "Subheading", run: () => fmt("### ", "", "Subheading") },
-    { icon: List, title: "Bullet list", run: () => fmt("- ", "", "list item") },
-    { icon: ListOrdered, title: "Numbered list", run: () => fmt("1. ", "", "list item") },
-    { icon: Quote, title: "Quote", run: () => fmt("> ", "", "quote") },
-    { icon: Code, title: "Code block", run: () => fmt("```\n", "\n```", "code") },
-    { icon: Link2, title: "Link", run: () => fmt("[", "](https://)", "link text") },
-    { icon: ImageIcon, title: "Inline image", run: () => fmt("![", "](https://)", "alt text") },
-    { icon: Minus, title: "Divider", run: () => fmt("\n---\n", "", "") },
-  ];
 
   const fieldCls = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
 
@@ -933,35 +906,16 @@ function NewsTab({ adminName }: { adminName: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-wrap border-y border-border py-2">
-          {TOOLS.map(t => (
-            <button key={t.title} type="button" title={t.title} onClick={t.run}
-              className="w-8 h-8 rounded bg-muted/40 border border-border hover:border-primary/50 hover:text-primary text-muted-foreground flex items-center justify-center">
-              <t.icon className="w-4 h-4" />
-            </button>
-          ))}
-          <button type="button" onClick={() => setPreview(p => !p)}
-            className={`ml-auto px-3 h-8 rounded border text-xs font-medium flex items-center gap-1 ${preview ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
-            {preview ? <><Pencil className="w-3 h-3" /> Edit</> : <><Eye className="w-3 h-3" /> Preview</>}
-          </button>
-        </div>
-
-        {preview ? (
-          <div className="bg-muted/10 border border-border rounded-lg p-4 space-y-2">
-            {imageUrl.trim() && <div className="rounded-lg overflow-hidden border border-border bg-black"><img src={imageUrl} alt="" loading="lazy" decoding="async" className="w-full h-auto" /></div>}
-            {category && <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">{category}</span>}
-            <h2 className="text-lg font-bold">{title || "Untitled post"}</h2>
-            {excerpt && <p className="text-sm text-muted-foreground italic">{excerpt}</p>}
-            <div className="text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(body || "_Nothing to preview yet._") }} />
-            {tags.length > 0 && <div className="flex flex-wrap gap-1 pt-1">{tags.map(t => <span key={t} className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">#{t}</span>)}</div>}
-          </div>
-        ) : (
-          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={8}
-            placeholder="Article body — Markdown: **bold**, *italic*, ~~strike~~, ## headings, 1. / - lists, > quotes, `code`, ```blocks```, [links](https://…), ![image](https://…), --- divider"
-            className={`${fieldCls} resize-y font-mono`} />
-        )}
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>Markdown supported · {words} words · ~{readMin} min read</span>
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 block">Article body</label>
+          <Suspense fallback={<div className="h-[300px] rounded-lg bg-muted/20 border border-border animate-pulse" />}>
+            <NewsEditor
+              value={body}
+              onChange={setBody}
+              resetToken={editingId ?? "new"}
+              placeholder="Write the post. Use the toolbar for headings, colour, size and links — no Markdown to remember."
+            />
+          </Suspense>
         </div>
 
         <div className="grid md:grid-cols-3 gap-2">

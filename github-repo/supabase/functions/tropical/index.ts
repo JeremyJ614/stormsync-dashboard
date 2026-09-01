@@ -844,9 +844,14 @@ export async function buildSatellite(lat: number, lon: number, opts: { zoom: num
   const TILE = 678, grid = 2 ** zoom, full = TILE * grid;
 
   // Prefer the satellite whose sub-point is nearest; fall back if off-disk.
+  //
+  // This comparator was inverted, and the effect was not subtle. For a storm in
+  // the Gulf at 93.8W, GOES-East sits 18.6 degrees away and GOES-West 43.2 —
+  // and the loop was built from West, which sees the Gulf near its limb. The
+  // frames came back showing the curve of the Earth rather than the hurricane.
   const ordered = [...SATS].sort((a, b) => {
     const d = (s: typeof a) => Math.abs(((lon - s.subLon + 540) % 360) - 180);
-    return d(b) - d(a);
+    return d(a) - d(b);
   });
   let sat = null, pos = null;
   for (const s of ordered) {

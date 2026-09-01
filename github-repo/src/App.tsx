@@ -81,6 +81,8 @@ const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"
 const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"), "/duel");
 const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glossary");
 const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
+const Chases = lazyRoute(() => import("./pages/Chases"), "/chases");
+const FloodOutlook = lazyRoute(() => import("./pages/FloodOutlook"), "/flooding");
 const WinterCenter = lazyRoute(() => import("./pages/WinterCenter"), "/winter");
 const TrafficCameras = lazyRoute(() => import("./pages/TrafficCameras"), "/cameras");
 // Lazy on purpose: most sessions are by members who have already seen this, and
@@ -215,6 +217,8 @@ function AppInner() {
         <Route path="/duel" component={() => <PW name="AI Forecast Duel"><Gated path="/duel"><AIForecastDuel location={location} /></Gated></PW>} />
         <Route path="/glossary" component={() => <PW name="Glossary"><Gated path="/glossary"><WeatherGlossary /></Gated></PW>} />
         <Route path="/chasing" component={() => <PW name="Storm Chasing"><Gated path="/chasing"><StormChasingOutlook location={location} /></Gated></PW>} />
+        <Route path="/chases" component={() => <PW name="StormSync Chases"><Gated path="/chases"><Chases /></Gated></PW>} />
+        <Route path="/flooding" component={() => <PW name="Flooding Outlook"><Gated path="/flooding"><FloodOutlook location={location} /></Gated></PW>} />
         <Route path="/winter" component={() => <PW name="Winter Center"><Gated path="/winter"><WinterCenter location={location} /></Gated></PW>} />
         <Route path="/cameras" component={() => <PW name="Traffic Cameras"><Gated path="/cameras"><TrafficCameras location={location} /></Gated></PW>} />
         <Route path="/mosquito" component={() => <PW name="Mosquito Index"><Gated path="/mosquito"><MosquitoIndex location={location} /></Gated></PW>} />

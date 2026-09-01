@@ -636,3 +636,9 @@ html, body {
 @keyframes sswx-medal-turn { to { transform: rotate(360deg); } }
 .sswx-medal-turn { animation: sswx-medal-turn 4.5s linear infinite; }
 @media (prefers-reduced-motion: reduce) { .sswx-medal-turn { animation: none; } }
+
+/* The rain drift on the flooding outlook's headline card. Slow and shallow —
+   it is a texture, not an animation anybody should notice. */
+@keyframes sswx-ero-rain { to { background-position: 120px 260px; } }
+.sswx-ero-rain { animation: sswx-ero-rain 9s linear infinite; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .sswx-ero-rain { animation: none; } }

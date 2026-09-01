@@ -82,6 +82,7 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/glossary", label: "Weather Glossary" },
   { id: "/chasing", label: "Storm Chasing" },
   { id: "/chases", label: "StormSync Chases" },
+  { id: "/flooding", label: "Flooding Outlook" },
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },
   { id: "/game", label: "Forecast Game" },

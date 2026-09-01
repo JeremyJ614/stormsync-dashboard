@@ -10,6 +10,9 @@ export const NHC_API = `${SUPABASE_URL ?? ""}/functions/v1/nhc`;
 // Tropical aggregator: NHC GIS shapefiles, ATCF decks, recon and GOES imagery.
 export const TROPICAL_API = `${SUPABASE_URL ?? ""}/functions/v1/tropical`;
 
+/** WPC Excessive Rainfall Outlook, unzipped and reprojected into GeoJSON. */
+export const FLOOD_API = `${SUPABASE_URL ?? ""}/functions/v1/flood-outlook`;
+
 export const OPEN_METEO_BASE = "https://api.open-meteo.com/v1/forecast";
 export const NWS_BASE = "https://api.weather.gov";
 export const SPC_BASE = "https://www.spc.noaa.gov";

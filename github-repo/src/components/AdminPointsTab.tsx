@@ -13,6 +13,7 @@ import { adjustPoints, getMemberLedger, getMemberTotals, type LedgerRow } from "
 import { audit } from "../lib/adminAudit";
 import type { User } from "../hooks/useAuth";
 import { ROYAL, EASE } from "../lib/royal";
+import { AdminChampionsCard } from "./admin/AdminChampionsCard";
 
 const SOURCE_LABEL: Record<string, string> = {
   forecast_game: "Forecast Game",
@@ -74,6 +75,8 @@ export function AdminPointsTab() {
   }
 
   return (
+    <div className="space-y-4">
+    <AdminChampionsCard />
     <div className="grid lg:grid-cols-[320px_1fr] gap-4 items-start">
       {/* Member picker */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -224,6 +227,7 @@ export function AdminPointsTab() {
           )}
         </AnimatePresence>
       </div>
+    </div>
     </div>
   );
 }

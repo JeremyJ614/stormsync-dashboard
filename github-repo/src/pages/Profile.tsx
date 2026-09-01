@@ -11,6 +11,7 @@ import { StormAlertsCard } from "../components/StormAlertsCard";
 import { InstallApp } from "../components/InstallApp";
 import { AlertSettings } from "../components/alerts/AlertSettings";
 import { PhoneSettingsCard } from "../components/PhoneSettingsCard";
+import { RaffleTicketsCard } from "../components/RaffleTicketsCard";
 import { ReplayIntroCard } from "../components/intro/ReplayIntroCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
@@ -145,6 +146,9 @@ export default function Profile() {
 
       {/* Appearance — themes + accent (L4) */}
       <AppearancePanel />
+
+      {/* Raffle tickets */}
+      <RaffleTicketsCard />
 
       {/* Phone-only settings */}
       <PhoneSettingsCard />

@@ -31,6 +31,7 @@ import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
 import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { AdminTiersTab } from "../components/admin/AdminTiersTab";
 import { AdminChasesTab } from "../components/admin/AdminChasesTab";
+import { AdminRafflesTab } from "../components/admin/AdminRafflesTab";
 // Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
 // when somebody opens the News tab, not when they open the admin panel.
 const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
@@ -43,12 +44,12 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Crown, Route, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, ListOrdered, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
+import { Shield, Users, Crown, Route, Ticket, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, ListOrdered, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
 
 type Tab =
   | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
   | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings"
-  | "money" | "health" | "usage" | "audit" | "tiers" | "chases";
+  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles";
 
 /**
  * Every tab that exists, as data.
@@ -63,6 +64,7 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
   { id: "signups",    label: "Signups",           icon: ClipboardList },
   { id: "alerts",     label: "Alert Opt-ins",     icon: BellRing },
   { id: "points",     label: "Points",            icon: Trophy },
+  { id: "raffles",    label: "Raffles",           icon: Ticket },
   { id: "badges",     label: "Badges",            icon: Award },
   { id: "tiers",      label: "Tiers",             icon: Crown },
   { id: "money",      label: "Money",             icon: DollarSign },
@@ -158,6 +160,7 @@ export default function AdminPanel() {
       {tab === "chases" && <AdminChasesTab />}
       {tab === "trivia" && <AdminTriviaTab />}
       {tab === "points" && <AdminPointsTab />}
+      {tab === "raffles" && <AdminRafflesTab />}
       {tab === "faq" && <FaqTab />}
       {tab === "billing" && <AdminBillingTab />}
       {tab === "invoices" && <AdminInvoicesTab />}

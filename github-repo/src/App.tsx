@@ -12,6 +12,8 @@ import SplashScreen from "./components/SplashScreen";
 import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
+import { PullToRefresh } from "./components/PullToRefresh";
+import { ScrollMemory } from "./components/ScrollMemory";
 import { UpdateChip } from "./components/UpdateChip";
 import { ViewAsBanner } from "./components/ViewAsBanner";
 import { AnimatePresence, LayoutGroup } from "framer-motion";
@@ -227,6 +229,8 @@ function AppInner() {
       <InstallPrompt />
       <UpdateChip />
       <ViewAsBanner />
+      <PullToRefresh />
+      <ScrollMemory />
     </Layout>
     </>
   );

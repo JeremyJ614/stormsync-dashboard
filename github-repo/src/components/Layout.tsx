@@ -16,6 +16,7 @@ import { MenuHost } from "./nav/MenuHost";
 import { useMenuNav } from "./nav/menus/useMenuNav";
 import { subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot, styleFor } from "../lib/menuStyle";
 import { SavedLocations } from "./SavedLocations";
+import { OfflineBar } from "./OfflineBar";
 import { NotificationBell } from "./NotificationBell";
 import { MorphToggle } from "./nav/MorphToggle";
 import { NavItem } from "./nav/NavItem";
@@ -385,8 +386,15 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
       >
 
         {/* Header */}
+        {/* `paddingTop` is the notch. With `viewport-fit=cover` set and the iOS
+            status bar translucent, the header sits *under* the clock unless it
+            pays for it here. */}
         <header className="sticky top-0 z-20 backdrop-blur-xl border-b relative"
-                style={{ background: "hsl(var(--background) / 0.82)", borderColor: "hsl(var(--border) / 0.9)" }}>
+                style={{
+                  background: "hsl(var(--background) / 0.82)",
+                  borderColor: "hsl(var(--border) / 0.9)",
+                  paddingTop: "env(safe-area-inset-top, 0px)",
+                }}>
           <span aria-hidden className="absolute inset-x-0 bottom-0 h-px"
                 style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
           <div className="flex items-center gap-3 px-4 py-2">
@@ -471,7 +479,16 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
           </div>
         </header>
 
-        <main className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto">{children}</main>
+        <OfflineBar />
+
+        {/* The home indicator eats the last ~34px of the screen on a modern
+            iPhone. Without this the final row of every page is under it. */}
+        <main
+          className="flex-1 min-w-0 overflow-x-hidden overflow-y-auto"
+          style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

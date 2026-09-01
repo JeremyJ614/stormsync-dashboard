@@ -317,7 +317,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
         aria-expanded={open}
         className="absolute grid place-items-center rounded-full overflow-hidden"
         style={{
-          right: 22, bottom: 22, width: 56, height: 56, zIndex: 80,
+          right: 22, bottom: "calc(22px + env(safe-area-inset-bottom, 0px))", width: 56, height: 56, zIndex: 80,
           background: open ? "rgba(180,69,31,0.92)" : "rgba(8,8,18,0.92)",
           border: `1px solid ${open ? "rgba(255,255,255,0.35)" : ROYAL.goldSoft}`,
           color: open ? "#fff" : ROYAL.gold,

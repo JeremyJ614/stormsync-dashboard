@@ -10,6 +10,7 @@ import { AppearancePanel } from "../components/AppearancePanel";
 import { StormAlertsCard } from "../components/StormAlertsCard";
 import { InstallApp } from "../components/InstallApp";
 import { AlertSettings } from "../components/alerts/AlertSettings";
+import { PhoneSettingsCard } from "../components/PhoneSettingsCard";
 import { ReplayIntroCard } from "../components/intro/ReplayIntroCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
@@ -144,6 +145,9 @@ export default function Profile() {
 
       {/* Appearance — themes + accent (L4) */}
       <AppearancePanel />
+
+      {/* Phone-only settings */}
+      <PhoneSettingsCard />
 
       {/* My Locations */}
       <div className="bg-card border border-border rounded-xl p-4">

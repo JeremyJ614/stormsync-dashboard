@@ -602,3 +602,31 @@ h1 { letter-spacing: 0.02em; }
   color: #6f7490;
   pointer-events: none;
 }
+
+/* ── phone behaviour ───────────────────────────────────────────────────────
+   This is an app people open on a phone in a field, and these are the four
+   browser defaults that give that away. */
+
+/* Rubber-banding the whole document behind the app is what makes a web page
+   feel like a web page. Pull-to-refresh owns the top of the screen instead. */
+html, body {
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* iOS zooms the viewport when a text field smaller than 16px takes focus, and
+   never zooms back out. Only the fields that actually take typing are raised —
+   the number steppers and dense admin grids keep their size, because they are
+   tapped rather than typed into. */
+@media (max-width: 640px) {
+  input[type="text"], input[type="email"], input[type="search"], input[type="url"],
+  input[type="tel"], input[type="password"], input:not([type]), textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* A tap that lights up a grey box 300ms later reads as a stuck button. */
+* { -webkit-tap-highlight-color: transparent; }
+
+@keyframes sswx-ptr-spin { to { transform: rotate(360deg); } }

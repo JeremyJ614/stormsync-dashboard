@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useAuth } from "../../../hooks/useAuth";
 import { useNavSections, type NavSection } from "../../../lib/navModel";
 import { useCalm } from "../../../lib/calm";
+import { haptic } from "../../../lib/haptics";
 import type { Location } from "../../../hooks/useLocation";
 
 /**
@@ -36,12 +37,15 @@ export function useMenuNav(location: Location): MenuNav {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { calm } = useCalm(location.lat, location.lon);
 
+  // Haptics live here rather than in each of the eight menu styles, so every
+  // one of them buzzes the same way for the same action.
   const close = useCallback(() => { setOpen(false); setSection(null); }, []);
   const toggle = useCallback(() => {
+    haptic("select");
     setOpen((o) => { if (o) setSection(null); return !o; });
   }, []);
-  const openSection = useCallback((i: number) => setSection(i), []);
-  const back = useCallback(() => setSection(null), []);
+  const openSection = useCallback((i: number) => { haptic("tick"); setSection(i); }, []);
+  const back = useCallback(() => { haptic("tick"); setSection(null); }, []);
 
   // Navigating away always closes: a menu that survives the page it opened is a
   // menu covering the thing you just asked for.

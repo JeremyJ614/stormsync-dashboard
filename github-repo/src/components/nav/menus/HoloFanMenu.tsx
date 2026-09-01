@@ -295,7 +295,7 @@ export function HoloFanMenu({ nav }: { nav: MenuNav }) {
         aria-expanded={open}
         className="absolute grid place-items-center rounded-full"
         style={{
-          left: "50%", bottom: 22, marginLeft: -30, width: 60, height: 60, zIndex: 80,
+          left: "50%", bottom: "calc(22px + env(safe-area-inset-bottom, 0px))", marginLeft: -30, width: 60, height: 60, zIndex: 80,
           background: open ? "rgba(180,69,31,0.92)" : "rgba(8,8,18,0.92)",
           border: `1px solid ${open ? "rgba(255,255,255,0.35)" : ROYAL.goldSoft}`,
           backdropFilter: "blur(10px)",

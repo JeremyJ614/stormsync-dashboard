@@ -252,7 +252,7 @@ export function GooeyFabMenu({ nav }: { nav: MenuNav }) {
       {!open && !calm && (
         <motion.span
           className="absolute rounded-full pointer-events-none"
-          style={{ right: 22, bottom: 22, width: 62, height: 62, border: `1px solid ${ROYAL.gold}` }}
+          style={{ right: 22, bottom: "calc(22px + env(safe-area-inset-bottom, 0px))", width: 62, height: 62, border: `1px solid ${ROYAL.gold}` }}
           animate={{ scale: [1, 1.35], opacity: [0.55, 0] }}
           transition={{ duration: 2.2, repeat: Infinity, ease: EASE }}
           aria-hidden

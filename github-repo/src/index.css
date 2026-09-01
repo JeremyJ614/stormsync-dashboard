@@ -630,3 +630,9 @@ html, body {
 * { -webkit-tap-highlight-color: transparent; }
 
 @keyframes sswx-ptr-spin { to { transform: rotate(360deg); } }
+
+/* Legendary badges get a light that keeps turning on the rim. One element, one
+   transform, and it stops entirely under reduced motion. */
+@keyframes sswx-medal-turn { to { transform: rotate(360deg); } }
+.sswx-medal-turn { animation: sswx-medal-turn 4.5s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .sswx-medal-turn { animation: none; } }

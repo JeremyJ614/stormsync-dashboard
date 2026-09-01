@@ -30,11 +30,17 @@ interface BadgeRow {
   color: string;
   description: string;
   badge_group: string;
+  icon: string | null;
+  rarity: string | null;
 }
+
+const RARITIES = ["common", "rare", "epic", "legendary"] as const;
 
 function rowToBadge(r: BadgeRow): BadgeDef {
   const group = (["Role", "Tier", "Achievement"].includes(r.badge_group) ? r.badge_group : "Achievement") as BadgeDef["group"];
-  return { id: r.id, label: r.label, color: r.color, description: r.description, group };
+  const rarity = (RARITIES as readonly string[]).includes(r.rarity ?? "")
+    ? (r.rarity as BadgeDef["rarity"]) : "common";
+  return { id: r.id, label: r.label, color: r.color, description: r.description, group, icon: r.icon, rarity };
 }
 
 export async function listBadgeDefs(): Promise<BadgeDef[]> {
@@ -66,7 +72,8 @@ export async function createBadge(input: Omit<BadgeDef, "id"> & { id?: string })
   const id = (input.id?.trim() || slugifyBadgeId(input.label));
   if (!id) return { ok: false, error: "Could not derive a badge id from the label" };
   const { error } = await supabase.from("badge_defs").insert({
-    id, label: input.label.trim(), color: input.color, description: input.description.trim(), badge_group: input.group,
+    id, label: input.label.trim(), color: input.color, description: input.description.trim(),
+    badge_group: input.group, icon: input.icon ?? null, rarity: input.rarity ?? "common",
   });
   if (error) {
     const msg = error.code === "23505" ? `A badge with id "${id}" already exists` : error.message;
@@ -80,7 +87,8 @@ export async function updateBadge(id: string, patch: Omit<BadgeDef, "id">): Prom
   const invalid = validateBadge(patch);
   if (invalid) return { ok: false, error: invalid };
   const { error } = await supabase.from("badge_defs").update({
-    label: patch.label.trim(), color: patch.color, description: patch.description.trim(), badge_group: patch.group,
+    label: patch.label.trim(), color: patch.color, description: patch.description.trim(),
+    badge_group: patch.group, icon: patch.icon ?? null, rarity: patch.rarity ?? "common",
   }).eq("id", id);
   if (error) {
     logger.error("Failed to update badge", { scope: "badges", error });

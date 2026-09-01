@@ -39,6 +39,10 @@ export interface BadgeDef {
   color: string;
   description: string;
   group: "Role" | "Tier" | "Achievement";
+  /** Name from the curated set in lib/badgeIcons.ts. Null falls back to a default. */
+  icon?: string | null;
+  /** common | rare | epic | legendary — how ornate the medallion is. */
+  rarity?: "common" | "rare" | "epic" | "legendary";
 }
 
 // `adminOnly` modules are visible and reachable ONLY for admins — they are hidden

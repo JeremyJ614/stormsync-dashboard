@@ -105,7 +105,7 @@ export default function Profile() {
           <p className="text-xs text-muted-foreground">No badges yet — earn them through referrals, game wins, and community milestones.</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {badges.map(id => <BadgeChip key={id} id={id} defs={badgeDefs} size="md" />)}
+            {badges.map(id => <BadgeChip key={id} id={id} defs={badgeDefs} size="md" showLabel />)}
           </div>
         )}
       </div>

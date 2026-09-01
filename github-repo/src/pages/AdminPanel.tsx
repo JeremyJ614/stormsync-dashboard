@@ -15,6 +15,7 @@ import {
 } from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
+import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
 import { AdminNavTab } from "../components/AdminNavTab";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
@@ -377,6 +378,8 @@ function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
   const [color, setColor] = useState(initial.color);
   const [description, setDescription] = useState(initial.description);
   const [group, setGroup] = useState<BadgeDef["group"]>(initial.group);
+  const [icon, setIcon] = useState(initial.icon ?? "award");
+  const [rarity, setRarity] = useState<NonNullable<BadgeDef["rarity"]>>(initial.rarity ?? "common");
   // A badge with no rule is awarded by hand, which is still the right answer for
   // the honorary ones — so automation is opt-in rather than assumed.
   const [auto, setAuto] = useState(Boolean(rule));
@@ -385,7 +388,7 @@ function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
   const [region, setRegion] = useState(rule?.param ?? BADGE_REGIONS[0].key);
   const [ruleOn, setRuleOn] = useState(rule?.enabled ?? true);
   const kindMeta = BADGE_KINDS.find((k) => k.kind === kind);
-  const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group };
+  const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group, icon, rarity };
 
   return (
     <div className="space-y-2 bg-muted/20 rounded-lg p-3">
@@ -406,7 +409,35 @@ function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
           className="w-9 h-8 bg-transparent border border-border rounded cursor-pointer p-0.5" />
         <input value={color} onChange={e => setColor(e.target.value)} placeholder="#22d3ee" maxLength={7}
           className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs font-mono" />
-        <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="md" /></span>
+        <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="lg" /></span>
+      </div>
+
+      {/* ── how it looks ───────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-border/70 p-2.5 space-y-2" style={{ background: "rgba(255,255,255,0.02)" }}>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Face</div>
+        <div className="flex flex-wrap gap-1">
+          {BADGE_ICON_NAMES.map((n) => {
+            const I = iconFor(n);
+            const on = icon === n;
+            return (
+              <button key={n} type="button" onClick={() => setIcon(n)} title={n}
+                className={`w-8 h-8 grid place-items-center rounded-md border ${
+                  on ? "border-primary/60 bg-primary/15 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                <I className="w-4 h-4" />
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground pt-1">Rarity</div>
+        <div className="flex flex-wrap gap-1.5">
+          {RARITY.map((r) => (
+            <button key={r.key} type="button" onClick={() => setRarity(r.key)} title={r.blurb}
+              className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold ${
+                rarity === r.key ? "border-primary/60 bg-primary/15 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+              {r.label}
+            </button>
+          ))}
+        </div>
       </div>
       {/* ── what earns it ─────────────────────────────────────────────── */}
       <div className="rounded-lg border border-border/70 p-2.5 space-y-2" style={{ background: "rgba(255,255,255,0.02)" }}>
@@ -453,7 +484,7 @@ function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
         <button onClick={onCancel} className="px-3 py-1 rounded bg-muted/30 border border-border text-xs">Cancel</button>
         <button
           onClick={() => onSave(
-            { label, color, description, group },
+            { label, color, description, group, icon, rarity },
             auto
               ? { badgeId: initial.id ?? "", kind, threshold: Number(threshold) || 0, param: region, enabled: ruleOn }
               : null,

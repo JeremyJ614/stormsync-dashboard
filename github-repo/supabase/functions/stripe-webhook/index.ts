@@ -57,8 +57,12 @@ async function grantPaidPlan(meta, stripeCustomerId) {
   const period = meta.period ?? "monthly";
   let enabledModules = [];
   if (tier === "advanced") {
-    const { data: allMods } = await admin.from("module_addon_prices").select("module_id");
-    enabledModules = (allMods ?? []).map((m)=>m.module_id);
+    // Every module on the menu, from the one definition of that in the
+    // database. This used to read `module_addon_prices`, which is the add-on
+    // price sheet rather than the menu — five modules short on the day
+    // somebody paid for "everything".
+    const { data: allMods } = await admin.rpc("tier_module_defaults", { t: 4 });
+    enabledModules = (allMods ?? []) as string[];
   } else {
     const { data: cfgRow } = await admin.from("billing_config").select("value").eq("key", "tier_bundled_modules").maybeSingle();
     const bundled = tier === "basic" ? cfgRow?.value?.basic ?? [] : tier === "vip" ? cfgRow?.value?.vip ?? [] : [];

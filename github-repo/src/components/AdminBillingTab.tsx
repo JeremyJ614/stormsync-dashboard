@@ -8,7 +8,7 @@ import {
   TIER_KEYS, type TierKey,
   getTierPricing, saveTierPricing, type TierPricing,
   getLifetimeDeals, saveLifetimeDeals, type LifetimeDeals, type LifetimeDeal,
-  getTierModuleConfig, saveTierModuleConfig, type TierModuleConfig,
+  getTierModuleConfig, saveTierModuleConfig, syncAdvancedModules, type TierModuleConfig,
   listModuleAddonPrices, upsertModuleAddonPrice, deleteModuleAddonPrice, type ModuleAddonPrice,
   listCoupons, createCoupon, updateCoupon, deleteCoupon, COUPON_KIND_LABELS, type Coupon, type CouponKind,
   getPromoCounter, savePromoCounter, type PromoCounter,
@@ -238,10 +238,50 @@ function TierBundlesCard() {
         </div>
       ))}
 
+      <AdvancedEverythingCard />
+
       {err && <p className="text-xs text-red-400">{err}</p>}
       <button onClick={save} className="px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold hover:bg-primary/30 flex items-center gap-1.5">
         <Save className="w-3.5 h-3.5" /> {saved ? "Saved ✓" : "Save tier bundles"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * Advanced has no bundle to edit — it is every module, by rule. This says so,
+ * and offers the repair for the cases the rule cannot reach on its own.
+ */
+function AdvancedEverythingCard() {
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true); setMsg(null);
+    const r = await syncAdvancedModules();
+    setBusy(false);
+    setMsg(r.ok
+      ? r.changed === 0 ? "Everyone was already up to date." : `Topped up ${r.changed} member${r.changed === 1 ? "" : "s"}.`
+      : r.error);
+  }
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 space-y-2">
+      <h3 className="text-sm font-semibold flex items-center gap-2">
+        <Layers className="w-4 h-4 text-primary" /> Advanced's modules
+      </h3>
+      <p className="text-xs text-muted-foreground">
+        Advanced is every module on the menu — there is no list to keep here. Anything added to the
+        sidebar is granted to every Advanced member the moment it appears, and access is decided by
+        the tier itself rather than by a saved list, so it cannot go stale.
+      </p>
+      <div className="flex items-center gap-2 flex-wrap pt-1">
+        <button onClick={run} disabled={busy}
+          className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border text-xs font-medium hover:border-primary/40 disabled:opacity-50">
+          {busy ? "Checking…" : "Re-check every Advanced member"}
+        </button>
+        {msg && <span className="text-xs text-muted-foreground">{msg}</span>}
+      </div>
     </div>
   );
 }

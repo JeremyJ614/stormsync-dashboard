@@ -264,3 +264,21 @@ export async function savePromoCounter(v: PromoCounter): Promise<MutationResult>
   if (error) { logger.error("savePromoCounter failed", { scope: "billingAdmin", error }); return { ok: false, error: error.message }; }
   return { ok: true };
 }
+
+/**
+ * Put every Advanced member back on the full module list.
+ *
+ * New modules reach Advanced automatically — a trigger on the menu table grants
+ * them the moment a module is added. This is for the cases a trigger cannot
+ * see: a module renamed by hand, a profile edited before the rule existed, a
+ * list that drifted for any other reason. Returns how many members changed.
+ */
+export async function syncAdvancedModules(): Promise<{ ok: true; changed: number } | { ok: false; error: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+  const { data, error } = await supabase.rpc("admin_sync_advanced_modules");
+  if (error) {
+    logger.error("syncAdvancedModules failed", { scope: "billingAdmin", error });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, changed: Number(data ?? 0) };
+}

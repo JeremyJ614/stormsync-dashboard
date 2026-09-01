@@ -62,7 +62,13 @@ async function authorize(req: Request): Promise<boolean | Response> {
 interface OwnerEvent {
   id: string; category: string; title: string; body: string; link: string | null;
 }
-interface Sub { endpoint: string; keys: { p256dh: string; auth: string }; user_id: string }
+interface Sub {
+  id: string; endpoint: string; keys: { p256dh: string; auth: string }; user_id: string;
+  user_agent: string | null; created_at: string; last_ack_at: string | null;
+}
+
+/** The push service, from the endpoint. Never the token — that is a secret. */
+const hostOf = (endpoint: string) => endpoint.split("://")[1]?.split("/")[0] ?? "unknown";
 
 /** The emoji is the whole message on a lock screen, so it does some work. */
 const MARK: Record<string, string> = {
@@ -89,24 +95,43 @@ Deno.serve(async (req: Request) => {
   if (adminIds.length === 0) return json({ ok: true, admins: 0, sent: 0 });
 
   const { data: subsData } = await admin
-    .from("push_subscriptions").select("endpoint,keys,user_id").in("user_id", adminIds);
+    .from("push_subscriptions")
+    .select("id,endpoint,keys,user_id,user_agent,created_at,last_ack_at")
+    .in("user_id", adminIds);
   const subs = (subsData ?? []) as Sub[];
 
-  async function pushAll(payload: Record<string, unknown>): Promise<{ sent: number; removed: number }> {
-    let sent = 0, removed = 0;
+  const ackUrl = `${SUPABASE_URL}/functions/v1/push-ack`;
+
+  async function pushAll(payload: Record<string, unknown>): Promise<{ sent: number; removed: number; failed: number }> {
+    let sent = 0, removed = 0, failed = 0;
+    const reached: string[] = [];
     for (const s of subs) {
       try {
-        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, JSON.stringify(payload));
+        // The endpoint travels inside the payload, which is encrypted end to end
+        // — the push service cannot read it, and already knows it anyway, since
+        // it is their own URL. It is what lets the device acknowledge without a
+        // second lookup that can come back empty.
+        const body = payload.ackUrl ? { ...payload, endpoint: s.endpoint } : payload;
+        await webpush.sendNotification({ endpoint: s.endpoint, keys: s.keys }, JSON.stringify(body));
         sent++;
+        reached.push(s.endpoint);
       } catch (e) {
         const status = (e as { statusCode?: number }).statusCode;
         if (status === 404 || status === 410) {
           await admin.from("push_subscriptions").delete().eq("endpoint", s.endpoint);
           removed++;
+        } else {
+          failed++;
         }
       }
     }
-    return { sent, removed };
+    // Stamped so the admin card can say "accepted 3s ago, never acknowledged",
+    // which is the shape of a dead registration.
+    if (reached.length) {
+      await admin.from("push_subscriptions")
+        .update({ last_push_at: new Date().toISOString() }).in("endpoint", reached);
+    }
+    return { sent, removed, failed };
   }
 
   // A one-off, to prove the chain works without waiting for somebody to sign up.
@@ -114,9 +139,18 @@ Deno.serve(async (req: Request) => {
     const r = await pushAll({
       title: "✅ Owner notifications are on",
       body: "This is what a signup, a message or a sale will look like.",
-      url: "/admin", tag: "owner-test",
+      url: "/admin", tag: "owner-test", ackUrl,
     });
-    return json({ ok: true, test: true, admins: adminIds.length, devices: subs.length, ...r });
+    // The devices themselves, so "it said it sent and nothing arrived" has an
+    // answer on screen instead of being a mystery.
+    const devices = subs.map((s) => ({
+      id: s.id,
+      host: hostOf(s.endpoint),
+      userAgent: s.user_agent,
+      registeredAt: s.created_at,
+      lastAckAt: s.last_ack_at,
+    }));
+    return json({ ok: true, test: true, admins: adminIds.length, devices: subs.length, deviceList: devices, ...r });
   }
 
   const { data: pending, error } = await admin.rpc("owner_events_pending", { p_limit: body.limit ?? 40 });

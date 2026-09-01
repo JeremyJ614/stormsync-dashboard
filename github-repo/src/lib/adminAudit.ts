@@ -15,7 +15,7 @@ import { logger } from "./logger";
 
 export type AuditAction =
   | "user.create" | "user.delete" | "user.tier" | "user.modules" | "user.badges"
-  | "user.pin" | "user.referrals" | "user.viewas" | "user.submit_as"
+  | "user.pin" | "user.referrals" | "user.viewas" | "user.submit_as" | "user.tier.bulk"
   | "points.grant" | "points.deduct"
   | "billing.prices" | "billing.coupon" | "billing.promo" | "billing.referral"
   | "nav.reorder" | "nav.groups"

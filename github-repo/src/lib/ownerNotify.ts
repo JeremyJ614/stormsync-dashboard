@@ -75,15 +75,22 @@ export async function recentOwnerEvents(limit = 25): Promise<OwnerEvent[]> {
 /**
  * Push one test notification to every admin device, right now.
  *
- * Worth having as a button rather than a promise in a docstring: the chain runs
- * through a service worker, a subscription and a third-party push service, and
- * the only honest way to know it works on a given phone is to make it buzz.
+ * `sent` counts what the push service *accepted*, which is not the same as
+ * what arrived — a push service returns 201 for any subscription it still
+ * recognises, including one belonging to a browser profile that was wiped
+ * months ago. Delivery is proven separately, by the device acknowledging the
+ * push through `push-ack`; the card polls `last_ack_at` after calling this.
  */
-export async function sendOwnerTestPush(): Promise<{ ok: boolean; devices?: number; sent?: number; error?: string }> {
+export async function sendOwnerTestPush(): Promise<{ ok: boolean; devices?: number; sent?: number; failed?: number; error?: string }> {
   const { data, error } = await supabase.functions.invoke("owner-dispatch", { body: { test: true } });
   if (error) return { ok: false, error: "Could not reach the notifier." };
   if (!data?.ok) return { ok: false, error: data?.error ?? "The notifier refused." };
-  return { ok: true, devices: Number(data.devices ?? 0), sent: Number(data.sent ?? 0) };
+  return {
+    ok: true,
+    devices: Number(data.devices ?? 0),
+    sent: Number(data.sent ?? 0),
+    failed: Number(data.failed ?? 0),
+  };
 }
 
 /** Drain the queue immediately rather than waiting for the two-minute cron. */

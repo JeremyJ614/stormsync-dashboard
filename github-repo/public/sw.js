@@ -9,7 +9,7 @@
 // version plus cache-first meant a stale index.html could keep pointing at
 // chunk hashes that no longer exist after a deploy — every route is a lazy
 // import, so that renders as a page that simply never appears.
-const CACHE_VERSION = "sswx-v4";
+const CACHE_VERSION = "sswx-v6";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
@@ -110,7 +110,30 @@ self.addEventListener("push", (event) => {
     vibrate: [200, 100, 200],
     requireInteraction: data.severe === true,
   };
-  event.waitUntil(self.registration.showNotification(title, options));
+  // Delivery receipt. A push service returns 201 for any subscription it still
+  // recognises, including one belonging to a browser profile wiped months ago —
+  // so the server cannot tell "delivered" from "accepted". The device can, and
+  // says so here.
+  //
+  // The endpoint comes from the payload rather than from getSubscription(): the
+  // server addressed this push to that endpoint, the payload is encrypted end to
+  // end, and it means the receipt does not depend on a second async lookup that
+  // can come back empty. getSubscription() is only the fallback.
+  //
+  // Best-effort throughout — a failed receipt must never cost the notification,
+  // which is why showNotification is the thing that has to succeed.
+  const ack = data.ackUrl
+    ? Promise.resolve(data.endpoint || self.registration.pushManager.getSubscription().then((s) => s && s.endpoint))
+        .then((endpoint) => endpoint && fetch(data.ackUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ endpoint }),
+          keepalive: true,
+        }))
+        .catch(() => {})
+    : Promise.resolve();
+
+  event.waitUntil(Promise.all([self.registration.showNotification(title, options), ack]));
 });
 
 self.addEventListener("notificationclick", (event) => {

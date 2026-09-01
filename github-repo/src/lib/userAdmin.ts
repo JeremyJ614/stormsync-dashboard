@@ -89,6 +89,28 @@ async function updateProfile(id: string, patch: Record<string, unknown>): Promis
   return { ok: true };
 }
 
+/**
+ * Move several people to a tier in one transaction.
+ *
+ * `keepModules` decides whether the move rewrites their module list or adds to
+ * it. Rewriting is right for a sale; adding is right for a correction, where an
+ * admin who hand-picked somebody's modules should not lose the picks because
+ * they nudged the tier. Either way the tier's own modules are included.
+ */
+export async function bulkSetTier(
+  ids: string[], tier: Tier, keepModules = false,
+): Promise<{ ok: true; moved: number } | { ok: false; error: string }> {
+  if (ids.length === 0) return { ok: true, moved: 0 };
+  const { data, error } = await supabase.rpc("admin_bulk_set_tier", {
+    p_ids: ids, p_tier: tier, p_keep_modules: keepModules,
+  });
+  if (error) {
+    logger.error("bulkSetTier failed", { scope: "admin", error });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, moved: Number(data ?? 0) };
+}
+
 /** Assigning a tier also resets the user's modules to that tier's default set. */
 export async function setUserTier(id: string, tier: Tier): Promise<MutationResult> {
   const { error } = await supabase.rpc("admin_set_user_tier", { uid: id, new_tier: tier });

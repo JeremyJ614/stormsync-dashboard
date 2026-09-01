@@ -1,34 +1,55 @@
 /**
  * Owner notifications, in the admin panel.
  *
- * Four switches and a test button. The test button is the important one: the
- * chain runs through a service worker, a push subscription and a third-party
- * push service, and the only honest way to know it works on a particular phone
- * is to make that phone buzz. It reports how many devices it reached, so "it
- * said it sent and nothing arrived" is distinguishable from "no device is
- * registered".
+ * Four switches, the devices they go to, and a test.
+ *
+ * The device list is here because of a real failure: the test reported
+ * `sent: 1` and no phone ever buzzed. Both halves were true. A push service
+ * returns 201 for any subscription it still recognises — including one
+ * belonging to a browser profile wiped months ago — so the server genuinely
+ * could not tell delivery from acceptance, and the card repeated what the
+ * server said.
+ *
+ * So the device answers for itself now. The service worker acknowledges a test
+ * push, and this waits a few seconds for that acknowledgement before saying
+ * anything. Accepted-but-never-acknowledged is a dead registration and reads as
+ * one, with "Register this device" one tap away.
  */
 import { useCallback, useEffect, useState } from "react";
-import { BellRing, Check, Loader2, Send, RefreshCw } from "lucide-react";
+import { BellRing, Check, Loader2, Send, RefreshCw, Smartphone, Trash2, TriangleAlert } from "lucide-react";
 import {
   OWNER_CATEGORIES, getOwnerNotifyPrefs, saveOwnerNotifyPrefs,
   recentOwnerEvents, sendOwnerTestPush, drainOwnerEvents,
   type OwnerNotifyPrefs, type OwnerEvent,
 } from "../../lib/ownerNotify";
+import {
+  listMyPushDevices, forgetPushDevice, describeDevice, subscribePush,
+  isPushSupported, thisDeviceRegistered, type PushDevice,
+} from "../../lib/push";
+import { useAuth } from "../../hooks/useAuth";
 import { ROYAL } from "../../lib/royal";
 
 const MARK: Record<string, string> = { signup: "👋", contact: "✉️", money: "💷", activity: "📍" };
 
 export function AdminOwnerNotifyCard() {
+  const { user } = useAuth();
   const [prefs, setPrefs] = useState<OwnerNotifyPrefs | null>(null);
   const [events, setEvents] = useState<OwnerEvent[]>([]);
+  const [devices, setDevices] = useState<PushDevice[] | null>(null);
+  const [hereRegistered, setHereRegistered] = useState<boolean | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+
+  const reloadDevices = useCallback(async () => {
+    setDevices(await listMyPushDevices());
+    setHereRegistered(await thisDeviceRegistered());
+  }, []);
 
   const reload = useCallback(() => {
     void getOwnerNotifyPrefs().then(setPrefs);
     void recentOwnerEvents(12).then(setEvents).catch(() => setEvents([]));
-  }, []);
+    void reloadDevices();
+  }, [reloadDevices]);
   useEffect(() => { reload(); }, [reload]);
 
   async function toggle(key: keyof OwnerNotifyPrefs) {
@@ -42,13 +63,49 @@ export function AdminOwnerNotifyCard() {
 
   async function test() {
     setBusy("test"); setNote(null);
+    const before = Date.now();
     const r = await sendOwnerTestPush();
+    if (!r.ok) { setBusy(null); setNote(r.error ?? "The test failed."); return; }
+    if ((r.devices ?? 0) === 0) {
+      setBusy(null);
+      setNote("No device is registered yet. Use “Register this device” below on the phone you want notified.");
+      return;
+    }
+
+    // Wait for the phones to answer. Accepting a push takes milliseconds;
+    // delivering one takes a moment longer, and a dead registration never
+    // answers at all — which is the case worth naming.
+    setNote(`Accepted by ${r.sent} of ${r.devices} device${r.devices === 1 ? "" : "s"} — waiting for them to confirm…`);
+    let acked = 0;
+    for (let i = 0; i < 8; i++) {
+      await new Promise((res) => setTimeout(res, 1200));
+      const list = await listMyPushDevices();
+      setDevices(list);
+      acked = list.filter((d) => d.lastAckAt && new Date(d.lastAckAt).getTime() >= before).length;
+      if (acked >= (r.sent ?? 0)) break;
+    }
     setBusy(null);
-    setNote(r.ok
-      ? r.devices === 0
-        ? "No device is registered for push yet. Turn on storm alerts in your profile on the phone you want notified, then try again."
-        : `Sent to ${r.sent} of ${r.devices} registered device${r.devices === 1 ? "" : "s"}.`
-      : r.error ?? "The test failed.");
+    setNote(
+      acked > 0
+        ? `Delivered to ${acked} device${acked === 1 ? "" : "s"}.`
+        : `Accepted by the push service, but no device confirmed it. Those registrations are stale — the browsers they were made in are gone. Register this device below and try again.`,
+    );
+  }
+
+  async function registerHere() {
+    if (!user) return;
+    setBusy("register"); setNote(null);
+    const r = await subscribePush(user.id);
+    await reloadDevices();
+    setBusy(null);
+    setNote(r.ok ? "This device is registered. Send a test push to prove it." : r.error ?? "Could not register this device.");
+  }
+
+  async function forget(id: string) {
+    setBusy(`forget:${id}`);
+    await forgetPushDevice(id);
+    await reloadDevices();
+    setBusy(null);
   }
 
   async function drain() {
@@ -106,6 +163,60 @@ export function AdminOwnerNotifyCard() {
           })}
         </div>
       )}
+
+      {/* ── devices ─────────────────────────────────────────────────────── */}
+      <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${ROYAL.hairline}` }}>
+        <div className="px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] flex items-center gap-1.5"
+             style={{ color: ROYAL.gold, borderBottom: `1px solid ${ROYAL.hairline}` }}>
+          <Smartphone className="w-3 h-3" /> Your devices
+        </div>
+
+        {devices === null ? (
+          <div className="px-3 py-3 text-[11.5px]" style={{ color: ROYAL.dim }}>Checking…</div>
+        ) : devices.length === 0 ? (
+          <div className="px-3 py-3 text-[11.5px]" style={{ color: ROYAL.dim }}>
+            Nothing is registered, so nothing can arrive.
+          </div>
+        ) : devices.map((d) => {
+          const proven = !!d.lastAckAt;
+          const stale = !!d.lastPushAt && !proven;
+          return (
+            <div key={d.id} className="px-3 py-2 flex items-center gap-2 text-[11.5px]"
+                 style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate" style={{ color: ROYAL.text }}>
+                  {describeDevice(d)}
+                  {d.isThisDevice && <span style={{ color: ROYAL.gold }}> · this device</span>}
+                </span>
+                <span className="block" style={{ color: stale ? "#e2a06a" : ROYAL.dim }}>
+                  {stale
+                    ? <><TriangleAlert className="w-3 h-3 inline -mt-0.5" /> pushed to, never confirmed — probably gone</>
+                    : proven
+                      ? `confirmed ${when(d.lastAckAt!)}`
+                      : `registered ${when(d.createdAt)} · not yet tested`}
+                </span>
+              </span>
+              <button onClick={() => forget(d.id)} disabled={busy === `forget:${d.id}`}
+                title="Forget this device"
+                className="shrink-0 w-7 h-7 grid place-items-center rounded-md disabled:opacity-50"
+                style={{ border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
+                <Trash2 className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          );
+        })}
+
+        {isPushSupported() && hereRegistered === false && (
+          <div className="px-3 py-2" style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
+            <button onClick={registerHere} disabled={busy === "register"}
+              className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1.5 disabled:opacity-60"
+              style={{ background: "rgba(217,183,117,0.12)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
+              {busy === "register" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Smartphone className="w-3.5 h-3.5" />}
+              Register this device
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <button onClick={test} disabled={busy === "test"}

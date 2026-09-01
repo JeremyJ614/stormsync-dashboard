@@ -80,6 +80,58 @@ const GENERAL: DefaultEntry[] = [
       S("An actual emergency", "The Emergency Storm Contact vault on the Contact page is a PIN-protected direct line for an active, life-threatening storm where you need a person within minutes. The PIN comes with alert level 4; if you hold it, the page shows it to you."),
     ],
   },
+  {
+    title: "What are badges, and how do I earn them?",
+    sections: [
+      S("They earn themselves", "There are 128 badges that award themselves the moment you qualify — no claiming, no asking. They cover how long you have been here, how often you turn up, streaks of consecutive days, how much of the app you have explored, the games and the trivia, points, alerts delivered, referrals, and saved locations. You get a notification when one lands."),
+      S("Where you watch from", "Your first saved location earns a region badge automatically. It is set once, from where you started, and it does not follow you around."),
+      S("Bringing people in", "Referrals have their own ladder, and there is a second set for referrals that actually became paying members."),
+      S("What they look like", "Each badge is a struck medallion in its own colour with its own icon. How ornate the rim is tells you how hard it was: common, rare, epic, then legendary, which carries a second ring and a light that keeps turning. They are on your profile."),
+      S("The handmade ones", "A few badges have no rule behind them at all. Those are given by hand, and they are the rarest things in the case."),
+    ],
+  },
+  {
+    title: "How do the raffles work?",
+    sections: [
+      S("Four draws", "Monthly and yearly run on their period. Random can be run at any time. Blessed is not earned at all — it is given."),
+      S("What your plan includes", "Basic: one monthly entry. VIP: one monthly and one yearly. Advanced: two of each. They appear on their own at the start of each period, and if you upgrade mid-month yours arrive within a day."),
+      S("More than one way in", "Tickets are also handed out for taking part. Monthly and yearly entries reset with their period; random and blessed tickets build up until they win something, and are spent when they do."),
+      S("How the winner is picked", "Weighted by tickets — every ticket is a separate entry, so holding four genuinely is four chances rather than one. The draw is recorded with how many entrants there were and how many tickets were in the pool."),
+      S("Getting the prize", "Most prizes land on your account in the same moment you win: a discount code in your name, points on the leaderboard, a module added to your plan, an alert level unlocked. The few that need a person — a chase seat, months added to a subscription — say so."),
+      S("Where to look", "My Profile shows the tickets you hold in each draw and who won recently."),
+    ],
+  },
+  {
+    title: "What does the Advanced plan actually include?",
+    sections: [
+      S("Every module", "All of them. Not a long list that happens to be most of them — the rule is the tier, so anything added to the app afterwards is yours the moment it appears. You never have to ask for it and nothing has to be re-issued."),
+      S("Everything else", "All five alert levels, two monthly raffle entries and two yearly ones."),
+    ],
+  },
+  {
+    title: "My phone is not getting notifications",
+    sections: [
+      S("Check the device is registered", "A push goes to a device, not to an account, and a registration made in a browser you have since cleared or replaced will look fine from our side while reaching nothing. My Profile lists the devices registered to you, when each was added, and when each last confirmed it received something."),
+      S("Register the one in your hand", "If the phone you are holding is not in that list, there is a button to add it. You will be asked for notification permission once."),
+      S("Prove it", "Send a test. It waits for the device itself to confirm delivery rather than trusting that the push was accepted — accepted and delivered are not the same thing, and a dead registration accepts everything."),
+    ],
+  },
+  {
+    title: "What happens when I lose signal?",
+    sections: [
+      S("You get told", "A strip appears across the top saying you are offline and that what you are looking at is the last data that arrived. Without it, a dropped connection looks exactly like calm weather."),
+      S("It comes back on its own", "When the network returns, whatever is on screen refreshes itself and the strip says so briefly before getting out of the way."),
+      S("Pull to refresh", "Anywhere in the app, pull down from the top and the page reloads its data — the radar reloads the radar, the dashboard reloads the dashboard."),
+      S("Install it", "Installed to your home screen, the app keeps its shell cached and opens instantly even on a bad connection. My Profile has the button."),
+    ],
+  },
+  {
+    title: "Who won the leaderboard last month?",
+    sections: [
+      S("It is recorded now", "A month or a year seals its champion the day after it ends, from the standings as they stood. The Leaderboard shows past champions underneath the current board."),
+      S("Points come from two places", "The Forecast Game and the Daily Trivia are totalled together into one standing — there is no separate board to chase."),
+    ],
+  },
 ];
 
 // ─── Module Guide, generated ─────────────────────────────────────────────────

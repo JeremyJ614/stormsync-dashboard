@@ -21,7 +21,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, ChevronRight, ChevronLeft, Sparkles, BellRing, MapPin, LayoutDashboard,
-  Compass, ShieldCheck, Check, PlayCircle, Layers,
+  Compass, ShieldCheck, Check, PlayCircle, Layers, Award, Ticket, Smartphone,
 } from "lucide-react";
 import { guideByGroup, type ModuleGuideEntry } from "../../lib/moduleGuide";
 import { ROYAL, HEADING, EASE, SPRING, prefersReducedMotion } from "../../lib/royal";
@@ -64,6 +64,21 @@ const WELCOME: WelcomeCard[] = [
     icon: Compass, color: "#5fd9a8", eyebrow: "Finding your way",
     title: "Everything is in the sidebar",
     body: "Modules are grouped by what they are for. Anything not on your plan still shows, so you can see what exists and what it would cost. Nothing is hidden from you just because you have not bought it.",
+  },
+  {
+    icon: Award, color: "#c084fc", eyebrow: "Along the way",
+    title: "128 badges award themselves",
+    body: "For turning up, for streaks, for how much of the app you have explored, for the games, for bringing people in. Your first saved location earns a region badge on its own. Each one is a struck medallion, and how ornate the rim is tells you how rare it was.",
+  },
+  {
+    icon: Ticket, color: "#8fb2ff", eyebrow: "Worth having",
+    title: "Your plan puts you in a draw",
+    body: "Four raffles — monthly, yearly, one that can run at any time, and one that is simply given. Entries come with your plan and from taking part, and the pick is weighted by tickets, so holding four really is four chances. Most prizes land on your account the moment you win.",
+  },
+  {
+    icon: Smartphone, color: "#5fd9a8", eyebrow: "On your phone",
+    title: "Built for the field",
+    body: "Pull down anywhere to refresh. Lose signal and the app says so rather than showing you old numbers as if they were new. Install it to your home screen and it opens instantly on a bad connection. My Profile has the button, and lists every device your alerts go to.",
   },
 ];
 

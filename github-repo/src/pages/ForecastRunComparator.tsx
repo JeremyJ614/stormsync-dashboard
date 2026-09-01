@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REGIONS, regionTransform } from "../lib/modelProjection";
+import { REGIONS, regionSourceRect, regionAspect } from "../lib/modelProjection";
 import { ROYAL, HEADING } from "../lib/royal";
 import { ModuleShell } from "../components/ModuleShell";
 import { NowcastTab } from "../components/models/NowcastTab";
@@ -28,10 +28,13 @@ import {
  * surfaced rather than showing a blank player.
  */
 
+// Frame durations. The fast setting is genuinely usable now that a step costs
+// one drawImage from a decoded bitmap rather than an image swap.
 const SPEEDS = [
-  { label: "Slow", ms: 900 },
-  { label: "Normal", ms: 500 },
-  { label: "Fast", ms: 250 },
+  { label: "Slow", ms: 800 },
+  { label: "Normal", ms: 420 },
+  { label: "Fast", ms: 220 },
+  { label: "Rapid", ms: 120 },
 ];
 
 interface Props { location: Location }
@@ -51,6 +54,10 @@ export default function ForecastRunComparator({ location }: Props) {
   const [region, setRegion] = useState("conus");
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
+  // The decoded frames themselves. Playback draws from these onto a canvas, so
+  // stepping a frame is one drawImage rather than an <img> src swap the browser
+  // has to re-decode and re-lay-out — which is what made it stutter.
+  const decoded = useRef<Map<string, HTMLImageElement>>(new Map());
 
   const runs = useQuery({
     queryKey: ["model-runs", model],
@@ -94,10 +101,15 @@ export default function ForecastRunComparator({ location }: Props) {
       if (cancelled || next >= frames.length) return;
       const f = frames[next++];
       const img = new Image();
+      // Storage serves these with `Access-Control-Allow-Origin: *`, so asking
+      // for them anonymously keeps the canvas untainted — which costs nothing
+      // and leaves the door open to reading pixels back later (a hover readout,
+      // an export) instead of silently closing it.
+      img.crossOrigin = "anonymous";
       imgs.push(img);
       const done = (ok: boolean) => {
         if (cancelled) return;
-        if (ok) setLoaded((s) => new Set(s).add(f.url));
+        if (ok) { decoded.current.set(f.url, img); setLoaded((s) => new Set(s).add(f.url)); }
         else setFailed((s) => new Set(s).add(f.url));
         pump();
       };
@@ -113,21 +125,84 @@ export default function ForecastRunComparator({ location }: Props) {
   const buffered = frames.filter((f) => loaded.has(f.url)).length;
   const ready = frames.length > 0 && buffered === frames.length;
 
+  // ── the painter ────────────────────────────────────────────────────────────
+  // Drawing the crop ourselves does two jobs at once. It puts the map over the
+  // whole panel — the rendered figure is 1280x760 and only about half of that
+  // is map, the rest being margin plus a title and colour bar the page already
+  // draws in sharp text. And it means a frame change is one drawImage from a
+  // bitmap that is already decoded, instead of an <img> src swap that makes the
+  // browser re-decode and re-lay-out mid-loop.
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const paint = useCallback((url: string | undefined) => {
+    const cv = canvasRef.current;
+    if (!cv) return;
+    const img = url ? decoded.current.get(url) : undefined;
+    const box = cv.getBoundingClientRect();
+    if (box.width < 2) return;
+
+    // Backing store at device resolution, capped: past 2x the extra pixels are
+    // invisible and the fill rate is not free on a phone.
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const w = Math.round(box.width * dpr);
+    const h = Math.round(box.height * dpr);
+    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+
+    const ctx = cv.getContext("2d");
+    if (!ctx) return;
+    ctx.fillStyle = "#0b0e17";
+    ctx.fillRect(0, 0, w, h);
+    if (!img || !img.naturalWidth) return;
+
+    const r = regionSourceRect(region);
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = "high";
+    ctx.drawImage(
+      img,
+      r.left * img.naturalWidth, r.top * img.naturalHeight,
+      r.width * img.naturalWidth, r.height * img.naturalHeight,
+      0, 0, w, h,
+    );
+  }, [region]);
+
+  // Repaint on frame, region or size change. The frame the loop advances to is
+  // always one that has finished decoding, so this never paints a blank.
+  useEffect(() => { paint(frame?.url); }, [paint, frame?.url, loaded]);
+  useEffect(() => {
+    const cv = canvasRef.current;
+    if (!cv || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => paint(frame?.url));
+    ro.observe(cv);
+    return () => ro.disconnect();
+  }, [paint, frame?.url]);
+
   // ── playback ──
-  const timer = useRef<number | null>(null);
+  //
+  // Driven by requestAnimationFrame rather than setInterval. An interval fires
+  // on its own clock and the paint happens whenever the browser next gets to
+  // it, so the gap between frames wobbles by up to a frame either way — which
+  // is most of what "not smooth" was. This advances *on* a paint, so every
+  // frame is shown for as close to the chosen duration as the display allows.
   const settled = useRef<Set<string>>(new Set());
   settled.current = new Set([...loaded, ...failed]);
   useEffect(() => {
     if (!playing || frames.length < 2) return;
-    timer.current = window.setInterval(() => {
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      raf = requestAnimationFrame(tick);
+      if (now - last < speed) return;
+      last = now;
       setFrameIdx((i) => {
         const next = (i + 1) % frames.length;
-        // Hold on the current frame until the next one has actually arrived,
-        // so the loop never flashes through half-loaded images.
+        // Hold rather than flash through a frame that has not arrived. With the
+        // canvas this cannot show a partial image, but it can show the previous
+        // one twice, which reads as a stall rather than as corruption.
         return settled.current.has(frames[next].url) ? next : i;
       });
-    }, speed);
-    return () => { if (timer.current) window.clearInterval(timer.current); };
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, [playing, speed, frames]);
 
   const step = useCallback((d: number) => {
@@ -286,20 +361,38 @@ export default function ForecastRunComparator({ location }: Props) {
           })}
         </div>
 
-        <div className="relative bg-[#0b0e17] overflow-hidden" style={{ minHeight: 220, aspectRatio: region === "conus" ? "1280 / 760" : "16 / 10" }}>
+        <div
+          className="relative bg-[#0b0e17] overflow-hidden"
+          style={{ minHeight: 220, aspectRatio: String(regionAspect(region)) }}
+        >
           {frame ? (
             <>
-              <img src={frame.url} alt={`${param?.label} F${frame.fhr}`}
-                className="absolute inset-0 w-full block"
-                style={{
-                  opacity: loaded.has(frame.url) ? 1 : 0.25,
-                  transition: "opacity .15s, transform .45s cubic-bezier(.22,1,.36,1)",
-                  transformOrigin: "0 0",
-                  transform: (() => {
-                    const t = regionTransform(region, 16 / 10);
-                    return `scale(${t.scale}) translate(${t.x}%, ${t.y}%)`;
-                  })(),
-                }} />
+              {/* One canvas, redrawn from an already-decoded frame. The source
+                  rect is the crop, so the map fills the panel instead of the
+                  figure's title band and colour bar taking half of it. */}
+              <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" />
+
+              {/* Our own caption, in real text. The frame has one baked in at
+                  whatever size it was rendered; this one is sharp on any screen
+                  and says the things a reader actually wants. */}
+              <div className="absolute inset-x-0 top-0 p-2.5 pointer-events-none"
+                   style={{ background: "linear-gradient(180deg, rgba(6,6,14,.82), transparent)" }}>
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-[11px] font-bold uppercase tracking-[0.16em]" style={{ color: ROYAL.gold }}>
+                    {model.toUpperCase()}
+                  </span>
+                  <span className="text-[13px] font-semibold" style={{ color: ROYAL.text, fontFamily: HEADING }}>
+                    {param?.label}
+                  </span>
+                  <span className="text-[11px] tabular-nums ml-auto" style={{ color: ROYAL.dim }}>
+                    F{String(frame.fhr).padStart(3, "0")}
+                  </span>
+                </div>
+                <div className="text-[10.5px] mt-0.5" style={{ color: ROYAL.dim }}>
+                  {cycleLabel(run!.cycle)} run · valid {validLabel(frame.valid)}
+                </div>
+              </div>
+
               {failed.has(frame.url) && (
                 <div className="absolute inset-0 grid place-items-center">
                   <span className="px-2.5 py-1.5 rounded-md bg-red-500/85 text-[11px] text-white font-semibold flex items-center gap-1.5">
@@ -317,7 +410,7 @@ export default function ForecastRunComparator({ location }: Props) {
 
           {/* buffering bar */}
           {frames.length > 0 && !ready && (
-            <div className="absolute top-2 left-2 right-2 flex items-center gap-2">
+            <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
               <span className="text-[10px] text-white/80 bg-black/70 rounded px-1.5 py-0.5 shrink-0">
                 Buffering {buffered}/{frames.length}
               </span>

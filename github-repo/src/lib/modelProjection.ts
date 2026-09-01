@@ -26,6 +26,40 @@ export const MAP_RECT = {
   height: 555 / 760,
 } as const;
 
+/**
+ * What "CONUS" should actually show.
+ *
+ * MAP_RECT is the projection's extent, calibrated against known cities, and is
+ * what georeferencing needs. It is not what you want to *look* at: a Lambert
+ * plate is curved, so the drawn coastline runs below the extent's southern
+ * edge, and the figure carries a title band above and a colour bar below that
+ * the page already draws for itself in sharp text.
+ *
+ * This is the drawn map instead — measured off real frames across both models
+ * and eight parameters, then padded a little so a coastline is never clipped.
+ * Cropping to it roughly doubles the map's area on screen; the whole plate is
+ * 1280×760 and only about half of that is the map.
+ */
+export const CONUS_VIEW = {
+  left: 236 / 1280,
+  top: 72 / 760,
+  width: (1086 - 236) / 1280,
+  height: (670 - 72) / 760,
+} as const;
+
+/** The source rect a region should be drawn from, in fractions of the PNG. */
+export function regionSourceRect(regionId: string) {
+  if (regionId === "conus") return { ...CONUS_VIEW };
+  const region = REGIONS.find((r) => r.id === regionId);
+  return region ? regionRect(region) : { ...CONUS_VIEW };
+}
+
+/** Width ÷ height of a region as it will be drawn, for the container's aspect. */
+export function regionAspect(regionId: string): number {
+  const r = regionSourceRect(regionId);
+  return (r.width * 1280) / (r.height * 760);
+}
+
 const rad = (d: number) => (d * Math.PI) / 180;
 
 /** Forward Lambert Conformal Conic on the unit sphere. */

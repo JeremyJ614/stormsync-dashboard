@@ -67,20 +67,22 @@ function Preview({ style }: { style: MenuStyle }) {
           ))}
         </>
       )}
-      {style === "fan" && (
+      {style === "solari" && (
         <>
-          {[-24, -8, 8, 24].map((deg, i) => (
-            <div key={deg} className="absolute" style={{
-              left: 26 - 7, bottom: 8, width: 14, height: 30, borderRadius: 3,
-              transformOrigin: "bottom center", transform: `rotate(${deg}deg) translateY(-20px)`,
-              background: `linear-gradient(${130 + deg * 2}deg, rgba(255,120,220,.22), rgba(120,200,255,.22), rgba(255,215,140,.24))`,
-              border: `1px solid rgba(217,183,117,${i === 1 || i === 2 ? 0.7 : 0.3})`,
+          {/* A board of flaps, half of them mid-turn. */}
+          {[14, 28, 42, 56, 70].map((t, i) => (
+            <div key={t} className="absolute" style={{
+              left: 5, top: t, right: 5, height: 11, borderRadius: 2,
+              background: "linear-gradient(180deg, rgba(255,255,255,.07) 0 45%, rgba(0,0,0,.5) 45% 55%, rgba(255,255,255,.03) 55%)",
+              border: `1px solid rgba(0,0,0,.5)`,
             }} />
           ))}
-          <div className="absolute rounded-full" style={{
-            left: 26 - 6, bottom: 4, width: 12, height: 12,
-            border: `1px solid ${gold}`, background: "rgba(217,183,117,.14)",
-          }} />
+          {[14, 28, 42, 56, 70].map((t, i) => (
+            <div key={`c-${t}`} className={box} style={{
+              left: 8, top: t + 4, width: 26 - i * 4, height: 3,
+              background: gold, opacity: i === 1 ? 0.4 : 0.85,
+            }} />
+          ))}
         </>
       )}
       {style === "sweep" && (
@@ -123,29 +125,22 @@ function Preview({ style }: { style: MenuStyle }) {
           <div className={box} style={{ left: 9, top: 61, width: 6, height: 6, background: gold, opacity: .3 }} />
         </>
       )}
-      {style === "command" && (
+      {style === "deck" && (
         <>
-          <div className="absolute" style={{
-            left: 5, top: 10, right: 5, height: 15, borderRadius: 4,
-            background: "rgba(255,255,255,.07)", border: `1px solid ${ROYAL.goldSoft}`,
-          }} />
+          {/* Four cards on a table, one still arriving. */}
+          {[[6, 20], [29, 20], [6, 48], [29, 48]].map(([l, t], i) => (
+            <div key={i} className="absolute" style={{
+              left: l, top: t, width: 17, height: 22, borderRadius: 4,
+              background: "linear-gradient(150deg, rgba(255,255,255,.11), rgba(255,255,255,.02))",
+              border: `1px solid ${i === 0 ? ROYAL.goldSoft : "rgba(204,204,255,.14)"}`,
+              transform: i === 3 ? "rotate(-16deg) translate(4px, -3px)" : "none",
+              boxShadow: i === 3 ? "0 6px 12px -6px #000" : "none",
+            }} />
+          ))}
           <div className="absolute rounded-full" style={{
-            left: 9, top: 15, width: 5, height: 5, border: `1px solid ${gold}`,
+            left: 9, top: 24, width: 8, height: 8,
+            background: "rgba(217,183,117,.18)", border: `1px solid ${ROYAL.goldSoft}`,
           }} />
-          <div className={box} style={{ left: 17, top: 16, width: 12, height: 2, background: gold, opacity: .8 }} />
-          {[30, 43, 56, 69].map((t, i) => (
-            <div key={t} className="absolute" style={{
-              left: 5, top: t, right: 5, height: 10, borderRadius: 3,
-              background: i === 0 ? "rgba(217,183,117,.14)" : "rgba(255,255,255,.04)",
-              boxShadow: i === 0 ? `inset 0 0 0 1px ${ROYAL.goldSoft}` : "none",
-            }} />
-          ))}
-          {[30, 43, 56, 69].map((t, i) => (
-            <div key={`b-${t}`} className={box} style={{
-              left: 8, top: t + 4, width: 22 - i * 3, height: 2,
-              background: i === 0 ? gold : "rgba(255,255,255,.3)",
-            }} />
-          ))}
         </>
       )}
     </div>

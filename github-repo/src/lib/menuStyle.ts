@@ -12,7 +12,7 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
 
-export const MENU_STYLES = ["rail", "push", "gooey", "singularity", "fan", "sweep", "strata", "command"] as const;
+export const MENU_STYLES = ["rail", "push", "gooey", "singularity", "solari", "sweep", "strata", "deck"] as const;
 export type MenuStyle = (typeof MENU_STYLES)[number];
 
 export interface MenuStyleConfig { customer: MenuStyle; admin: MenuStyle }
@@ -39,10 +39,10 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
     blurb: "A collapsing core with an accretion disc; sections orbit it and become moons when chosen.",
     hint: "The most theatrical. Best on a good screen.",
   },
-  fan: {
-    label: "Holographic Fan",
-    blurb: "Glass cards deal into a fanned hand. Drag to riffle; pick one and its modules deal out as a second hand.",
-    hint: "Six cards on screen at a readable size, however long the section; riffle for the rest.",
+  solari: {
+    label: "Solari Board",
+    blurb: "A split-flap departure board. Every row riffles through the alphabet until it lands, and the whole board re-flips when you pick a section.",
+    hint: "All the theatre is in the transition; what it settles into is a plain list, so it reads the same at 3 modules or 37.",
   },
   sweep: {
     label: "Radar Sweep",
@@ -54,10 +54,10 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
     blurb: "Sections as stacked layers that slide apart in depth; the chosen one comes forward and its modules unstack beneath it.",
     hint: "The calmest of the set, and the fastest to scan.",
   },
-  command: {
-    label: "Command",
-    blurb: "Type and go. A search-first palette that matches on module and section, with the ones you actually open kept at the top.",
-    hint: "Fastest way through 37 modules once you know their names.",
+  deck: {
+    label: "Deck",
+    blurb: "Sections are dealt. Each card leaves the button you pressed, arcs across the screen and spins into its place on the table.",
+    hint: "The animation has a source, which is what makes it feel caused rather than merely animated.",
   },
 };
 

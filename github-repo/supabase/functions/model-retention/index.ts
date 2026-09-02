@@ -100,11 +100,52 @@ Deno.serve(async (req: Request) => {
     else runsPruned = Number(pruned ?? 0);
   }
 
+  const orphansSwept = failures.length === 0 ? await sweepOrphans() : 0;
+
   return json({
     ok: failures.length === 0,
     deleted,
     freedBytes: bytes,
     runsPruned,
+    orphansSwept,
     ...(failures.length ? { errors: failures.slice(0, 3) } : {}),
   });
 });
+
+/**
+ * Work the backlog of files stranded by the one-time outage recovery.
+ *
+ * Getting back under quota needed a direct delete from `storage.objects` while
+ * the Storage API itself was behind the 402, which left the real files with no
+ * row to address them by. `model_map_orphans` remembers their names; each run
+ * re-registers a batch, deletes it properly, and marks it done, so the backlog
+ * walks down to zero over a few days and then this costs one cheap query a day.
+ *
+ * Deliberately bounded per run: this is cleanup of a debt, not the day's work,
+ * and it must never be the reason retention times out.
+ */
+async function sweepOrphans(): Promise<number> {
+  const PER_RUN = 500;
+  let swept = 0;
+
+  while (swept < PER_RUN) {
+    const { data, error } = await admin.rpc("next_model_map_orphans", { batch: BATCH });
+    if (error) return swept;
+    const names = ((data ?? []) as (string | { name: string })[])
+      .map((r) => (typeof r === "string" ? r : r.name));
+    if (names.length === 0) return swept;
+
+    const { error: regErr } = await admin.rpc("register_model_map_orphans", { names });
+    if (regErr) return swept;
+
+    const { error: rmErr } = await admin.storage.from(BUCKET).remove(names);
+    // A name the store no longer holds still counts as dealt with — marking it
+    // swept is what stops the same batch coming back round forever.
+    if (rmErr && !/not found/i.test(rmErr.message)) return swept;
+
+    const { error: markErr } = await admin.rpc("mark_model_map_orphans_swept", { names });
+    if (markErr) return swept;
+    swept += names.length;
+  }
+  return swept;
+}

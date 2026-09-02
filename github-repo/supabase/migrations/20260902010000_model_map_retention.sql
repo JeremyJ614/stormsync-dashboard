@@ -11,11 +11,17 @@
 -- reachable through the product at all, so this keeps twelve — double what the
 -- archive dropdown can show — and drops the rest daily.
 --
--- Deletion itself belongs to the `model-retention` Edge Function, which goes
+-- Routine deletion belongs to the `model-retention` Edge Function, which goes
 -- through the Storage API so the files actually leave. Deleting rows out of
--- `storage.objects` here would strand the underlying objects: `protect_delete`
--- on that table refuses direct deletes for exactly that reason, and it is right
--- to. This migration only supplies the list.
+-- `storage.objects` strands the underlying objects, which is precisely what
+-- `protect_delete` on that table exists to prevent. This migration supplies the
+-- list; the function does the removing.
+--
+-- The one-time recovery was the exception, and it could not be anything else:
+-- the Storage API was itself behind the 402, so the only way back under quota
+-- was a direct delete using `protect_delete`'s own opt-in setting. That did
+-- strand 15,938 files, and the orphan ledger at the bottom of this migration is
+-- how they get cleaned up properly once the API is reachable again.
 
 -- How many cycles per model survive. One row so it can be tuned without a
 -- deploy, and so the function and any future caller agree on the number.
@@ -130,3 +136,86 @@ select cron.schedule(
   );
   $cron$
 );
+
+-- ── orphan ledger ────────────────────────────────────────────────────────────
+--
+-- Recovering from the outage needed a direct delete out of `storage.objects`,
+-- because the Storage API was itself behind the 402 and could not be used to
+-- get back under quota. `storage.protect_delete` has a sanctioned opt-in for
+-- exactly that (`storage.allow_delete_query`), so no guard was disabled — but
+-- the consequence is real: the rows are gone and the underlying files are not.
+--
+-- Without their metadata rows those files cannot be addressed by the Storage
+-- API, so they would sit there forever, invisible and unaddressable. This table
+-- remembers their names. `model-retention` re-registers a batch each run and
+-- deletes it properly, which walks the whole backlog down to nothing and then
+-- costs nothing to keep.
+create table if not exists public.model_map_orphans (
+  name      text primary key,
+  swept_at  timestamptz
+);
+
+alter table public.model_map_orphans enable row level security;
+-- No policies: service role only. Nothing member-facing reads this.
+
+/** A batch of orphan names still needing a sweep. */
+create or replace function public.next_model_map_orphans(batch integer default 100)
+returns setof text
+language sql
+security definer
+set search_path = public
+as $$
+  select name from public.model_map_orphans
+  where swept_at is null
+  order by name
+  limit greatest(1, least(batch, 1000));
+$$;
+
+revoke all on function public.next_model_map_orphans(integer) from public, anon, authenticated;
+
+/** Mark names the Storage API has now actually removed. */
+create or replace function public.mark_model_map_orphans_swept(names text[])
+returns integer
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare n int;
+begin
+  update public.model_map_orphans
+     set swept_at = now()
+   where name = any(names) and swept_at is null;
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+
+revoke all on function public.mark_model_map_orphans_swept(text[]) from public, anon, authenticated;
+
+/**
+ * Put a placeholder row back for an orphaned file so the Storage API can see it.
+ *
+ * The API deletes an object by looking it up in `storage.objects` first and then
+ * removing it from the backing store; with no row it answers "not found" and the
+ * file survives. So the sweep re-registers a batch, deletes it the proper way,
+ * and the row leaves with the file. `metadata` is minimal on purpose — it is
+ * used for nothing but the lookup, and the row exists for a few seconds.
+ */
+create or replace function public.register_model_map_orphans(names text[])
+returns integer
+language plpgsql
+security definer
+set search_path = public, storage
+as $$
+declare n int;
+begin
+  insert into storage.objects (bucket_id, name, owner, metadata)
+  select 'model-maps', u.name, null, '{"size": 0}'::jsonb
+  from unnest(names) as u(name)
+  on conflict (bucket_id, name) do nothing;
+  get diagnostics n = row_count;
+  return n;
+end;
+$$;
+
+revoke all on function public.register_model_map_orphans(text[]) from public, anon, authenticated;

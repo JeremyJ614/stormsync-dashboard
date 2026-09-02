@@ -27,6 +27,15 @@ const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const MAPBOX_TOKEN = Deno.env.get("MAPBOX_TOKEN") ?? "";
 
 const VALHALLA = "https://valhalla1.openstreetmap.de/route";
+/**
+ * Upstream deadline.
+ *
+ * Both routers are somebody else's free service, and a socket that is accepted
+ * but never answered is the failure mode that hurts: the function sits on it,
+ * the admin's Snap button spins, and the drawn route looks lost. A timeout
+ * turns that into the fallback this function was already written to take.
+ */
+const UPSTREAM_TIMEOUT_MS = 12_000;
 /** The public server is a shared resource; a chase never needs more than this. */
 const MAX_POINTS = 50;
 
@@ -87,6 +96,7 @@ async function viaValhalla(points: LngLat[]): Promise<{ coords: LngLat[]; miles:
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   });
   if (!r.ok) return null;
   const d = await r.json();
@@ -108,7 +118,7 @@ async function viaMapbox(points: LngLat[]): Promise<{ coords: LngLat[]; miles: n
   const coords = points.map(([lo, la]) => `${lo},${la}`).join(";");
   const url = `https://api.mapbox.com/directions/v5/mapbox/driving/${coords}` +
     `?geometries=geojson&overview=full&access_token=${encodeURIComponent(MAPBOX_TOKEN)}`;
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS) });
   if (!r.ok) return null;
   const d = await r.json();
   const c = d?.routes?.[0]?.geometry?.coordinates;
@@ -150,7 +160,10 @@ Deno.serve(async (req: Request) => {
   if (clean.length < 2) return json({ ok: false, error: "Need at least two points" }, 400);
 
   try {
-    const snapped = (await viaMapbox(clean)) ?? (await viaValhalla(clean));
+    const attempt = async (fn: (p: LngLat[]) => Promise<{ coords: LngLat[]; miles: number } | null>) => {
+      try { return await fn(clean); } catch { return null; }
+    };
+    const snapped = (await attempt(viaMapbox)) ?? (await attempt(viaValhalla));
     if (!snapped) {
       // Better a straight line the map admits is a straight line than an error
       // that loses the admin's drawing.

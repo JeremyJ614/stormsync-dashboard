@@ -137,10 +137,31 @@ export async function deleteChase(id: string): Promise<{ ok: boolean; error?: st
  */
 export async function snapRoute(points: LngLat[]): Promise<{ coords: LngLat[]; miles: number; snapped: boolean }> {
   if (points.length < 2) return { coords: points, miles: 0, snapped: false };
-  const { data, error } = await supabase.functions.invoke("snap-route", { body: { points } });
-  if (error || !data?.ok) {
+
+  // Snapping is a convenience, so it gets a deadline. The routing service is a
+  // free public one and the function that calls it can sit waiting on a socket
+  // that never answers; without this the Snap button spins for as long as the
+  // admin is willing to watch it. Falling back to the drawn line is already the
+  // designed outcome for a routing outage — a hang is just a slower outage.
+  const SNAP_TIMEOUT_MS = 20_000;
+  const fallback = { coords: points, miles: haversineMiles(points), snapped: false };
+
+  let data: { ok?: boolean; coords?: LngLat[]; miles?: number; snapped?: boolean } | null = null;
+  try {
+    data = await Promise.race([
+      supabase.functions
+        .invoke("snap-route", { body: { points } })
+        .then((r) => (r.error ? Promise.reject(r.error) : r.data)),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("snap-route timed out")), SNAP_TIMEOUT_MS)),
+    ]);
+  } catch (error) {
     logger.error("snapRoute failed", { scope: "chases", error });
-    return { coords: points, miles: haversineMiles(points), snapped: false };
+    return fallback;
+  }
+  if (!data?.ok) {
+    logger.error("snapRoute returned no result", { scope: "chases" });
+    return fallback;
   }
   return {
     coords: (data.coords ?? points) as LngLat[],

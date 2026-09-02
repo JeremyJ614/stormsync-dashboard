@@ -708,7 +708,15 @@ export default function ForecastGame() {
           </div>
 
           <div className="bg-card border border-border rounded-2xl p-5">
-            <h2 className="text-sm font-bold flex items-center gap-2 mb-3"><Calendar className="w-4 h-4 text-primary" /> Monthly Champions</h2>
+            <h2 className="text-sm font-bold flex items-center gap-2">
+              <Calendar className="w-4 h-4 text-primary" /> Forecast Game champions
+            </h2>
+            {/* Named for its board on purpose: the Hall of Fame above crowns the
+                site-wide points month, this one crowns the Forecast Game month,
+                and the two are often different people. */}
+            <p className="text-[11px] text-muted-foreground mb-3">
+              Who won the Forecast Game each month — scored on rounds played here, not on site-wide points.
+            </p>
             {winners.length === 0 && <p className="text-sm text-muted-foreground">No champions crowned yet.</p>}
             <div className="space-y-1.5">
               {winners.map((w) => (

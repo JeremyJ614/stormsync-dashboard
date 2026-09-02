@@ -122,6 +122,25 @@ export async function grantTickets(
   return { ok: true, granted: Number(data ?? 0) };
 }
 
+/** One draw, by id — how the machine learns who the database picked. */
+export async function getDraw(id: string): Promise<RaffleDraw | null> {
+  if (!isSupabaseConfigured) return null;
+  const { data, error } = await supabase.from("raffle_draws").select("*").eq("id", id).maybeSingle();
+  if (error || !data) { logger.error("getDraw failed", { scope: "raffle", error }); return null; }
+  const r = data as Record<string, unknown>;
+  return {
+    id: String(r.id), drawType: r.draw_type as DrawType,
+    periodStart: (r.period_start as string | null) ?? null,
+    prizeLabel: String(r.prize_label), winnerName: String(r.winner_name),
+    winnerId: (r.winner_id as string | null) ?? null,
+    entrants: Number(r.entrants ?? 0), ticketsTotal: Number(r.tickets_total ?? 0),
+    winnerTickets: Number(r.winner_tickets ?? 0),
+    fulfilment: (r.fulfilment as string | null) ?? null,
+    note: (r.note as string | null) ?? null,
+    drawnAt: String(r.drawn_at),
+  };
+}
+
 export async function runRaffle(
   drawType: DrawType, prizeId: string, note?: string,
 ): Promise<{ ok: boolean; drawId?: string; error?: string }> {
@@ -137,6 +156,20 @@ export async function syncSubscriptionTickets(): Promise<{ ok: boolean; granted?
   const { data, error } = await supabase.rpc("sync_subscription_tickets");
   if (error) return { ok: false, error: error.message };
   return { ok: true, granted: Number(data ?? 0) };
+}
+
+/**
+ * The period a draw run *now* would belong to — the client-side twin of the
+ * database's `raffle_period()`. Monthly and yearly reset with their period;
+ * random and blessed genuinely have no period and accumulate.
+ */
+export function currentPeriod(drawType: DrawType): string | null {
+  const now = new Date();
+  if (drawType === "monthly") {
+    return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  }
+  if (drawType === "yearly") return `${now.getUTCFullYear()}-01-01`;
+  return null;
 }
 
 /** "September 2026" / "2026", from a stored period start. */

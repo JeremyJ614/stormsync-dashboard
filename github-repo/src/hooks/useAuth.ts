@@ -267,8 +267,27 @@ export function useAuth() {
       email: email.trim(),
       password: pinToPassword(pin),
     });
-    if (error) return { ok: false, error: "Invalid email or PIN" };
-    return { ok: true };
+    if (!error) return { ok: true };
+
+    // Only a 400/401 actually means the credentials were wrong. Everything else
+    // is the backend being unable to answer — a project restriction (402), a
+    // rate limit (429), an outage (5xx) — and telling a member their PIN is
+    // wrong when it is not sends them off resetting a PIN that works, and tells
+    // the owner nothing about what is really broken.
+    const status = (error as { status?: number }).status ?? 0;
+    if (status === 400 || status === 401) return { ok: false, error: "Invalid email or PIN" };
+    if (status === 429) {
+      return { ok: false, error: "Too many attempts just now — wait a minute and try again." };
+    }
+    logger.error("Sign-in failed for a reason other than credentials", {
+      scope: "auth", status, message: error.message,
+    });
+    return {
+      ok: false,
+      error: status === 402
+        ? "StormSync is temporarily unavailable — the service is over its plan limit. Nothing is wrong with your PIN."
+        : "StormSync could not be reached right now. Your PIN is fine — please try again shortly.",
+    };
   }, []);
 
   // Self-signup never carries a tier — new accounts start at Tier 1 and an admin

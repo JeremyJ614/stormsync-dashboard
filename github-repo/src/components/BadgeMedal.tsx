@@ -16,6 +16,13 @@ import { prefersReducedMotion } from "../lib/royal";
  * Rarity changes how ornate the rim is and nothing else — a legendary badge
  * should look expensive without needing a label that says so.
  *
+ * Tuned down from the first cut, which was too bright and too busy: every coin
+ * fired a white sheen on mount, three of the four grades glowed, and the metal
+ * highlight was light enough to flatten the icon against it. Thirty badges
+ * should read as a quiet case of struck coins, not a lit display cabinet — so
+ * the sheen is legendary-only, the glow is epic-and-up, and the highlight sits
+ * closer to the badge's own colour.
+ *
  * Everything is drawn with gradients, so a badge invented in the admin panel
  * five minutes ago looks exactly as struck as one that shipped with the app,
  * and no image is ever fetched.
@@ -28,15 +35,53 @@ const SIZES = {
 
 export type MedalSize = keyof typeof SIZES;
 
-/** Mix a hex colour toward white or black. `t` < 0 darkens, > 0 lightens. */
-function shade(hex: string, t: number): string {
+/** Channels of a #rrggbb colour, or null if it is not one. */
+function rgb(hex: string): [number, number, number] | null {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
-  if (!m) return hex;
+  if (!m) return null;
   const n = parseInt(m[1], 16);
-  const to = t >= 0 ? 255 : 0;
-  const a = Math.abs(t);
-  const ch = (s: number) => Math.round(((n >> s) & 255) * (1 - a) + to * a);
-  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`;
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
+
+/**
+ * Pull a colour toward the pewter the coins are struck from.
+ *
+ * Badge colours are picked to be legible as labels — saturated cyans, ambers,
+ * magentas. Wrapped straight around a rim, forty of them are a wall of neon.
+ * Blending toward a cool grey keeps each badge's hue recognisable while letting
+ * the set read as metal, which is the point of a struck coin.
+ */
+const PEWTER: [number, number, number] = [0x3a, 0x40, 0x52];
+
+function mixTo(c: [number, number, number], to: [number, number, number], t: number): string {
+  const ch = (i: number) => Math.round(c[i] * (1 - t) + to[i] * t);
+  return `rgb(${ch(0)}, ${ch(1)}, ${ch(2)})`;
+}
+
+function alloy(hex: string, toward = 0.42): string {
+  const c = rgb(hex);
+  return c ? mixTo(c, PEWTER, toward) : hex;
+}
+
+/** Mix a colour toward white or black. `t` < 0 darkens, > 0 lightens. */
+function shade(hex: string, t: number): string {
+  const c = rgb(hex);
+  if (!c) return hex;
+  const to: [number, number, number] = t >= 0 ? [255, 255, 255] : [0, 0, 0];
+  return mixTo(c, to, Math.abs(t));
+}
+
+/** shade() applied to an already-alloyed colour, for rim tones. */
+function metal(hex: string, t: number): string {
+  const c = rgb(hex);
+  if (!c) return shade(hex, t);
+  const alloyed: [number, number, number] = [
+    Math.round(c[0] * 0.58 + PEWTER[0] * 0.42),
+    Math.round(c[1] * 0.58 + PEWTER[1] * 0.42),
+    Math.round(c[2] * 0.58 + PEWTER[2] * 0.42),
+  ];
+  const to: [number, number, number] = t >= 0 ? [255, 255, 255] : [0, 0, 0];
+  return mixTo(alloyed, to, Math.abs(t));
 }
 
 export function BadgeMedal({
@@ -59,14 +104,19 @@ export function BadgeMedal({
   const rarity = (b.rarity ?? "common") as BadgeRarity;
   const Icon = iconFor(b.icon);
   const c = b.color;
-  const lit = shade(c, 0.45);
-  const dark = shade(c, -0.45);
-  const deep = shade(c, -0.72);
+  // Rim tones are alloyed toward pewter; the icon is not, so the badge's real
+  // colour lands where the eye actually looks instead of around the edge.
+  const base = alloy(c);
+  const lit = metal(c, 0.3);
+  const dark = metal(c, -0.45);
+  const deep = metal(c, -0.72);
+  const glyph = shade(c, 0.08);
 
+  // Only the top two grades glow, and softly. A glow on `rare` meant most of a
+  // member's case was lit, which is the same as none of it being lit.
   const glow =
-    rarity === "legendary" ? `0 0 18px -2px ${c}, 0 0 44px -12px ${c}` :
-    rarity === "epic" ? `0 0 14px -3px ${c}` :
-    rarity === "rare" ? `0 0 10px -4px ${c}` : "none";
+    rarity === "legendary" ? `0 0 12px -5px ${c}, 0 0 26px -14px ${c}` :
+    rarity === "epic" ? `0 0 9px -6px ${c}` : "none";
 
   const coin = (
     <span
@@ -77,7 +127,7 @@ export function BadgeMedal({
         // The rim: a conic sweep reads as turned metal in a way a linear one
         // never does, because the highlight travels around the edge.
         background:
-          `conic-gradient(from 210deg, ${dark}, ${lit} 18%, ${c} 34%, ${deep} 52%, ${c} 70%, ${lit} 84%, ${dark})`,
+          `conic-gradient(from 210deg, ${dark}, ${lit} 18%, ${base} 34%, ${deep} 52%, ${base} 70%, ${lit} 84%, ${dark})`,
         boxShadow: `${glow === "none" ? "" : glow + ", "}0 2px 5px rgba(0,0,0,0.55)`,
       }}
       title={`${b.label} — ${b.description}`}
@@ -88,7 +138,7 @@ export function BadgeMedal({
         <span
           aria-hidden
           className="sswx-medal-turn absolute inset-0 rounded-full"
-          style={{ background: `conic-gradient(from 0deg, transparent 0deg, ${lit}cc 26deg, transparent 60deg)` }}
+          style={{ background: `conic-gradient(from 0deg, transparent 0deg, ${lit}59 24deg, transparent 58deg)` }}
         />
       )}
 
@@ -97,7 +147,7 @@ export function BadgeMedal({
         <span
           aria-hidden
           className="absolute rounded-full"
-          style={{ inset: S.rim, border: `${S.ring}px solid ${lit}`, opacity: 0.55 }}
+          style={{ inset: S.rim, border: `${S.ring}px solid ${lit}`, opacity: 0.3 }}
         />
       )}
 
@@ -107,18 +157,21 @@ export function BadgeMedal({
         style={{
           inset: S.rim + (rarity === "epic" || rarity === "legendary" ? S.ring + 1 : 0),
           background:
-            `radial-gradient(120% 120% at 30% 22%, ${shade(c, -0.55)} 0%, #0a0a14 62%),` +
-            `linear-gradient(180deg, rgba(255,255,255,0.10), rgba(0,0,0,0.35))`,
-          boxShadow: `inset 0 1px 0 ${lit}66, inset 0 -1px 2px rgba(0,0,0,0.7)`,
+            `radial-gradient(120% 120% at 30% 22%, ${shade(c, -0.62)} 0%, #0a0a14 64%),` +
+            `linear-gradient(180deg, rgba(255,255,255,0.055), rgba(0,0,0,0.38))`,
+          boxShadow: `inset 0 1px 0 ${lit}40, inset 0 -1px 2px rgba(0,0,0,0.7)`,
         }}
       >
-        <Icon style={{ width: S.icon, height: S.icon, color: lit }} strokeWidth={2.1} />
-        {!still && (
+        <Icon style={{ width: S.icon, height: S.icon, color: glyph }} strokeWidth={1.9} />
+        {/* The sheen is the single loudest thing about a coin, so only the rarest
+            grade gets one. A wall of badges all catching the light at once was
+            the "too much going on". */}
+        {!still && rarity === "legendary" && (
           <span
             aria-hidden
             className="sswx-badge-sheen pointer-events-none absolute inset-y-0 w-1/2"
             style={{
-              background: "linear-gradient(105deg, transparent, rgba(255,255,255,0.30), transparent)",
+              background: "linear-gradient(105deg, transparent, rgba(255,255,255,0.16), transparent)",
               animationDelay: `${delay}s`,
             }}
           />

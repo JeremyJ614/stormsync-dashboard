@@ -332,10 +332,21 @@ function DrawMap({
   const map = useRef<maplibregl.Map | null>(null);
   const beneath = useRef<string | undefined>(undefined);
   const [ready, setReady] = useState(false);
-  // Held in a ref so the click handler, registered once, always sees the
-  // current mode instead of the one it closed over.
+  // Held in refs so the click handler, registered once, always sees the current
+  // mode and the current callback instead of the ones it closed over.
+  //
+  // `onPoint` matters as much as `mode` here. It is a useCallback keyed on the
+  // parent's mode and active track, so it gets a new identity every time an
+  // admin presses "Draw a tornado track" or switches track. When this effect
+  // depended on it, that press tore the map down and built a new one — while
+  // `ready` was still true from the old one, so the drawing effect below fired
+  // straight into a style that had not loaded and MapLibre threw. That is the
+  // "page errors out when I make a tornado path" crash; it also meant the map
+  // was thrown away and rebuilt on every single mode toggle.
   const modeRef = useRef<Mode>(mode);
   modeRef.current = mode;
+  const onPointRef = useRef(onPoint);
+  onPointRef.current = onPoint;
 
   useEffect(() => {
     if (!box.current || map.current) return;
@@ -348,10 +359,10 @@ function DrawMap({
     m.on("load", () => { beneath.current = applyRoyalBasemap(m); setReady(true); });
     m.on("click", (e) => {
       if (!modeRef.current) return;
-      onPoint([Number(e.lngLat.lng.toFixed(5)), Number(e.lngLat.lat.toFixed(5))]);
+      onPointRef.current([Number(e.lngLat.lng.toFixed(5)), Number(e.lngLat.lat.toFixed(5))]);
     });
-    return () => { m.remove(); map.current = null; };
-  }, [onPoint]);
+    return () => { m.remove(); map.current = null; setReady(false); };
+  }, []);
 
   useEffect(() => {
     const m = map.current;
@@ -391,11 +402,8 @@ function DrawMap({
       const src = m.getSource(id) as maplibregl.GeoJSONSource | undefined;
       if (src) src.setData(fc); else m.addSource(id, { type: "geojson", data: fc });
     };
-    put("draw-route", routeFc);
-    put("draw-points", ptsFc);
-    put("draw-tracks", trackFc);
-    put("draw-track-points", trackPtsFc);
 
+    const addLayersOnce = () => {
     if (!m.getLayer("draw-route-line")) {
       m.addLayer({
         id: "draw-route-line", type: "line", source: "draw-route",
@@ -419,6 +427,26 @@ function DrawMap({
         id: "draw-point-dots", type: "circle", source: "draw-points",
         paint: { "circle-radius": 4, "circle-color": ROYAL.gold, "circle-stroke-width": 1.2, "circle-stroke-color": "#06060e" },
       }, beneath.current);
+    }
+    };
+
+    const draw = () => {
+      put("draw-route", routeFc);
+      put("draw-points", ptsFc);
+      put("draw-tracks", trackFc);
+      put("draw-track-points", trackPtsFc);
+      addLayersOnce();
+    };
+
+    // A style can report itself busy for a moment after `load` while sprites and
+    // glyphs are still settling, and adding a source then throws. Deferring to
+    // the next idle is the difference between a redraw that waits and an admin
+    // panel that dies mid-drawing, so nothing here is allowed to escape.
+    const deferred = () => { try { draw(); } catch { /* map is going away */ } };
+    if (m.isStyleLoaded()) {
+      try { draw(); } catch { m.once("idle", deferred); }
+    } else {
+      m.once("idle", deferred);
     }
   }, [ready, route, tornadoPaths, activeTornado]);
 

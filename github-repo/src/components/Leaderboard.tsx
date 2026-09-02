@@ -232,11 +232,15 @@ function HallOfFame() {
 
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
+      {/* Says which board these crowns come from. The Forecast Game keeps its
+          own champions, so an unqualified "Past champions" next to that one
+          reads as two answers to the same question. */}
+      <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 flex-wrap">
         <Crown className="w-3.5 h-3.5 text-yellow-400" />
         <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
           Past champions
         </span>
+        <span className="text-[10px] text-muted-foreground/70">· overall points</span>
       </div>
       <div className="divide-y divide-border">
         {winners.map((w) => (

@@ -3,10 +3,11 @@ import {
   Check, Dices, Gift, Loader2, RefreshCw, Search, Square, SquareCheck, Ticket, Trophy,
 } from "lucide-react";
 import {
-  listPrizes, listDraws, ticketOverview, grantTickets, runRaffle,
+  listPrizes, listDraws, ticketOverview, grantTickets,
   syncSubscriptionTickets, DRAWS, drawMeta, periodLabel,
   type DrawType, type RafflePrize, type RaffleDraw, type TicketHolder,
 } from "../../lib/raffles";
+import { RaffleMachine } from "./RaffleMachine";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING } from "../../lib/royal";
 
@@ -206,8 +207,9 @@ function PrizesPane({
   prizes, holders, onDrawn,
 }: { prizes: RafflePrize[]; holders: TicketHolder[] | null; onDrawn: () => void }) {
   const [drawType, setDrawType] = useState<DrawType>("monthly");
-  const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<string | null>(null);
+  // The prize whose drum is open. The machine owns the draw from here.
+  const [machine, setMachine] = useState<RafflePrize | null>(null);
 
   const list = useMemo(
     () => prizes.filter((p) => p.drawType === drawType).sort((a, b) => b.rank - a.rank),
@@ -219,21 +221,6 @@ function PrizesPane({
     const t = h.reduce((s, x) => s + ((x as unknown as Record<string, number>)[drawType] || 0), 0);
     return { n, t };
   }, [holders, drawType]);
-
-  async function draw(p: RafflePrize) {
-    if (!confirm(
-      `Draw the ${drawType} raffle for "${p.label}"?\n\n` +
-      `${entrants.n} member${entrants.n === 1 ? "" : "s"} hold ${entrants.t} ticket${entrants.t === 1 ? "" : "s"}. ` +
-      `The winner is picked weighted by tickets and the prize is applied straight away.`,
-    )) return;
-    setBusy(p.id); setResult(null);
-    const r = await runRaffle(drawType, p.id);
-    setBusy(null);
-    if (!r.ok) { setResult(r.error ?? "Could not draw."); return; }
-    await audit("settings.change", { type: "raffle", id: r.drawId ?? "", label: p.label }, { drawType });
-    setResult("Drawn. See the Draws tab for who won.");
-    onDrawn();
-  }
 
   return (
     <div className="space-y-3">
@@ -271,14 +258,28 @@ function PrizesPane({
                 {p.kind === "manual" && <span style={{ color: "#e2a06a" }}> · you hand this one over</span>}
               </span>
             </span>
-            <button onClick={() => draw(p)} disabled={busy === p.id || entrants.t === 0}
+            <button onClick={() => { setResult(null); setMachine(p); }} disabled={entrants.t === 0}
               className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-30"
               style={{ background: "rgba(217,183,117,0.12)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
-              {busy === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Dices className="w-3.5 h-3.5" />} Draw
+              <Dices className="w-3.5 h-3.5" /> Draw
             </button>
           </div>
         ))}
       </div>
+
+      {machine && (
+        <RaffleMachine
+          prize={machine}
+          drawType={drawType}
+          holders={holders ?? []}
+          onClose={() => setMachine(null)}
+          onDrawn={async () => {
+            await audit("settings.change", { type: "raffle", id: machine.id, label: machine.label }, { drawType });
+            setResult(`Drawn — "${machine.label}". The Draws tab has the record.`);
+            onDrawn();
+          }}
+        />
+      )}
     </div>
   );
 }

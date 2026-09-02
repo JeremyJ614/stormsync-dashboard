@@ -12,7 +12,7 @@ select cron.schedule(
   '*/2 * * * *',
   $cron$
   select net.http_post(
-    url := 'https://djonpetxdjuwcbgftqmt.supabase.co/functions/v1/owner-dispatch',
+    url := 'https://sofrhcdjkjfphibysmxc.supabase.co/functions/v1/owner-dispatch',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-engine-secret', (select value->>'secret' from public.app_config where key = 'storm_engine_secret')

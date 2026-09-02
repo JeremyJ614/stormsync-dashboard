@@ -126,7 +126,7 @@ select cron.schedule(
   '40 12 * * *',
   $cron$
   select net.http_post(
-    url := 'https://djonpetxdjuwcbgftqmt.supabase.co/functions/v1/model-retention',
+    url := 'https://sofrhcdjkjfphibysmxc.supabase.co/functions/v1/model-retention',
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'x-retention-secret', (select value->>'secret' from public.app_config where key = 'model_retention_secret')

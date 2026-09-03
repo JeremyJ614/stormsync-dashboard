@@ -280,6 +280,13 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
     use: "Watch the progress bar; locked prizes always show what they cost.",
     tip: "Badges are earned automatically. You will be told when one lands.",
   },
+  {
+    id: "/raffles", title: "Raffles", group: "Community", isNew: true,
+    what: "Every draw and every prize in it, in the open.",
+    does: "Lists the four draws — monthly, yearly, random and blessed — with all one hundred prizes and the odds attached to each. Tap a prize to see exactly what it does to your account. It also shows the tickets you are holding and who has won recently.",
+    use: "Read the draw you have tickets in before the period ends, so you know what you are playing for.",
+    tip: "Nothing here is hidden behind a plan. Everybody sees every prize, whether or not they hold a ticket for it.",
+  },
 
   // ── Your account ───────────────────────────────────────────────────────────
   {

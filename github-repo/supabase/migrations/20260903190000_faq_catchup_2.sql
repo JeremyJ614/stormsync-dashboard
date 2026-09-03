@@ -1,0 +1,50 @@
+-- StormSync VIP — the FAQ and the intro guide, caught up.
+--
+-- Everything built in this round is in the app and none of it was written down
+-- anywhere a member would look: the Raffles page and its hundred prizes, the
+-- wall on the Home page, the menu being the member's own choice, the fact that
+-- an alert level can now be set directly, and that the app no longer reloads
+-- over a half-written post.
+--
+-- WHY THIS TOUCHES INDIVIDUAL ENTRIES rather than replacing the FAQ wholesale.
+-- `faq_entries` is admin-editable — the panel writes straight to it — so a
+-- migration that rebuilt the table from `faqDefaults.ts` would silently throw
+-- away anything the owner has typed since the last one. Only the three entries
+-- whose text actually changed are rewritten, and the three new ones added.
+--
+-- The bodies are generated from `src/lib/faqDefaults.ts` rather than retyped,
+-- so the shipped defaults and the live rows cannot drift apart.
+--
+-- Re-runnable: each entry is deleted by title before being inserted.
+
+-- ── General FAQ ─────────────────────────────────────────────────────────────
+delete from public.faq_entries
+ where category_id = '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0' and title in ('How do alerts work?', 'Can I install StormSync as an app?', 'How do the raffles work?', 'What is the Wall on the Home page?', 'Can I change how the menu looks?');
+
+insert into public.faq_entries (kind, sort_order, title, sections, category_id) values
+  ('general', 3, 'How do alerts work?', '[{"heading": "Five levels", "body": "1. In-app alerts for severe weather affecting your state. 2. Push notifications to your phone, scoped how you choose. 3. Email or text to a real contact. 4. Everything in 3, plus SPC and winter outlook warnings at the start of the day, plus the Emergency Contact PIN. 5. Everything in 4, plus a direct line: we watch your locations and contact you ourselves when we see something troubling."}, {"heading": "What you get free", "body": "Levels 1 and 2 are free to everyone. Basic includes level 3, VIP includes level 4, Advanced includes all five."}, {"heading": "Buying one on its own", "body": "Any level can be added at any tier for a monthly price, the same way modules work. Prices are shown in My Profile and on the signup page."}, {"heading": "Choosing what counts", "body": "From level 2 up you decide the scope: your whole state, one saved location, several, or everywhere you have saved. That one setting applies to every level you hold."}, {"heading": "Setting it up", "body": "My Profile has the ladder, the scope picker and your contact details. The bell in the header is your in-app inbox and works from any page."}, {"heading": "If your level does not match your plan", "body": "It can be set directly. An admin can place an account on a specific level — above or below what the tier would give it — and that setting wins over everything else until it is cleared. If yours looks wrong, the Contact page is the place to ask."}]'::jsonb, '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0'),
+  ('general', 5, 'Can I install StormSync as an app?', '[{"heading": "", "body": "Yes. It is a progressive web app, so there is no store to go through. Use the Install button on the Home screen or the card in My Profile. On iPhone use Safari''s Share menu and Add to Home Screen; on Android use Chrome''s menu and Install app. Installed, it runs full screen and alerts are more reliable. Updates arrive on their own: the app checks periodically and refreshes quietly when you are not in the middle of something — it will not reload over a form you are filling in or a post you are writing, and if one is interrupted anyway, the draft is kept and offered back to you when you return."}]'::jsonb, '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0'),
+  ('general', 13, 'How do the raffles work?', '[{"heading": "Four draws", "body": "Monthly and yearly run on their period. Random can be run at any time. Blessed is not earned at all — it is given."}, {"heading": "Every prize is published", "body": "The Raffles page lists all four draws and every one of the hundred prizes in them, with the odds attached to each. Tap a prize and it opens to say exactly what it does to your account. Nothing is gated: whether or not you hold a ticket for a draw, you can read everything in it."}, {"heading": "What your plan includes", "body": "Basic: one monthly entry. VIP: one monthly and one yearly. Advanced: two of each. They appear on their own at the start of each period, and if you upgrade mid-month yours arrive within a day."}, {"heading": "More than one way in", "body": "Tickets are also handed out for taking part. Monthly and yearly entries reset with their period; random and blessed tickets build up until they win something, and are spent when they do."}, {"heading": "How the winner is picked", "body": "Weighted by tickets — every ticket is a separate entry, so holding four genuinely is four chances rather than one. Prizes are not equally likely: the better ones are deliberately rarer, and the page shows each prize''s real chance rather than implying they are all the same. The draw is recorded with how many entrants there were and how many tickets were in the pool."}, {"heading": "Getting the prize", "body": "Almost everything applies itself in the same moment you win — a discount in your name, points on the leaderboard, a module added to your plan, an alert level unlocked, months of free membership, a name on the wall. Where the prize is a discount and you have no live subscription for it to attach to, it becomes a coupon code held in your name, waiting in My Profile until you do. Three prizes need a person rather than a system: a seat on a chase, a personal graphic, and the SSWX secret prize. Those say so on the card."}, {"heading": "If you already have everything", "body": "Some prizes cannot land on an account that is already maxed out — a module you own, an alert level you hold, a tier you are above. Rather than handing you nothing, the house rule gives you one monthly ticket and one yearly ticket instead, unless that particular prize says it does something else."}, {"heading": "Where to look", "body": "The Raffles page for the draws and the prizes. My Profile for the tickets you are holding, the benefits you have been given, and any prize coupon waiting to be used."}]'::jsonb, '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0'),
+  ('general', 18, 'What is the Wall on the Home page?', '[{"heading": "What it is", "body": "A gold plaque on the Home page with names cut into it. Several raffle prizes are an engraving, and winning one puts your name up there."}, {"heading": "The blessed name", "body": "One slot at the top holds a single name at a time. It comes from the Blessed draw and nothing else. When somebody else wins it, they take the slot and the previous holder moves down to the roll beneath — they are not removed, because they did win it."}, {"heading": "It is permanent", "body": "Names are not tied to a live subscription. Cancel, come back, or never come back: a wall is a monument, and you do not get chiselled off it."}, {"heading": "Who can see it", "body": "Everybody, signed in or not. It sits on the Home page above the news."}]'::jsonb, '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0'),
+  ('general', 19, 'Can I change how the menu looks?', '[{"heading": "Fifteen of them", "body": "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a radar scope that sweeps, a departure board that flips, a comic page, a neon street, a black hole, folded paper, a stack of stone."}, {"heading": "Where to pick", "body": "New members choose one during the intro guide. After that it is in My Profile, and it changes the moment you tap it."}, {"heading": "If you never choose", "body": "You get whichever menu the app is set to by default, which an admin sets. Picking your own overrides it from then on, and changing the default afterwards does not overwrite a choice you made."}]'::jsonb, '1b25cb58-d5d2-4e0b-be8b-64f07c4ecbd0');
+
+-- ── Module Guide ────────────────────────────────────────────────────────────
+-- Raffles belongs directly under Loyalty Dashboard, which is where it sits in
+-- `moduleGuide.ts` and in the sidebar. The three entries after it move up one
+-- so the order matches rather than tacking a new module onto the end.
+delete from public.faq_entries
+ where category_id = '6c968968-6d7f-42f6-b216-901fa1c5eb09' and (title = 'Raffles' or module_id = '/raffles');
+
+-- Set outright rather than shifted by one: a relative shift run twice would
+-- move them twice, and this migration has to be safe to re-apply.
+update public.faq_entries set sort_order = 47 where category_id = '6c968968-6d7f-42f6-b216-901fa1c5eb09' and module_id = '/subscription';
+update public.faq_entries set sort_order = 48 where category_id = '6c968968-6d7f-42f6-b216-901fa1c5eb09' and module_id = '/contact';
+update public.faq_entries set sort_order = 49 where category_id = '6c968968-6d7f-42f6-b216-901fa1c5eb09' and module_id = '/faq';
+
+insert into public.faq_entries (kind, sort_order, title, module_id, sections, category_id) values
+  ('module', 46, 'Raffles', '/raffles', '[{"heading": "What it is", "body": "Every draw and every prize in it, in the open."}, {"heading": "What it does", "body": "Lists the four draws — monthly, yearly, random and blessed — with all one hundred prizes and the odds attached to each. Tap a prize to see exactly what it does to your account. It also shows the tickets you are holding and who has won recently."}, {"heading": "Start with", "body": "Read the draw you have tickets in before the period ends, so you know what you are playing for."}, {"heading": "Worth knowing", "body": "Nothing here is hidden behind a plan. Everybody sees every prize, whether or not they hold a ticket for it."}]'::jsonb, '6c968968-6d7f-42f6-b216-901fa1c5eb09');
+
+-- What the app should now show.
+select c.name, count(*) as entries
+from public.faq_entries e join public.faq_categories c on c.id = e.category_id
+group by c.name, c.sort_order order by c.sort_order;

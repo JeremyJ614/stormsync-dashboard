@@ -21,7 +21,7 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, ChevronRight, ChevronLeft, Sparkles, BellRing, MapPin, LayoutDashboard,
-  Compass, ShieldCheck, Check, PlayCircle, Layers, Award, Ticket, Smartphone, LayoutGrid,
+  Compass, Crown, ShieldCheck, Check, PlayCircle, Layers, Award, Ticket, Smartphone, LayoutGrid,
 } from "lucide-react";
 import { guideByGroup, type ModuleGuideEntry } from "../../lib/moduleGuide";
 import { MenuPicker } from "../MenuPicker";
@@ -76,7 +76,12 @@ const WELCOME: WelcomeCard[] = [
   {
     icon: Ticket, color: "#8fb2ff", eyebrow: "Worth having",
     title: "Your plan puts you in a draw",
-    body: "Four raffles — monthly, yearly, one that can run at any time, and one that is simply given. Entries come with your plan and from taking part, and the pick is weighted by tickets, so holding four really is four chances. Most prizes land on your account the moment you win.",
+    body: "Four raffles — monthly, yearly, one that can run at any time, and one that is simply given. Entries come with your plan and from taking part, and the pick is weighted by tickets, so holding four really is four chances. The Raffles page lists all one hundred prizes with their odds, so you can read what you are playing for before the draw rather than after it.",
+  },
+  {
+    icon: Crown, color: "#d9b775", eyebrow: "The rarest prize",
+    title: "Some names go on the wall",
+    body: "A gold plaque on the Home page carries the names of people who have won an engraving, and it is permanent — leaving does not take you off it. One slot at the top holds a single name at a time, from the Blessed draw alone, and winning it moves whoever was there down to the roll below.",
   },
   {
     icon: LayoutGrid, color: "#c084fc", eyebrow: "Make it yours",

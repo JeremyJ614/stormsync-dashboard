@@ -5,6 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { listNews } from "../lib/news";
 import { InstallApp } from "../components/InstallApp";
+import { NameWall } from "../components/NameWall";
 import { renderMarkdown } from "../lib/markdown";
 import { useAuth } from "../hooks/useAuth";
 import DailyBriefing from "../components/DailyBriefing";
@@ -93,6 +94,10 @@ export default function Home() {
 
       {/* Storm Engine — today's national severe-weather briefing */}
       <DailyBriefing />
+
+      {/* The wall. Between the briefing and the news tabs so it is unmissable
+          without displacing the logo, the install button or any subtab. */}
+      <NameWall />
 
       {/* Tabs */}
       <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">

@@ -42,6 +42,7 @@ const GENERAL: DefaultEntry[] = [
       S("Buying one on its own", "Any level can be added at any tier for a monthly price, the same way modules work. Prices are shown in My Profile and on the signup page."),
       S("Choosing what counts", "From level 2 up you decide the scope: your whole state, one saved location, several, or everywhere you have saved. That one setting applies to every level you hold."),
       S("Setting it up", "My Profile has the ladder, the scope picker and your contact details. The bell in the header is your in-app inbox and works from any page."),
+      S("If your level does not match your plan", "It can be set directly. An admin can place an account on a specific level — above or below what the tier would give it — and that setting wins over everything else until it is cleared. If yours looks wrong, the Contact page is the place to ask."),
     ],
   },
   {
@@ -50,7 +51,7 @@ const GENERAL: DefaultEntry[] = [
   },
   {
     title: "Can I install StormSync as an app?",
-    sections: [S("", "Yes. It is a progressive web app, so there is no store to go through. Use the Install button on the Home screen or the card in My Profile. On iPhone use Safari's Share menu and Add to Home Screen; on Android use Chrome's menu and Install app. Installed, it runs full screen and alerts are more reliable. Updates arrive on their own: the app checks periodically and refreshes quietly when you are not in the middle of something.")],
+    sections: [S("", "Yes. It is a progressive web app, so there is no store to go through. Use the Install button on the Home screen or the card in My Profile. On iPhone use Safari's Share menu and Add to Home Screen; on Android use Chrome's menu and Install app. Installed, it runs full screen and alerts are more reliable. Updates arrive on their own: the app checks periodically and refreshes quietly when you are not in the middle of something — it will not reload over a form you are filling in or a post you are writing, and if one is interrupted anyway, the draft is kept and offered back to you when you return.")],
   },
   {
     title: "How do I set my location?",
@@ -94,11 +95,30 @@ const GENERAL: DefaultEntry[] = [
     title: "How do the raffles work?",
     sections: [
       S("Four draws", "Monthly and yearly run on their period. Random can be run at any time. Blessed is not earned at all — it is given."),
+      S("Every prize is published", "The Raffles page lists all four draws and every one of the hundred prizes in them, with the odds attached to each. Tap a prize and it opens to say exactly what it does to your account. Nothing is gated: whether or not you hold a ticket for a draw, you can read everything in it."),
       S("What your plan includes", "Basic: one monthly entry. VIP: one monthly and one yearly. Advanced: two of each. They appear on their own at the start of each period, and if you upgrade mid-month yours arrive within a day."),
       S("More than one way in", "Tickets are also handed out for taking part. Monthly and yearly entries reset with their period; random and blessed tickets build up until they win something, and are spent when they do."),
-      S("How the winner is picked", "Weighted by tickets — every ticket is a separate entry, so holding four genuinely is four chances rather than one. The draw is recorded with how many entrants there were and how many tickets were in the pool."),
-      S("Getting the prize", "Most prizes land on your account in the same moment you win: a discount code in your name, points on the leaderboard, a module added to your plan, an alert level unlocked. The few that need a person — a chase seat, months added to a subscription — say so."),
-      S("Where to look", "My Profile shows the tickets you hold in each draw and who won recently."),
+      S("How the winner is picked", "Weighted by tickets — every ticket is a separate entry, so holding four genuinely is four chances rather than one. Prizes are not equally likely: the better ones are deliberately rarer, and the page shows each prize's real chance rather than implying they are all the same. The draw is recorded with how many entrants there were and how many tickets were in the pool."),
+      S("Getting the prize", "Almost everything applies itself in the same moment you win — a discount in your name, points on the leaderboard, a module added to your plan, an alert level unlocked, months of free membership, a name on the wall. Where the prize is a discount and you have no live subscription for it to attach to, it becomes a coupon code held in your name, waiting in My Profile until you do. Three prizes need a person rather than a system: a seat on a chase, a personal graphic, and the SSWX secret prize. Those say so on the card."),
+      S("If you already have everything", "Some prizes cannot land on an account that is already maxed out — a module you own, an alert level you hold, a tier you are above. Rather than handing you nothing, the house rule gives you one monthly ticket and one yearly ticket instead, unless that particular prize says it does something else."),
+      S("Where to look", "The Raffles page for the draws and the prizes. My Profile for the tickets you are holding, the benefits you have been given, and any prize coupon waiting to be used."),
+    ],
+  },
+  {
+    title: "What is the Wall on the Home page?",
+    sections: [
+      S("What it is", "A gold plaque on the Home page with names cut into it. Several raffle prizes are an engraving, and winning one puts your name up there."),
+      S("The blessed name", "One slot at the top holds a single name at a time. It comes from the Blessed draw and nothing else. When somebody else wins it, they take the slot and the previous holder moves down to the roll beneath — they are not removed, because they did win it."),
+      S("It is permanent", "Names are not tied to a live subscription. Cancel, come back, or never come back: a wall is a monument, and you do not get chiselled off it."),
+      S("Who can see it", "Everybody, signed in or not. It sits on the Home page above the news."),
+    ],
+  },
+  {
+    title: "Can I change how the menu looks?",
+    sections: [
+      S("Fifteen of them", "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a radar scope that sweeps, a departure board that flips, a comic page, a neon street, a black hole, folded paper, a stack of stone."),
+      S("Where to pick", "New members choose one during the intro guide. After that it is in My Profile, and it changes the moment you tap it."),
+      S("If you never choose", "You get whichever menu the app is set to by default, which an admin sets. Picking your own overrides it from then on, and changing the default afterwards does not overwrite a choice you made."),
     ],
   },
   {

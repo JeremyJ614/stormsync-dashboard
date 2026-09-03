@@ -65,6 +65,13 @@ export interface TicketHolder {
 
 export async function myTickets(): Promise<TicketBalance[]> {
   if (!isSupabaseConfigured) return [];
+  // `my_raffle_tickets` is granted to `authenticated` and not to `anon`, and
+  // the Raffles page is deliberately readable signed out — every draw and every
+  // prize, ticket or no ticket. Asking anyway would answer 401 and log an error
+  // on a page that is working exactly as intended. Nobody signed out holds a
+  // ticket, so the honest answer is an empty list without the round trip.
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session) return [];
   const { data, error } = await supabase.rpc("my_raffle_tickets");
   if (error) { logger.error("myTickets failed", { scope: "raffle", error }); return []; }
   return ((data ?? []) as Record<string, unknown>[]).map((r) => ({

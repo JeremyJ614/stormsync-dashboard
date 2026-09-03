@@ -37,7 +37,15 @@ export interface CouponCheck {
 export async function checkCoupon(code: string, tier: string): Promise<CouponCheck> {
   if (!code.trim()) return { valid: false, error: "Enter a code" };
   if (!isSupabaseConfigured) return { valid: false, error: "Not available right now" };
-  const { data, error } = await supabase.rpc("validate_coupon", { p_code: code.trim(), p_tier: tier });
+  // Who is asking matters. A code minted as a raffle prize belongs to one
+  // member, and `validate_coupon` refuses an owned code to anybody else —
+  // including, if we do not say who we are, to its actual owner. Signing up is
+  // done signed out, so there is often no session here and null is the honest
+  // answer; the checkout function re-checks with the real user id regardless.
+  const { data: { session } } = await supabase.auth.getSession();
+  const { data, error } = await supabase.rpc("validate_coupon", {
+    p_code: code.trim(), p_tier: tier, p_user: session?.user?.id ?? null,
+  });
   if (error) {
     logger.error("checkCoupon failed", { scope: "plans", error });
     return { valid: false, error: "Something went wrong checking that code" };

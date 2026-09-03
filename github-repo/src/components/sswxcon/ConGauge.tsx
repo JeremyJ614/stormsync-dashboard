@@ -33,6 +33,8 @@ const SWEEP = 270;          // degrees
 // The dial starts at bottom-left and sweeps clockwise through the top to
 // bottom-right, leaving the gap under the reading where the label sits.
 const START = 225;
+const NEEDLE = R - 18;      // needle length from the hub
+const TIP = 3;              // radius of the dot on its end
 
 const rad = (deg: number) => ((deg - 90) * Math.PI) / 180;
 const pt = (deg: number, r: number) => ({ x: CX + r * Math.cos(rad(deg)), y: CY + r * Math.sin(rad(deg)) });
@@ -121,20 +123,31 @@ export function ConGauge({
           transition={calm ? { duration: 0 } : { duration: 1.1, ease: EASE }}
         />
 
-        {/* Needle. */}
-        <motion.g
-          initial={false}
-          animate={{ rotate: angle - 90 }}
-          transition={calm ? { duration: 0 } : { type: "spring", stiffness: 60, damping: 14 }}
-          // originX/originY are an HTML-layout concept; on an SVG group they do
-          // not resolve and the needle rotates about the wrong point, which put
-          // it off-canvas entirely. transform-box + transform-origin is the SVG
-          // way to say the same thing.
-          style={{ transformBox: "view-box", transformOrigin: `${CX}px ${CY}px` }}
-        >
-          <line x1={CX} y1={CY} x2={CX + R - 18} y2={CY} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
-          <circle cx={CX + R - 18} cy={CY} r={3} fill={color} />
-        </motion.g>
+        {/* Needle.
+            Two things had to be true for this to sit on the hub, and neither is
+            obvious. Motion writes its own transform-box:fill-box and
+            transform-origin:50% 50% onto an animated SVG group, overriding any
+            origin given in style — measured at `46.5px 3px`, the centre of the
+            needle's own bounding box. So the needle pivoted about its middle and
+            its tail swung off the hub by a distance that changed with the score.
+
+            Rather than fight the override, this makes 50% 50% the right answer:
+            an outer translate puts the hub at the group's origin, and an
+            unpainted circle sized to enclose the whole needle forces the bounding
+            box to be symmetric about it. Its centre is then exactly the hub.
+            The circle must cover the tip too — at just NEEDLE it fell 3u short
+            and left a wobble of up to 3u. */}
+        <g transform={`translate(${CX} ${CY})`}>
+          <motion.g
+            initial={false}
+            animate={{ rotate: angle - 90 }}
+            transition={calm ? { duration: 0 } : { type: "spring", stiffness: 60, damping: 14 }}
+          >
+            <circle cx={0} cy={0} r={NEEDLE + TIP} fill="none" stroke="none" />
+            <line x1={0} y1={0} x2={NEEDLE} y2={0} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
+            <circle cx={NEEDLE} cy={0} r={TIP} fill={color} />
+          </motion.g>
+        </g>
         <circle cx={CX} cy={CY} r={9} fill={ROYAL.ink} stroke={color} strokeWidth={2} />
 
         {/* Reading. */}

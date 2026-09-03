@@ -17,6 +17,7 @@
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
+import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 
@@ -51,6 +52,38 @@ export interface ImageOverlay {
   underLabels?: boolean;
 }
 
+/**
+ * A GeoJSON overlay drawn as fill + outline.
+ *
+ * Some of the products worth showing are not pictures at all. ProbSevere is a
+ * set of storm polygons each carrying a probability, and the only honest way to
+ * draw it is to colour each polygon by its own value and let the member tap one
+ * to read it. Its raster tiles are served but empty — 102-byte transparent PNGs
+ * at every zoom the viewer uses — so a raster overlay for it looks exactly like
+ * clear weather.
+ *
+ * Paint values are passed straight through to MapLibre, so a caller can hand in
+ * a data-driven expression (`["interpolate", …, ["get", "prob"], …]`) rather
+ * than pre-colouring every feature the way the SPC map has to.
+ */
+export interface ShapeOverlay {
+  id: string;
+  data: GeoJSON.FeatureCollection;
+  /** MapLibre paint value — a colour, or an expression over feature properties. */
+  fillColor?: ColorValue;
+  fillOpacity?: NumberValue;
+  lineColor?: ColorValue;
+  lineWidth?: NumberValue;
+  underLabels?: boolean;
+  /** Tapping a shape hands back its properties, for a popup or a detail panel. */
+  onFeatureClick?: (props: Record<string, unknown>) => void;
+}
+
+/** A colour, or an expression producing one — handed to MapLibre as-is. */
+export type ColorValue = DataDrivenPropertyValueSpecification<string>;
+/** A number, or an expression producing one. */
+export type NumberValue = DataDrivenPropertyValueSpecification<number>;
+
 export interface BaseMapHandle {
   map(): maplibregl.Map | null;
   flyTo(lat: number, lon: number, zoom?: number): void;
@@ -63,6 +96,7 @@ interface Props {
   height?: number | string;
   overlays?: RasterOverlay[];
   images?: ImageOverlay[];
+  shapes?: ShapeOverlay[];
   /** Fires once the style is loaded and the royal basemap is applied. */
   onReady?: (map: maplibregl.Map, beneath: string | undefined) => void;
   /** Raster tile telemetry, so a dead product cannot masquerade as clear weather. */
@@ -72,7 +106,7 @@ interface Props {
 }
 
 export const BaseMap = forwardRef<BaseMapHandle, Props>(function BaseMap(
-  { center, zoom = 6, height = 420, overlays = [], images = [], onReady, onTiles, interactive = true, className }, ref,
+  { center, zoom = 6, height = 420, overlays = [], images = [], shapes = [], onReady, onTiles, interactive = true, className }, ref,
 ) {
   const box = useRef<HTMLDivElement>(null);
   const map = useRef<maplibregl.Map | null>(null);
@@ -203,6 +237,71 @@ export const BaseMap = forwardRef<BaseMapHandle, Props>(function BaseMap(
       mountedImages.current.set(o.id, o.url);
     }
   }, [images, ready]);
+
+  // ── shape (GeoJSON) overlays ───────────────────────────────────────────────
+  // Same diffing discipline as above, with one difference that matters: a
+  // GeoJSON source's data is replaced in place with `setData`, so a refreshed
+  // ProbSevere feed updates the polygons without tearing down the layers and
+  // making the map blink. Paint values are updated in place for the same reason.
+  //
+  // Each shape gets two layers — a fill and its outline — because a translucent
+  // fill alone reads as a smudge at radar zooms, and the outline is what makes a
+  // storm's shape legible over reflectivity.
+  const mountedShapes = useRef<Set<string>>(new Set());
+  // The click handler is registered once per layer, so it reads the callback
+  // through a ref rather than closing over the render that installed it.
+  const shapeHandlers = useRef<Map<string, (p: Record<string, unknown>) => void>>(new Map());
+  useEffect(() => {
+    const m = map.current;
+    if (!m || !ready) return;
+
+    const wanted = new Map(shapes.map((o) => [o.id, o]));
+    for (const id of [...mountedShapes.current]) {
+      if (wanted.has(id)) continue;
+      for (const suffix of ["fill", "line"]) {
+        if (m.getLayer(`shp-${id}-${suffix}`)) m.removeLayer(`shp-${id}-${suffix}`);
+      }
+      if (m.getSource(`shp-${id}`)) m.removeSource(`shp-${id}`);
+      mountedShapes.current.delete(id);
+      shapeHandlers.current.delete(id);
+    }
+
+    for (const o of shapes) {
+      const sid = `shp-${o.id}`;
+      if (o.onFeatureClick) shapeHandlers.current.set(o.id, o.onFeatureClick);
+      else shapeHandlers.current.delete(o.id);
+
+      const existing = m.getSource(sid) as maplibregl.GeoJSONSource | undefined;
+      if (existing) {
+        existing.setData(o.data);
+        m.setPaintProperty(`${sid}-fill`, "fill-color", o.fillColor ?? "#d9b775");
+        m.setPaintProperty(`${sid}-fill`, "fill-opacity", o.fillOpacity ?? 0.35);
+        m.setPaintProperty(`${sid}-line`, "line-color", o.lineColor ?? o.fillColor ?? "#d9b775");
+        m.setPaintProperty(`${sid}-line`, "line-width", o.lineWidth ?? 1.6);
+        continue;
+      }
+
+      m.addSource(sid, { type: "geojson", data: o.data });
+      m.addLayer({
+        id: `${sid}-fill`, type: "fill", source: sid,
+        paint: { "fill-color": o.fillColor ?? "#d9b775", "fill-opacity": o.fillOpacity ?? 0.35 },
+      }, o.underLabels ? beneath.current : undefined);
+      m.addLayer({
+        id: `${sid}-line`, type: "line", source: sid,
+        paint: { "line-color": o.lineColor ?? o.fillColor ?? "#d9b775", "line-width": o.lineWidth ?? 1.6 },
+      }, o.underLabels ? beneath.current : undefined);
+
+      const fillId = `${sid}-fill`;
+      m.on("click", fillId, (e) => {
+        const f = e.features?.[0];
+        if (f) shapeHandlers.current.get(o.id)?.(f.properties ?? {});
+      });
+      m.on("mouseenter", fillId, () => { m.getCanvas().style.cursor = "pointer"; });
+      m.on("mouseleave", fillId, () => { m.getCanvas().style.cursor = ""; });
+
+      mountedShapes.current.add(o.id);
+    }
+  }, [shapes, ready]);
 
   // Tile telemetry — counted from the map's own data events.
   useEffect(() => {

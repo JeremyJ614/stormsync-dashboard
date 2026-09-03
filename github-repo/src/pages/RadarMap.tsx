@@ -1,11 +1,15 @@
 import type { Location } from "../hooks/useLocation";
 import { ModuleShell } from "../components/ModuleShell";
 import { useState, useRef, useEffect, useMemo, useCallback } from "react";
-import { BaseMap, type BaseMapHandle, type RasterOverlay } from "../components/map/BaseMap";
+import {
+  BaseMap, type BaseMapHandle, type RasterOverlay, type ShapeOverlay,
+  type ColorValue, type NumberValue,
+} from "../components/map/BaseMap";
 import {
   Radar, Satellite, Layers as LayersIcon, ExternalLink, RefreshCw, AlertTriangle,
-  Eye, Crosshair, Loader2,
+  Eye, Crosshair, Loader2, X,
 } from "lucide-react";
+import { BASE_API } from "../config";
 
 interface Props { location: Location }
 
@@ -128,12 +132,63 @@ const LAYERS: RadarLayer[] = [
 ];
 
 // ProbSevere is offered as a bonus overlay rather than a group member.
+//
+// It used to be requested as raster tiles, and that is exactly why it never
+// worked: PROBSEVEREV3 is a *shape* product on RealEarth, and its tile endpoint
+// answers 200 with a 102-byte fully transparent PNG at every zoom this viewer
+// uses. So the overlay was indistinguishable from clear weather while looking
+// perfectly healthy — tiles loaded, none errored, nothing ever drew.
+//
+// It is fetched as GeoJSON through the `weather` Edge Function instead (the
+// RealEarth shapes API sends no CORS headers, so a browser cannot read it
+// directly), and drawn as real storm polygons coloured by their own probability
+// and tappable for the model's own reasoning.
 const PROBSEVERE: RadarLayer = {
   id: "probsevere", label: "ProbSevere", group: "mrms", source: "realearth", code: "PROBSEVEREV3",
   desc: "NOAA/CIMSS ProbSevere — model probability that a tracked storm turns severe.",
-  legend: [{ color: "#22c55e", label: "Low" }, { color: "#facc15", label: "Elevated" }, { color: "#ef4444", label: "High" }],
-  note: "Served here as raster tiles. ProbSevere is natively a vector product (storm polygons carrying probability values); the interactive polygon version needs a CORS proxy and is queued as a follow-up.",
+  legend: [],
+  note: "Each outline is a storm object NOAA/CIMSS is tracking right now, shaded by its probability of turning severe within 60 minutes. Tap one for its hail, wind and tornado probabilities. Empty over quiet weather is the correct answer — the model only tracks storms that exist.",
 };
+
+const PROB_LEGEND: Swatch[] = [
+  { color: "#22c55e", label: "Under 25%" },
+  { color: "#facc15", label: "25% — elevated" },
+  { color: "#f97316", label: "50% — high" },
+  { color: "#ef4444", label: "75%+ — extreme" },
+];
+
+// Colour each polygon from its own `prob` value rather than pre-colouring the
+// features: one expression, evaluated on the GPU, and it keeps working when the
+// feed refreshes underneath the layer.
+const PROB_FILL = [
+  "interpolate", ["linear"], ["coalesce", ["get", "prob"], 0],
+  0, "#22c55e", 25, "#facc15", 50, "#f97316", 75, "#ef4444",
+] as unknown as ColorValue;
+// A lighter tint of the same ramp for the outline. The fill can share the radar
+// palette's colours because it is translucent, but a 2px line in radar green
+// laid over a green echo simply disappears — these tints sit above every colour
+// in the reflectivity ramp in lightness, so the storm's edge stays readable
+// whatever is underneath it.
+const PROB_LINE = [
+  "interpolate", ["linear"], ["coalesce", ["get", "prob"], 0],
+  0, "#a7f3d0", 25, "#fde68a", 50, "#fdba74", 75, "#fca5a5",
+] as unknown as ColorValue;
+// Faint at low probability, solid at high — so a 5% blob does not shout as
+// loudly as a 90% one on a map already carrying reflectivity underneath.
+const PROB_FILL_OPACITY = [
+  "interpolate", ["linear"], ["coalesce", ["get", "prob"], 0],
+  0, 0.12, 50, 0.34, 100, 0.5,
+] as unknown as NumberValue;
+
+interface ProbStorm { prob: number; summary: string; detail: string }
+
+/** The ramp's colour at a single value, for the tapped-storm card. */
+function probColor(v: number): string {
+  const stops: [number, string][] = [[0, "#22c55e"], [25, "#facc15"], [50, "#f97316"], [75, "#ef4444"]];
+  let out = stops[0][1];
+  for (const [at, c] of stops) if (v >= at) out = c;
+  return out;
+}
 
 const GROUPS: { id: Group; label: string; icon: typeof Radar }[] = [
   { id: "radar", label: "Radar", icon: Radar },
@@ -154,6 +209,16 @@ export default function RadarMap({ location }: Props) {
   const [opacity, setOpacity] = useState(0.85);
   const [bust, setBust] = useState(0);
   const [showProb, setShowProb] = useState(false);
+  // ProbSevere is a fetched feed rather than a tile pyramid, so it carries its
+  // own load state: an empty result over quiet weather and a failed fetch look
+  // identical on the map, and only one of them is worth telling the member about.
+  const [prob, setProb] = useState<{
+    state: "idle" | "loading" | "ok" | "error";
+    data: GeoJSON.FeatureCollection;
+    at: string | null;
+    error: string | null;
+  }>({ state: "idle", data: { type: "FeatureCollection", features: [] }, at: null, error: null });
+  const [probPick, setProbPick] = useState<ProbStorm | null>(null);
   const [updated, setUpdated] = useState<Date>(() => new Date());
   // tile telemetry so a dead product can't masquerade as clear weather
   const [tiles, setTiles] = useState({ loaded: 0, errored: 0, done: false });
@@ -175,19 +240,75 @@ export default function RadarMap({ location }: Props) {
   // The Leaflet version rebuilt a tile layer by hand on every change (and kept
   // two custom panes to get the stacking right). BaseMap diffs these instead,
   // and the royal basemap already owns the label ordering.
-  const overlays = useMemo<RasterOverlay[]>(() => {
-    const out: RasterOverlay[] = [{
-      id: `product-${layer.id}`,
-      url: tileUrl(layer, bust),
-      opacity,
-      maxZoom: layer.maxZoom ?? 12,
-      underLabels: true,
-    }];
-    if (showProb) {
-      out.push({ id: "probsevere", url: tileUrl(PROBSEVERE, bust), opacity: 0.9, maxZoom: 12, underLabels: true });
+  const overlays = useMemo<RasterOverlay[]>(() => [{
+    id: `product-${layer.id}`,
+    url: tileUrl(layer, bust),
+    opacity,
+    maxZoom: layer.maxZoom ?? 12,
+    underLabels: true,
+  }], [layer, bust, opacity]);
+
+  // ── ProbSevere ────────────────────────────────────────────────────────────
+  // Fetched, not tiled. Refetches on the same 4-minute cadence as the raster
+  // products (`bust` changes), and only while the overlay is actually on —
+  // there is no reason to pull a national storm-object feed for a member who
+  // has the box unticked.
+  useEffect(() => {
+    if (!showProb) {
+      setProb({ state: "idle", data: { type: "FeatureCollection", features: [] }, at: null, error: null });
+      setProbPick(null);
+      return;
     }
-    return out;
-  }, [layer, bust, opacity, showProb]);
+    let live = true;
+    setProb(p => ({ ...p, state: "loading", error: null }));
+    // A stalled national feed should not leave the badge spinning forever.
+    const ctl = new AbortController();
+    const kill = setTimeout(() => ctl.abort(), 20_000);
+    fetch(`${BASE_API}/probsevere`, { signal: ctl.signal })
+      .then(r => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+      .then((d: GeoJSON.FeatureCollection & { at?: string; error?: string }) => {
+        if (!live) return;
+        // The function answers 200 with an empty collection and an `error` field
+        // when RealEarth is the one that failed, so that a dead upstream cannot
+        // read as "no storms" on the map.
+        if (d.error) { setProb({ state: "error", data: { type: "FeatureCollection", features: [] }, at: null, error: d.error }); return; }
+        setProb({ state: "ok", data: { type: "FeatureCollection", features: d.features ?? [] }, at: d.at ?? null, error: null });
+      })
+      .catch((e: Error) => {
+        if (!live || e.name === "AbortError") { if (live) setProb(p => ({ ...p, state: "error", error: "timed out" })); return; }
+        setProb({ state: "error", data: { type: "FeatureCollection", features: [] }, at: null, error: e.message });
+      })
+      .finally(() => clearTimeout(kill));
+    return () => { live = false; ctl.abort(); clearTimeout(kill); };
+  }, [showProb, bust]);
+
+  const onProbClick = useCallback((props: Record<string, unknown>) => {
+    setProbPick({
+      prob: Number(props.prob) || 0,
+      summary: String(props.summary ?? ""),
+      detail: String(props.detail ?? ""),
+    });
+  }, []);
+
+  const shapes = useMemo<ShapeOverlay[]>(() => {
+    if (!showProb || prob.data.features.length === 0) return [];
+    return [{
+      id: "probsevere",
+      data: prob.data,
+      fillColor: PROB_FILL,
+      fillOpacity: PROB_FILL_OPACITY,
+      lineColor: PROB_LINE,
+      lineWidth: 2.2,
+      // Above the labels deliberately, unlike the raster products: these are
+      // small outlines that a place name would otherwise cut straight through.
+      onFeatureClick: onProbClick,
+    }];
+  }, [showProb, prob.data, onProbClick]);
+
+  /** Highest probability currently on screen — the number worth surfacing. */
+  const probPeak = useMemo(() => prob.data.features.reduce(
+    (n, f) => Math.max(n, Number(f.properties?.prob) || 0), 0,
+  ), [prob.data]);
 
   // Tile telemetry, so a dead product cannot masquerade as clear weather.
   const tileCount = useRef({ loaded: 0, errored: 0 });
@@ -198,7 +319,10 @@ export default function RadarMap({ location }: Props) {
       setTiles({ ...tileCount.current, done: true });
     }, 4500);
     return () => clearTimeout(t);
-  }, [layerId, bust, showProb]);
+    // No `showProb` here any more: ProbSevere is not a raster product, so
+    // toggling it cannot change the tile counts and restarting the window on it
+    // only made the active product look like it was reloading.
+  }, [layerId, bust]);
 
   const onTiles = useCallback((c: { loaded: number; errored: number }) => {
     tileCount.current = c;
@@ -267,6 +391,7 @@ export default function RadarMap({ location }: Props) {
             zoom={6}
             height="100%"
             overlays={overlays}
+            shapes={shapes}
             onTiles={onTiles}
             className="w-full h-full"
           />
@@ -283,18 +408,85 @@ export default function RadarMap({ location }: Props) {
                 <AlertTriangle className="w-3 h-3" /> Product offline — no tiles returned
               </span>
             )}
+            {/* ProbSevere state. It has to say all three things separately —
+                loading, upstream failed, and genuinely no tracked storms — or
+                the overlay goes back to being unfalsifiable. */}
+            {showProb && prob.state === "loading" && (
+              <span className="px-2 py-1 rounded-md bg-black/75 text-[10px] text-white flex items-center gap-1.5">
+                <Loader2 className="w-3 h-3 animate-spin" /> Loading ProbSevere…
+              </span>
+            )}
+            {showProb && prob.state === "error" && (
+              <span className="px-2 py-1 rounded-md bg-red-500/85 text-[10px] text-white font-semibold flex items-center gap-1.5">
+                <AlertTriangle className="w-3 h-3" /> ProbSevere unavailable{prob.error ? ` — ${prob.error}` : ""}
+              </span>
+            )}
+            {showProb && prob.state === "ok" && (
+              <span className="px-2 py-1 rounded-md bg-black/75 text-[10px] text-white flex items-center gap-1.5">
+                <Crosshair className="w-3 h-3 text-primary" />
+                {prob.data.features.length === 0
+                  ? "ProbSevere — no storms tracked nationally"
+                  : `ProbSevere — ${prob.data.features.length} storms · peak ${Math.round(probPeak)}%`}
+              </span>
+            )}
           </div>
 
-          {/* legend */}
-          {layer.legend.length > 0 && (
+          {/* legend — the active product's, plus ProbSevere's ramp when it is on */}
+          {(layer.legend.length > 0 || showProb) && (
             <div className="absolute bottom-2 right-2 z-[1000] bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none">
-              <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">{layer.label}</div>
-              {layer.legend.map(sw => (
-                <div key={sw.label} className="flex items-center gap-2">
-                  <div className="w-3 h-3 rounded-sm" style={{ background: sw.color }} />
-                  <span className="text-[10px] text-white whitespace-nowrap">{sw.label}</span>
+              {layer.legend.length > 0 && (
+                <>
+                  <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">{layer.label}</div>
+                  {layer.legend.map(sw => (
+                    <div key={sw.label} className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-sm" style={{ background: sw.color }} />
+                      <span className="text-[10px] text-white whitespace-nowrap">{sw.label}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+              {showProb && (
+                <>
+                  <div className={`text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1 ${layer.legend.length > 0 ? "pt-1.5 border-t border-white/10" : ""}`}>
+                    ProbSevere
+                  </div>
+                  {PROB_LEGEND.map(sw => (
+                    <div key={sw.label} className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-sm" style={{ background: sw.color }} />
+                      <span className="text-[10px] text-white whitespace-nowrap">{sw.label}</span>
+                    </div>
+                  ))}
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Tapped storm. Sits over the map rather than in the controls below,
+              because the polygon it describes is small and the member needs the
+              two next to each other. */}
+          {probPick && (
+            <div className="absolute bottom-2 left-2 z-[1000] max-w-[min(320px,calc(100%-1rem))] bg-black/88 border border-white/12 rounded-lg p-3">
+              <div className="flex items-start gap-2 mb-1.5">
+                <span className="text-lg font-black tabular-nums leading-none"
+                      style={{ color: probColor(probPick.prob) }}>
+                  {Math.round(probPick.prob)}%
+                </span>
+                <span className="text-[10px] uppercase tracking-[0.18em] text-white/55 pt-1 flex-1">
+                  chance severe
+                </span>
+                <button onClick={() => setProbPick(null)} aria-label="Close storm details"
+                        className="text-white/50 hover:text-white shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {probPick.summary && (
+                <div className="text-[11px] text-white leading-relaxed">{probPick.summary}</div>
+              )}
+              {probPick.detail && (
+                <div className="mt-1.5 pt-1.5 border-t border-white/10 text-[10px] text-white/70 leading-relaxed whitespace-pre-line max-h-32 overflow-y-auto">
+                  {probPick.detail}
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>
@@ -321,8 +513,13 @@ export default function RadarMap({ location }: Props) {
             </div>
           )}
           {showProb && (
-            <div className="text-[10px] text-yellow-200/80 bg-yellow-400/10 border border-yellow-400/25 rounded-lg px-2.5 py-1.5 leading-relaxed">
+            <div className="text-[10px] text-primary/85 bg-primary/10 border border-primary/25 rounded-lg px-2.5 py-1.5 leading-relaxed">
               {PROBSEVERE.note}
+              {prob.at && (
+                <span className="block mt-1 text-muted-foreground/70 tabular-nums">
+                  Feed read {new Date(prob.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+                </span>
+              )}
             </div>
           )}
           <div className="text-[10px] text-muted-foreground/70 tabular-nums">

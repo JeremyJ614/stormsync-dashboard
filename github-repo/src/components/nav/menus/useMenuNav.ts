@@ -9,9 +9,9 @@ import type { Location } from "../../../hooks/useLocation";
 /**
  * The state every menu style shares.
  *
- * All five present the same two levels — section, then the modules inside it —
+ * They all present the same two levels — section, then the modules inside it —
  * so the traversal, the dismissal rules and the calm gate belong here rather
- * than five times over. What each style owns is only how it draws them.
+ * than once per style. What each style owns is only how it draws them.
  */
 export interface MenuNav {
   sections: NavSection[];
@@ -37,8 +37,8 @@ export function useMenuNav(location: Location): MenuNav {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const { calm } = useCalm(location.lat, location.lon);
 
-  // Haptics live here rather than in each of the eight menu styles, so every
-  // one of them buzzes the same way for the same action.
+  // Haptics live here rather than in each menu style, so every one of them
+  // buzzes the same way for the same action.
   const close = useCallback(() => { setOpen(false); setSection(null); }, []);
   const toggle = useCallback(() => {
     haptic("select");

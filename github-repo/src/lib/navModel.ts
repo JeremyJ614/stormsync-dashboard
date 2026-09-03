@@ -2,10 +2,9 @@
  * The navigation model: the sections, their modules, and who may see them.
  *
  * This lives outside Layout because the sidebar is no longer the only thing
- * that renders it. The five menu styles (Golden Spiral, Gooey FAB, Canvas Push,
- * Holographic Fan, Singularity) all present the same two levels — section, then
- * the modules inside it — and they must agree with the sidebar about what a
- * member can actually see. One model, five presentations.
+ * that renders it. Every menu style presents the same two levels — section,
+ * then the modules inside it — and all of them must agree with the sidebar
+ * about what a member can actually see. One model, fifteen presentations.
  */
 import { useMemo, useSyncExternalStore } from "react";
 import type { LucideIcon } from "lucide-react";

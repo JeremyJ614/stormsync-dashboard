@@ -239,6 +239,18 @@ export const CARRIERS: { key: string; label: string; note?: string }[] = [
   { key: "xfinity", label: "Xfinity Mobile", note: "on Verizon" },
   { key: "mint", label: "Mint Mobile", note: "on T-Mobile" },
   { key: "consumercellular", label: "Consumer Cellular" },
+  // MVNOs ride their host network's gateway, so the note says whose it is —
+  // Spectrum subscribers were picking nothing because the brand was missing
+  // even though the address that reaches them is Verizon's.
+  { key: "spectrum", label: "Spectrum Mobile", note: "on Verizon" },
+  { key: "straighttalk", label: "Straight Talk", note: "on Verizon" },
+  { key: "totalwireless", label: "Total Wireless", note: "on Verizon" },
+  { key: "pageplus", label: "Page Plus", note: "on Verizon" },
+  { key: "simplemobile", label: "Simple Mobile", note: "on T-Mobile" },
+  { key: "ultramobile", label: "Ultra Mobile", note: "on T-Mobile" },
+  { key: "h2o", label: "H2O Wireless", note: "on AT&T" },
+  { key: "firstnet", label: "FirstNet", note: "on AT&T" },
+  { key: "tracfone", label: "Tracfone" },
 ];
 
 export const DEFAULT_ALERT_PREFS: AlertPrefs = {

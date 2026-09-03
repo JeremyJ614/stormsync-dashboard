@@ -12,7 +12,12 @@ import { ROYAL } from "../../lib/royal";
  * Two independent choices so a style can be tried on the admin side while
  * members stay on another. The previews are miniatures drawn from the same
  * tokens as the menus themselves rather than screenshots, so they cannot go
- * stale when a menu is adjusted.
+ * stale when a menu is adjusted — each is a recognisable reduction of what the
+ * real thing does, not a generic thumbnail.
+ *
+ * At fifteen styles the list is long enough that both columns scroll on their
+ * own. That is deliberate: the alternative is a grid of tiles too small to tell
+ * the styles apart, and telling them apart is the entire job of this card.
  */
 function Preview({ style }: { style: MenuStyle }) {
   const gold = ROYAL.gold;
@@ -28,6 +33,7 @@ function Preview({ style }: { style: MenuStyle }) {
           ))}
         </>
       )}
+
       {style === "push" && (
         <>
           {[8, 19, 30, 41, 52].map((t) => (
@@ -41,36 +47,25 @@ function Preview({ style }: { style: MenuStyle }) {
           }} />
         </>
       )}
-      {style === "gooey" && (
+
+      {style === "strata" && (
         <>
-          <div className="absolute rounded-full" style={{ right: 5, bottom: 5, width: 12, height: 12, background: gold }} />
-          {[[5, 26], [14, 23], [21, 15], [25, 6]].map(([r, b], i) => (
-            <div key={i} className="absolute rounded-full" style={{ right: r + 6, bottom: b + 6, width: 7, height: 7, background: gold, opacity: 0.8 }} />
-          ))}
-        </>
-      )}
-      {style === "singularity" && (
-        <>
-          <div className="absolute rounded-[50%]" style={{
-            left: 6, top: 36, width: 40, height: 12,
-            border: `1px solid ${gold}`, borderBottomColor: "rgba(168,85,247,.7)",
-          }} />
-          <div className="absolute rounded-full" style={{
-            left: 20, top: 36, width: 12, height: 12, background: "#03020a",
-            boxShadow: `0 0 5px 1px ${gold}, 0 0 10px 3px rgba(168,85,247,.6)`,
-          }} />
-          {[[24, 16], [40, 36], [24, 56], [8, 36]].map(([l, t], i) => (
-            <div key={i} className="absolute rounded-full" style={{
-              left: l, top: t, width: 7, height: 7,
-              background: `radial-gradient(circle at 30% 30%, hsl(${i * 70} 80% 72%), hsl(${i * 70} 70% 38%))`,
+          {/* Slabs receding in depth, with the depth gutter down the side. */}
+          <div className="absolute" style={{ left: 5, top: 8, bottom: 8, width: 1, background: "rgba(204,204,255,.14)" }} />
+          {[10, 26, 42, 58].map((t, i) => (
+            <div key={t} className={box} style={{
+              left: 9 + i * 1.5, top: t, width: 36 - i * 2.5, height: 12, borderRadius: 3,
+              background: "linear-gradient(180deg, rgba(255,255,255,.11), rgba(255,255,255,.03))",
+              borderTop: `1px solid rgba(217,183,117,${0.5 - i * 0.1})`,
+              borderLeft: `2px solid rgba(217,183,117,${0.5 - i * 0.1})`,
             }} />
           ))}
         </>
       )}
+
       {style === "solari" && (
         <>
-          {/* A board of flaps, half of them mid-turn. */}
-          {[14, 28, 42, 56, 70].map((t, i) => (
+          {[14, 28, 42, 56, 70].map((t) => (
             <div key={t} className="absolute" style={{
               left: 5, top: t, right: 5, height: 11, borderRadius: 2,
               background: "linear-gradient(180deg, rgba(255,255,255,.07) 0 45%, rgba(0,0,0,.5) 45% 55%, rgba(255,255,255,.03) 55%)",
@@ -85,8 +80,13 @@ function Preview({ style }: { style: MenuStyle }) {
           ))}
         </>
       )}
+
       {style === "sweep" && (
         <>
+          <div className="absolute rounded-full" style={{
+            left: 26 - 26, top: 42 - 26, width: 52, height: 52,
+            border: `1px solid rgba(217,183,117,.22)`,
+          }} />
           {[10, 17, 24].map((r) => (
             <div key={r} className="absolute rounded-full" style={{
               left: 26 - r, top: 42 - r, width: r * 2, height: r * 2,
@@ -110,36 +110,192 @@ function Preview({ style }: { style: MenuStyle }) {
           }} />
         </>
       )}
-      {style === "strata" && (
+
+      {style === "singularity" && (
         <>
-          {[10, 26, 42, 58].map((t, i) => (
-            <div key={t} className={box} style={{
-              left: 6 + i * 0.5, top: t, width: 40 - i, height: 12, borderRadius: 3,
-              background: "rgba(255,255,255,.09)",
-              borderTop: `1px solid rgba(217,183,117,${0.5 - i * 0.1})`,
+          {/* Disc behind, shadow, photon ring, disc in front. */}
+          <div className="absolute rounded-[50%]" style={{
+            left: 2, top: 36, width: 48, height: 13,
+            background: "linear-gradient(90deg, #ffffff, #ffd9a0 40%, #8a3d12)",
+            clipPath: "inset(0 0 50% 0)", opacity: 0.9,
+          }} />
+          <div className="absolute rounded-full" style={{
+            left: 19, top: 35, width: 15, height: 15, background: "#000",
+            boxShadow: `0 0 0 1.2px #fff6e0`,
+          }} />
+          <div className="absolute rounded-[50%]" style={{
+            left: 2, top: 36, width: 48, height: 13,
+            background: "linear-gradient(90deg, #ffffff, #ffd9a0 40%, #8a3d12)",
+            clipPath: "inset(50% 0 0 0)", opacity: 0.95,
+          }} />
+          {[[24, 15], [41, 40], [24, 62], [7, 40]].map(([l, t], i) => (
+            <div key={i} className="absolute rounded-full" style={{
+              left: l, top: t, width: 8, height: 8,
+              background: `radial-gradient(circle at 32% 30%, hsl(${i * 70} 80% 74%), hsl(${i * 70} 70% 22%))`,
+              boxShadow: "inset -2px -2px 3px rgba(0,0,0,.7)",
             }} />
           ))}
-          <div className={box} style={{ left: 9, top: 13, width: 6, height: 6, background: gold, opacity: .9 }} />
-          <div className={box} style={{ left: 9, top: 29, width: 6, height: 6, background: gold, opacity: .65 }} />
-          <div className={box} style={{ left: 9, top: 45, width: 6, height: 6, background: gold, opacity: .45 }} />
-          <div className={box} style={{ left: 9, top: 61, width: 6, height: 6, background: gold, opacity: .3 }} />
         </>
       )}
-      {style === "deck" && (
+
+      {style === "aurora" && (
         <>
-          {/* Four cards on a table, one still arriving. */}
-          {[[6, 20], [29, 20], [6, 48], [29, 48]].map(([l, t], i) => (
+          {[4, 14, 24, 34, 42].map((l, i) => (
+            <div key={l} className="absolute" style={{
+              left: l, top: 8 + (i % 3) * 5, width: 6, bottom: 26, borderRadius: 3,
+              background: "linear-gradient(180deg, rgba(198,118,255,0), rgba(78,232,214,.55) 45%, rgba(92,255,168,.95))",
+            }} />
+          ))}
+          <div className="absolute" style={{
+            left: 0, right: 0, bottom: 0, height: 26,
+            background: "#05060f",
+            clipPath: "polygon(0 40%, 14% 18%, 26% 34%, 40% 10%, 55% 30%, 70% 14%, 85% 32%, 100% 20%, 100% 100%, 0 100%)",
+          }} />
+          {[[8, 12], [22, 6], [38, 16], [45, 9]].map(([l, t], i) => (
+            <div key={i} className="absolute rounded-full" style={{ left: l, top: t, width: 1.5, height: 1.5, background: "#dfeaff" }} />
+          ))}
+        </>
+      )}
+
+      {style === "origami" && (
+        <>
+          {[8, 22, 36, 50, 64].map((t, i) => (
+            <div key={t} className="absolute" style={{
+              left: 5, right: 5, top: t, height: 13,
+              background: i % 2 === 0
+                ? "linear-gradient(163deg, rgba(255,255,255,.13), rgba(0,0,0,.2))"
+                : "linear-gradient(17deg, rgba(255,255,255,.08), rgba(0,0,0,.28))",
+              borderTop: `1px solid ${ROYAL.goldSoft}`,
+              borderRadius: i === 0 ? "5px 5px 0 0" : i === 4 ? "0 0 5px 5px" : 0,
+            }} />
+          ))}
+        </>
+      )}
+
+      {style === "geometric" && (
+        <>
+          {[[10, 12, 3], [32, 16, 5], [12, 38, 6], [34, 44, 4], [22, 64, 8]].map(([l, t, n], i) => (
             <div key={i} className="absolute" style={{
-              left: l, top: t, width: 17, height: 22, borderRadius: 4,
-              background: "linear-gradient(150deg, rgba(255,255,255,.11), rgba(255,255,255,.02))",
-              border: `1px solid ${i === 0 ? ROYAL.goldSoft : "rgba(204,204,255,.14)"}`,
-              transform: i === 3 ? "rotate(-16deg) translate(4px, -3px)" : "none",
-              boxShadow: i === 3 ? "0 6px 12px -6px #000" : "none",
+              left: l, top: t, width: 15, height: 15,
+              background: `linear-gradient(150deg, ${ROYAL.goldSoft}, rgba(204,204,255,.2))`,
+              clipPath: n === 3
+                ? "polygon(50% 0%, 100% 100%, 0% 100%)"
+                : n === 4 ? "polygon(50% 0%, 100% 50%, 50% 100%, 0% 50%)"
+                : n === 5 ? "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)"
+                : n === 6 ? "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)"
+                : "polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%)",
+            }} />
+          ))}
+        </>
+      )}
+
+      {style === "neon" && (
+        <>
+          <div className="absolute" style={{
+            left: 6, right: 6, top: 16, bottom: 16, borderRadius: 6,
+            border: "1px solid #ffd489",
+            boxShadow: "0 0 5px rgba(255,212,137,.9), inset 0 0 6px rgba(255,212,137,.35)",
+          }} />
+          {[26, 36, 46].map((t, i) => (
+            <div key={t} className={box} style={{
+              left: 13, top: t, width: 26 - i * 4, height: 3,
+              background: ["#ffd489", "#b9b6ff", "#ff7ab8"][i],
+              boxShadow: `0 0 6px ${["#ffd489", "#b9b6ff", "#ff7ab8"][i]}`,
+              opacity: i === 1 ? 0.45 : 1,
+            }} />
+          ))}
+          <div className="absolute" style={{
+            left: 10, right: 10, top: 62, height: 12, filter: "blur(3px)", opacity: 0.35,
+            background: "linear-gradient(180deg, rgba(255,212,137,.7), transparent)",
+          }} />
+        </>
+      )}
+
+      {style === "tessellate" && (
+        <>
+          {[[8, 10], [28, 10], [3, 28], [18, 28], [33, 28], [8, 46], [28, 46], [18, 64]].map(([l, t], i) => (
+            <div key={i} className="absolute" style={{
+              left: l, top: t, width: 17, height: 17,
+              clipPath: "polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%)",
+              background: i === 3
+                ? `linear-gradient(150deg, ${gold}, #a8823f)`
+                : "linear-gradient(150deg, rgba(217,183,117,.4), rgba(20,20,31,1) 40%)",
+            }} />
+          ))}
+        </>
+      )}
+
+      {style === "kinetic" && (
+        <>
+          {[10, 26, 42, 58].map((t, i) => {
+            const left = i % 2 === 0;
+            return (
+              <div key={t}>
+                <div className={box} style={{
+                  left: left ? 2 : 10, top: t, width: 36, height: 12,
+                  background: "rgba(255,255,255,.05)", filter: "blur(2px)", opacity: 0.35,
+                }} />
+                <div className={box} style={{
+                  left: left ? 6 : 6, top: t, width: 40, height: 12,
+                  background: "linear-gradient(100deg, rgba(255,255,255,.12), rgba(255,255,255,.03))",
+                  borderLeft: `2px solid ${ROYAL.goldSoft}`,
+                }} />
+              </div>
+            );
+          })}
+        </>
+      )}
+
+      {style === "elevator" && (
+        <>
+          {[3, 45].map((l) => (
+            <div key={l} className="absolute" style={{
+              left: l, top: 4, bottom: 4, width: 4, borderRadius: 2,
+              background: "linear-gradient(90deg,#16161f,#08080e)", border: `1px solid ${ROYAL.hairline}`,
+            }} />
+          ))}
+          {[10, 26, 42, 58].map((t, i) => (
+            <div key={t} className={box} style={{
+              left: 10, top: t, width: 32, height: 12,
+              background: "rgba(255,255,255,.05)", border: `1px solid ${ROYAL.hairline}`,
+              borderBottom: `2px solid rgba(217,183,117,.3)`,
+            }} />
+          ))}
+          <div className={box} style={{
+            left: 10, top: 26, width: 32, height: 12,
+            background: "rgba(217,183,117,.16)", border: `1px solid ${ROYAL.goldSoft}`,
+          }} />
+        </>
+      )}
+
+      {style === "comic" && (
+        <>
+          <div className="absolute inset-0" style={{ background: "#efe7d6" }} />
+          {[[4, 6], [19, 6], [34, 6], [4, 30], [19, 30], [34, 30], [4, 54], [19, 54], [34, 54]].map(([l, t], i) => (
+            <div key={i} className="absolute" style={{
+              left: l, top: t, width: 13, height: 18,
+              background: ["#ffd23f", "#4cc9f0", "#ff6b6b", "#8ac926", "#c77dff", "#ffa552", "#5ce1e6", "#ff8fab", "#a0c4ff"][i],
+              border: "1.4px solid #0d0b12",
+              boxShadow: "1.4px 1.4px 0 rgba(13,11,18,.85)",
+              transform: `rotate(${i % 3 === 0 ? -1.4 : i % 3 === 1 ? 0.9 : -0.6}deg)`,
+            }} />
+          ))}
+        </>
+      )}
+
+      {style === "apex" && (
+        <>
+          {[[7, 46], [12, 33], [22, 26], [33, 30], [41, 41]].map(([l, t], i) => (
+            <div key={i} className="absolute rounded-[4px]" style={{
+              left: l, top: t, width: i === 2 ? 11 : 8, height: i === 2 ? 11 : 8,
+              background: i === 2 ? `linear-gradient(150deg, ${gold}, #a8823f)` : "rgba(255,255,255,.09)",
+              border: `1px solid ${i === 2 ? gold : ROYAL.hairline}`,
             }} />
           ))}
           <div className="absolute rounded-full" style={{
-            left: 9, top: 24, width: 8, height: 8,
-            background: "rgba(217,183,117,.18)", border: `1px solid ${ROYAL.goldSoft}`,
+            left: 18, top: 60, width: 16, height: 16,
+            background: `linear-gradient(150deg, ${gold}, #a8823f)`,
+            boxShadow: `0 0 0 2px rgba(204,204,255,.12)`,
           }} />
         </>
       )}
@@ -154,7 +310,9 @@ function Column({
     <div className="flex-1 min-w-0">
       <div className="text-xs font-semibold mb-0.5" style={{ color: ROYAL.text }}>{title}</div>
       <p className="text-[11px] mb-2.5" style={{ color: ROYAL.dim }}>{note}</p>
-      <div className="space-y-2">
+      {/* Fifteen styles is more than fits comfortably; the column scrolls rather
+          than the previews shrinking to the point of being indistinguishable. */}
+      <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
         {MENU_STYLES.map((s) => {
           const meta = MENU_META[s];
           const active = s === value;
@@ -212,10 +370,10 @@ export function AdminMenuStyleCard() {
         {saved && !saving && <span className="text-[11px] text-green-400">Saved ✓</span>}
       </h3>
       <p className="text-xs text-muted-foreground">
-        Every style shows the same sections and modules and respects the same access rules — only the
-        presentation changes. All but Classic Rail collapse to a single control and hand the 62px rail
-        back to the content, so modules get the whole page. Changes apply to everyone on their next
-        page load.
+        Fifteen styles. Every one shows the same sections and modules and respects the same access
+        rules — only the presentation changes. All but Classic Rail collapse to a single control and
+        hand the 62px rail back to the content, so modules get the whole page. Changes apply to
+        everyone on their next page load.
       </p>
 
       {err && <div className="text-xs text-destructive">{err}</div>}

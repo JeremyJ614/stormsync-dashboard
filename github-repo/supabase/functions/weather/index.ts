@@ -467,6 +467,58 @@ Deno.serve(async (req) => {
   const route = url.pathname.replace(/^\/functions\/v1\/weather/, "").replace(/^\/weather/, "") || "/";
 
   try {
+    // ---- ProbSevere -------------------------------------------------------
+    /*
+     * NOAA/CIMSS ProbSevere, as the vector product it actually is.
+     *
+     * The map used to request `/tiles/PROBSEVEREV3/{z}/{x}/{y}.png` from
+     * RealEarth. Those requests return HTTP 200 and a 102-byte fully transparent
+     * PNG at every zoom a person actually uses — the product's `type` is
+     * "shape", so there is no raster to serve and the overlay was silently
+     * empty. That is why it "never worked".
+     *
+     * The real feed is a GeoJSON FeatureCollection of storm objects, each
+     * carrying its probabilities. Proxied here for CORS and cached for two
+     * minutes, which is a little under the product's own update cadence.
+     */
+    if (route === "/probsevere") {
+      const KEY = "probsevere:v3";
+      const cached = await cacheGet(KEY, 120);
+      if (cached) return json(cached, 200, 120);
+
+      const r = await fetch("https://realearth.ssec.wisc.edu/api/shapes?products=PROBSEVEREV3", {
+        signal: AbortSignal.timeout(20_000),
+        headers: { "User-Agent": "StormSyncVIP/1.0 (+https://vip.sswx.space)" },
+      });
+      if (!r.ok) return json({ type: "FeatureCollection", features: [], error: `upstream ${r.status}` }, 200, 30);
+
+      const raw = await r.json();
+      // Flatten what the map needs into `properties`: MapLibre can only style
+      // and filter on properties, and ProbSevere hangs its values off a
+      // sibling `models` object that a paint expression cannot reach.
+      const features = (raw?.features ?? []).map((f: Record<string, unknown>) => {
+        const ps = ((f.models as Record<string, Record<string, string>> | undefined)?.probsevere) ?? {};
+        const num = (v: unknown) => {
+          const n = Number(String(v ?? "").replace("%", ""));
+          return Number.isFinite(n) ? n : 0;
+        };
+        const lines = Object.keys(ps).filter((k) => k.startsWith("LINE")).sort()
+          .map((k) => ps[k]).filter(Boolean);
+        return {
+          type: "Feature",
+          geometry: f.geometry,
+          properties: {
+            prob: num(ps.PROB),
+            summary: lines[0] ?? "",
+            detail: lines.slice(1).join("\n"),
+          },
+        };
+      });
+      const out = { type: "FeatureCollection", features, at: new Date().toISOString() };
+      await cacheSet(KEY, out);
+      return json(out, 200, 120);
+    }
+
     // ---- public cameras ---------------------------------------------------
     if (route === "/cameras") {
       const { cams, nets, at } = await allCameras();

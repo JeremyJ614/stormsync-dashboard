@@ -12,7 +12,11 @@
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
 
-export const MENU_STYLES = ["rail", "push", "gooey", "singularity", "solari", "sweep", "strata", "deck"] as const;
+export const MENU_STYLES = [
+  "rail", "push", "strata", "solari", "sweep", "singularity",
+  "aurora", "origami", "geometric", "neon",
+  "tessellate", "kinetic", "elevator", "comic", "apex",
+] as const;
 export type MenuStyle = (typeof MENU_STYLES)[number];
 
 export interface MenuStyleConfig { customer: MenuStyle; admin: MenuStyle }
@@ -27,17 +31,12 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
   push: {
     label: "Canvas Push",
     blurb: "The app tilts away in 3D and the full menu stands behind it, lit along a champagne seam.",
-    hint: "Shows every section at once; the trigger morphs as it opens.",
+    hint: "Shows every section at once. Tap the tilted app, or the close control, to put it back.",
   },
-  gooey: {
-    label: "Gooey Orb",
-    blurb: "An orb that stretches into arcs of liquid blobs at the thumb, paging when a section is large.",
-    hint: "Everything stays inside thumb reach.",
-  },
-  singularity: {
-    label: "Singularity",
-    blurb: "A collapsing core with an accretion disc; sections orbit it and become moons when chosen.",
-    hint: "The most theatrical. Best on a good screen.",
+  strata: {
+    label: "Strata",
+    blurb: "A core sample. Layers decompress out of one pile in real depth, lit by a light that travels down the stack, and they parallax as you move.",
+    hint: "The calmest of the set and the fastest to scan — theatre in the transition, a plain list at rest.",
   },
   solari: {
     label: "Solari Board",
@@ -46,18 +45,58 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
   },
   sweep: {
     label: "Radar Sweep",
-    blurb: "A radar sweep paints the sections onto range rings as it passes them, then re-paints with the modules inside one.",
+    blurb: "A PPI scope inside a milled bezel. The beam paints each contact as it crosses it, and every blip flashes once as it is found.",
     hint: "Built for this app — it reads like the instrument the rest of it is about.",
   },
-  strata: {
-    label: "Strata",
-    blurb: "Sections as stacked layers that slide apart in depth; the chosen one comes forward and its modules unstack beneath it.",
-    hint: "The calmest of the set, and the fastest to scan.",
+  singularity: {
+    label: "Singularity",
+    blurb: "A black hole with a real accretion disc — passing behind the shadow above and in front of it below, Doppler-beamed bright on one limb — orbited by worlds with genuine terminators and ring systems.",
+    hint: "The most cinematic. Best on a good screen.",
   },
-  deck: {
-    label: "Deck",
-    blurb: "Sections are dealt. Each card leaves the button you pressed, arcs across the screen and spins into its place on the table.",
-    hint: "The animation has a source, which is what makes it feel caused rather than merely animated.",
+  aurora: {
+    label: "Aurora",
+    blurb: "The sky itself. Sections are curtains of aurora standing over a ridge, summed on a canvas so folds brighten where they cross; inside one, the modules are a named constellation.",
+    hint: "The centrepiece. The only style whose subject is the same as the product's.",
+  },
+  origami: {
+    label: "Origami",
+    blurb: "A folded sheet. Panels hinge open on the creases they share, each face catching light from the direction it turned, and the trigger's outline morphs from square to kite to star.",
+    hint: "Quiet and tactile; the fold does the work rather than a colour change.",
+  },
+  geometric: {
+    label: "Geometric",
+    blurb: "Every control is a polygon in the middle of becoming another one — triangle to pentagon to octagon and back — over a slowly turning construction lattice.",
+    hint: "Shapes morph continuously because each is sampled at the same point count, so the outlines genuinely interpolate.",
+  },
+  neon: {
+    label: "Neon",
+    blurb: "A sign on a wet street. Tubes strike one after another, the light lands on the road below, and exactly one tube per opening has a fault it never shakes off.",
+    hint: "The most atmospheric. Leaves the champagne palette on purpose.",
+  },
+  tessellate: {
+    label: "Tessellate",
+    blurb: "A honeycomb of bevelled cells that spin in from the middle outward, with a wave of light crossing the whole comb on a loop.",
+    hint: "Dense and thumb-reachable; the comb grows from where the trigger was.",
+  },
+  kinetic: {
+    label: "Kinetic",
+    blurb: "Rows arrive from alternating sides fast enough to overshoot, each dragging a real motion trail. Choosing a section sends the others back out the way they came as its modules cascade in.",
+    hint: "The most kinetic of the set — nothing on screen ever cross-fades.",
+  },
+  elevator: {
+    label: "Elevator",
+    blurb: "A lift shaft in section: guide rails, bolt plates, brushed doors that part from a seam, and a car that travels to the floor you pick.",
+    hint: "Every edge is drawn, so it reads as machinery rather than as a list on black.",
+  },
+  comic: {
+    label: "Comic",
+    blurb: "A page of small panels on newsprint — black rules, white gutters, angled halftone, speed lines and hand-lettered caption boxes. Panels snap rather than ease.",
+    hint: "The densest layout here: three across, so a whole section fits on one page.",
+  },
+  apex: {
+    label: "Apex",
+    blurb: "A thumb-anchored arc. Press and drag to sweep through it and release on one, or tap to open and tap to choose; whatever is nearest magnifies like a dock.",
+    hint: "Operable without looking. The trigger's ring reads how far along the arc your thumb is.",
   },
 };
 

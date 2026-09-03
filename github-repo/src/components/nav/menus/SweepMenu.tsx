@@ -16,14 +16,24 @@ import { ROYAL, EASE } from "../../../lib/royal";
  * The reveal is timed off the sweep rather than off a plain stagger. An entry's
  * angle *is* its delay, so a blip lights the instant the beam crosses it and the
  * two never drift apart. Once painted a blip stays lit — a menu whose targets
- * fade in and out on a 2.4s cycle would be miserable to actually use, so the
- * sweep is the entrance and the resting state is a stable, fully-legible dial.
+ * fade in and out would be miserable to actually use, so the sweep is the
+ * entrance and the resting state is a stable, fully-legible dial.
+ *
+ * That coupling is also why this used to feel slow: at a 2.4s rotation the last
+ * contact did not appear for two and a half seconds, and a menu that takes two
+ * and a half seconds to become usable is broken however good it looks. The scan
+ * runs at 1.15s now — still a plausible antenna rate, and everything is on
+ * screen inside a beat and a quarter. The wedge behind the leading edge is
+ * shorter to match, because a long tail at speed smears into a rotating disc.
  *
  * The centre is the control, not a hole: it reads back the level you are on and
  * takes you up one when tapped.
  */
-const PERIOD = 2.4;          // seconds for one full rotation
-const BLIP = 46;
+const PERIOD = 1.15;         // seconds for one full rotation
+/** Blip diameter. Shrinks once the ring gets crowded so captions stop touching. */
+function blipSize(n: number): number {
+  return n <= 8 ? 46 : n <= 11 ? 42 : 38;
+}
 
 export function SweepMenu({ nav }: { nav: MenuNav }) {
   const { open, section, current, sections, toggle, close, openSection, back, calm, containerRef } = nav;
@@ -52,6 +62,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
       }));
 
   const n = Math.max(1, entries.length);
+  const BLIP = blipSize(n);
 
   // 56 of vertical room goes to the level caption, 84 to the close control.
   const R = Math.max(104, Math.min(
@@ -107,7 +118,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
           }}
           initial={false}
           animate={{ opacity: open ? 1 : 0, scale: open ? 1 : 0.86 }}
-          transition={calm ? { duration: 0 } : { duration: 0.4, ease: EASE }}
+          transition={calm ? { duration: 0 } : { duration: 0.3, ease: EASE }}
           aria-hidden={!open}
         >
           {/* Range rings, at the blip radius and either side of it. */}
@@ -123,6 +134,21 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
             />
           ))}
 
+          {/* Bezel. The old scope was three unlabelled circles, which reads as
+              decoration; a milled outer ring with cardinal bearings on it is
+              what makes the same geometry read as an instrument. */}
+          <div
+            className="absolute rounded-full pointer-events-none"
+            style={{
+              left: box / 2 - (R + 26), top: box / 2 - (R + 26),
+              width: (R + 26) * 2, height: (R + 26) * 2,
+              border: `1px solid rgba(204,204,255,0.07)`,
+              background:
+                `repeating-conic-gradient(from 0deg, rgba(217,183,117,0.06) 0 1.5deg, transparent 1.5deg 15deg)`,
+              boxShadow: `inset 0 0 40px -18px ${ROYAL.gold}`,
+            }}
+            aria-hidden
+          />
           {/* Bearing ticks every 30°, longer on the cardinals. */}
           {Array.from({ length: 12 }, (_, i) => i * 30).map((deg) => (
             <div
@@ -148,10 +174,10 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
                 width: (R + 18) * 2, height: (R + 18) * 2,
                 background:
                   `conic-gradient(from 0deg,` +
-                  ` transparent 0deg, transparent 268deg,` +
-                  ` rgba(217,183,117,0.04) 268deg,` +
-                  ` rgba(217,183,117,0.13) 338deg,` +
-                  ` rgba(217,183,117,0.30) 360deg)`,
+                  ` transparent 0deg, transparent 302deg,` +
+                  ` rgba(217,183,117,0.05) 302deg,` +
+                  ` rgba(217,183,117,0.16) 348deg,` +
+                  ` rgba(217,183,117,0.34) 360deg)`,
                 maskImage: "radial-gradient(circle, #000 62%, transparent 100%)",
                 WebkitMaskImage: "radial-gradient(circle, #000 62%, transparent 100%)",
               }}
@@ -185,7 +211,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
             const x = box / 2 + R * Math.cos(rad);
             const y = box / 2 + R * Math.sin(rad);
             const Icon = e.icon;
-            const delay = calm ? 0 : 0.18 + frac * PERIOD;
+            const delay = calm ? 0 : 0.1 + frac * PERIOD;
 
             // Labels sit on the far side of the blip from the hub: above it in
             // the top arc, below it in the bottom. Keeping them all below made
@@ -226,7 +252,21 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
                   }}
                   whileTap={calm ? undefined : { scale: 0.9 }}
                 >
-                  {Icon ? <Icon style={{ width: 20, height: 20 }} /> : <Radar style={{ width: 20, height: 20 }} />}
+                  {/* Paint flash: one expanding ring as the beam crosses, then
+                      gone. This is what sells the blip as having been *found*
+                      by the sweep rather than merely faded in on a timer. */}
+                  {open && !calm && (
+                    <motion.span
+                      className="absolute rounded-full pointer-events-none"
+                      style={{ inset: -3, border: `1px solid ${ROYAL.gold}` }}
+                      initial={{ opacity: 0.85, scale: 0.72 }}
+                      animate={{ opacity: 0, scale: 1.5 }}
+                      transition={{ duration: 0.62, delay, ease: "easeOut" }}
+                      aria-hidden
+                    />
+                  )}
+                  {Icon ? <Icon style={{ width: BLIP > 40 ? 20 : 17, height: BLIP > 40 ? 20 : 17 }} />
+                        : <Radar style={{ width: 20, height: 20 }} />}
                   {e.locked && (
                     <Lock className="absolute -top-0.5 -right-0.5 w-3 h-3" style={{ color: ROYAL.dim }} />
                   )}
@@ -262,7 +302,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
                 style={{ left: 0, top: 0, width: 0, height: 0, transformOrigin: `${box / 2 - x}px ${box / 2 - y}px` }}
                 initial={false}
                 animate={open ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.7 }}
-                transition={calm ? { duration: 0 } : { duration: 0.34, delay: open ? delay : 0, ease: EASE }}
+                transition={calm ? { duration: 0 } : { duration: 0.26, delay: open ? delay : 0, ease: EASE }}
               >
                 {e.to
                   ? <Link href={e.to} onClick={close} {...common}>

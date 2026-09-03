@@ -1,6 +1,6 @@
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { Lock } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import type { MenuNav } from "./useMenuNav";
 import { ROYAL, HEADING, EASE } from "../../../lib/royal";
 
@@ -15,6 +15,24 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
  * It is the one style that shows every section at once. With 37 modules a
  * single scrolling column under section headings beats making anyone drill in
  * and back out again.
+ *
+ * Two things were wrong and are fixed here.
+ *
+ * Dismissal: the shared outside-click handler measures against `containerRef`,
+ * and this style put that ref on a layer covering the whole screen — so no
+ * click was ever outside it and the only way back was the trigger, which sits
+ * in the bottom-left corner behind the tilted app. The exposed ground to the
+ * right of the panel now closes on click in its own right, there is a close
+ * control in the header where a close control belongs, and the tilted app
+ * itself is a dismiss target, because tapping the thing you want back is the
+ * gesture everyone tries first.
+ *
+ * Type: the header was set at 19px in the heading face with no tracking and
+ * nothing under it, which is the size at which Raleway stops having any
+ * character. The header is now a small-caps masthead with a champagne rule and
+ * a live count, and the module rows are set tighter and quieter so the section
+ * headings can do the structural work instead of the labels shouting over each
+ * other.
  */
 
 /**
@@ -55,8 +73,11 @@ function MorphTrigger({ open, calm }: { open: boolean; calm: boolean }) {
   );
 }
 
+const PANEL_W = "min(74vw, 340px)";
+
 export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
   const { open, sections, toggle, close, calm, containerRef } = nav;
+  const modules = sections.reduce((n, s) => n + s.items.length, 0);
   let row = 0;   // running index so the stagger runs across sections, not within
 
   return (
@@ -64,7 +85,11 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
       <motion.div
         className="absolute inset-0"
         style={{
+          // The gradient's first stop is translucent gold, so on its own the
+          // app read straight through the top-left corner of the panel. The
+          // flat ink underneath is what makes this a backdrop rather than a tint.
           background: `radial-gradient(120% 90% at 8% 0%, rgba(217,183,117,0.10), ${ROYAL.ink} 46%, #05050e 100%)`,
+          backgroundColor: ROYAL.ink,
           pointerEvents: open ? "auto" : "none",
         }}
         initial={false}
@@ -73,12 +98,25 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
         aria-hidden={!open}
       />
 
+      {/* Everything right of the seam — which is where the tilted app is —
+          dismisses. A menu you can only leave through one 52px control in a
+          corner is a menu that has taken the app hostage. */}
+      {open && (
+        <button
+          className="absolute inset-y-0 right-0"
+          style={{ left: PANEL_W, pointerEvents: "auto", cursor: "pointer" }}
+          onClick={close}
+          aria-label="Close the menu"
+          tabIndex={-1}
+        />
+      )}
+
       {/* The seam: a champagne edge-light where the app has folded away, so the
           tilt reads as an object catching light rather than a flat transform. */}
       <motion.div
         className="absolute inset-y-0"
         style={{
-          left: "min(74vw, 340px)", width: 2,
+          left: PANEL_W, width: 2,
           background: `linear-gradient(180deg, transparent, ${ROYAL.gold}, transparent)`,
           filter: "blur(0.5px)",
           pointerEvents: "none",
@@ -91,35 +129,68 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
 
       <motion.nav
         className="absolute inset-y-0 left-0 flex flex-col"
-        style={{ width: "min(74vw, 340px)", pointerEvents: open ? "auto" : "none" }}
+        style={{ width: PANEL_W, pointerEvents: open ? "auto" : "none" }}
         initial={false}
         animate={open ? { opacity: 1, x: 0 } : { opacity: 0, x: -24 }}
         transition={{ duration: calm ? 0 : 0.4, delay: calm ? 0 : 0.1 }}
         aria-label="Navigation"
         aria-hidden={!open}
       >
-        <div className="px-6 pt-9 pb-4 shrink-0">
-          <div className="text-[9.5px] uppercase tracking-[0.4em]" style={{ color: ROYAL.gold }}>StormSync</div>
-          <div className="text-[19px] font-semibold mt-1 leading-none"
-               style={{ color: ROYAL.text, fontFamily: HEADING, letterSpacing: "0.01em" }}>
-            Everything, in one place
+        {/* Masthead. Small caps and wide tracking rather than a large weight:
+            the panel is 340px at most and a 19px sentence across it reads as a
+            paragraph that lost its page. */}
+        <div className="px-6 pt-9 pb-4 shrink-0 relative">
+          <button
+            onClick={close}
+            aria-label="Close the menu"
+            className="absolute top-8 right-5 grid place-items-center rounded-full transition-colors"
+            style={{
+              width: 30, height: 30,
+              border: `1px solid ${ROYAL.hairline}`,
+              background: "rgba(255,255,255,0.04)",
+              color: ROYAL.dim,
+            }}
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="text-[9px] uppercase tracking-[0.46em] leading-none" style={{ color: ROYAL.gold }}>
+            StormSync
           </div>
-          <div className="text-[11px] mt-1.5" style={{ color: ROYAL.dim }}>
-            {sections.length} sections · {sections.reduce((n, s2) => n + s2.items.length, 0)} modules
+          <div
+            className="mt-2 uppercase leading-none"
+            style={{
+              color: ROYAL.text, fontFamily: HEADING,
+              fontSize: 13, fontWeight: 600, letterSpacing: "0.30em",
+            }}
+          >
+            Navigation
           </div>
-          <div className="mt-3 h-px" style={{ background: `linear-gradient(90deg, ${ROYAL.gold}, transparent)` }} />
+          <div className="mt-2.5 flex items-center gap-2 text-[10px]" style={{ color: ROYAL.dim }}>
+            <span className="tabular-nums" style={{ color: ROYAL.gold }}>{sections.length}</span>
+            <span className="uppercase tracking-[0.18em]">sections</span>
+            <span style={{ opacity: 0.4 }}>·</span>
+            <span className="tabular-nums" style={{ color: ROYAL.gold }}>{modules}</span>
+            <span className="uppercase tracking-[0.18em]">modules</span>
+          </div>
+          <div className="mt-3.5 h-px" style={{ background: `linear-gradient(90deg, ${ROYAL.gold}, transparent)` }} />
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 pb-10 space-y-5">
+        <div className="flex-1 overflow-y-auto px-4 pb-10 space-y-4">
           {sections.map((sec) => {
             const SecIcon = sec.icon;
             return (
               <div key={sec.label}>
+                {/* The section heading carries the champagne, so the module
+                    rows underneath can stay quiet and still group correctly. */}
                 <div className="flex items-center gap-2 px-2 pb-1.5">
-                  <SecIcon className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.gold, opacity: 0.9 }} />
-                  <span className="text-[10px] uppercase tracking-[0.28em]" style={{ color: ROYAL.dim }}>{sec.label}</span>
+                  <SecIcon className="w-3 h-3 shrink-0" style={{ color: ROYAL.gold, opacity: 0.9 }} />
+                  <span className="text-[9px] uppercase tracking-[0.3em]" style={{ color: ROYAL.gold, opacity: 0.85 }}>
+                    {sec.label}
+                  </span>
+                  <span className="flex-1 h-px" style={{ background: ROYAL.hairline }} />
                 </div>
-                <div className="space-y-0.5">
+                <div className="space-y-px">
                   {sec.items.map((it) => {
                     const Icon = it.icon;
                     const i = row++;
@@ -133,14 +204,22 @@ export function CanvasPushMenu({ nav }: { nav: MenuNav }) {
                         <Link
                           href={it.path}
                           onClick={close}
-                          className="group relative flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-white/5"
+                          className="group relative flex items-center gap-3 pl-3 pr-2 py-[7px] rounded-md hover:bg-white/[0.055]"
                         >
                           {/* Champagne rail that lights on hover, as elsewhere in the app. */}
                           <span className="absolute left-0 top-1 bottom-1 w-[2px] rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
                                 style={{ background: ROYAL.gold }} aria-hidden />
-                          <Icon className="w-4 h-4 shrink-0" style={{ color: ROYAL.gold }} />
-                          <span className="truncate text-[15px] font-medium" style={{ color: ROYAL.text }}>{it.label}</span>
-                          {it.locked && <Lock className="ml-auto w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.dim }} />}
+                          <Icon className="w-[15px] h-[15px] shrink-0 transition-opacity opacity-70 group-hover:opacity-100"
+                                style={{ color: ROYAL.gold }} />
+                          {/* Colour via classes, not `style`: an inline colour
+                              would win over the hover rule and the row would
+                              never light. */}
+                          <span
+                            className="truncate transition-colors font-medium text-[13px] tracking-[0.012em] text-[#a3a3cc] group-hover:text-[#f1f4ff]"
+                          >
+                            {it.label}
+                          </span>
+                          {it.locked && <Lock className="ml-auto w-3 h-3 shrink-0" style={{ color: ROYAL.dim, opacity: 0.7 }} />}
                         </Link>
                       </motion.div>
                     );

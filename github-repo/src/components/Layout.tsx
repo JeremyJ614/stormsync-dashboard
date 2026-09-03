@@ -149,8 +149,8 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   // Which menu is in play. Set by the admin, separately for members and for
   // admins, so a style can be tried on one side without changing the other.
   // Whatever it is, it replaces the rail rather than sitting alongside it —
-  // there is only ever one way to open navigation on screen at a time, and the
-  // four non-rail styles give the content the full width back.
+  // there is only ever one way to open navigation on screen at a time, and
+  // every non-rail style gives the content the full width back.
   const menuCfg = useSyncExternalStore(subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot);
   const menuStyle = styleFor(menuCfg, Boolean(user?.isAdmin));
   const menuNav = useMenuNav(location);

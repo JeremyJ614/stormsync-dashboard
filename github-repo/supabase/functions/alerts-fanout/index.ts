@@ -283,6 +283,15 @@ const CARRIER_GATEWAY: Record<string, string> = {
   xfinity: "vtext.com",
   mint: "tmomail.net",
   consumercellular: "mailmymobile.net",
+  spectrum: "vtext.com",
+  straighttalk: "vtext.com",
+  totalwireless: "vtext.com",
+  pageplus: "vtext.com",
+  simplemobile: "smtext.com",
+  ultramobile: "tmomail.net",
+  h2o: "txt.att.net",
+  firstnet: "txt.att.net",
+  tracfone: "mmst5.tracfone.com",
 };
 /** Ten digits, or null if this is not a US number we can address. */
 function digits10(phone: string | null): string | null {

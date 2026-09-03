@@ -778,7 +778,13 @@ async function upsertBrief(row: Record<string, unknown>): Promise<void> {
   await admin.from("daily_brief").upsert(row, { onConflict: "brief_date" });
 }
 async function logRun(row: Record<string, unknown>): Promise<void> {
-  try { await admin.from("storm_engine_runs").insert(row); } catch { /* best-effort */ }
+  // Best-effort, but not silent. A `.insert()` that fails resolves with an
+  // error rather than throwing, so the `catch` here never saw the two days this
+  // table spent rejecting every row for want of a grant on its own sequence.
+  try {
+    const { error } = await admin.from("storm_engine_runs").insert(row);
+    if (error) console.error("storm_engine_runs insert failed:", error.message);
+  } catch (e) { console.error("storm_engine_runs insert threw:", String(e)); }
 }
 
 // ── Auth ────────────────────────────────────────────────────────────────────────

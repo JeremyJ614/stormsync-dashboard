@@ -33,6 +33,20 @@ import {
   Play, Pause, SkipBack, SkipForward, Gauge, Download, Satellite,
 } from "lucide-react";
 import { type SatelliteData, tropicalFetch, tileUrl, GOLD } from "../../lib/tropical";
+
+/**
+ * How long a loop is, by default.
+ *
+ * Thirty frames of four tiles is around thirty-six megabytes on the default
+ * infrared product — measured, not estimated: the tiles run 220–330 kB each.
+ * That is a minute or more of cellular before the loop is full, during which
+ * the tab looks broken. Fifteen frames is still two and a half hours of storm
+ * at ten-minute imagery, and it halves the wait.
+ */
+const DEFAULT_FRAMES = 15;
+
+/** Extra attempts per tile before it counts as failed. See `load` below. */
+const TILE_RETRIES = 2;
 import { Panel, Source, Spinner, Empty } from "./ui";
 
 const SPEEDS = [0.5, 1, 2, 4];
@@ -49,7 +63,7 @@ const PRODUCTS = [
 ];
 
 export default function SatelliteLoop({
-  stormId, stormName, frames = 30,
+  stormId, stormName, frames = DEFAULT_FRAMES,
 }: { stormId: string; stormName: string; frames?: number }) {
   const [product, setProduct] = useState("band_13");
   const [zoom, setZoom] = useState(2);
@@ -61,8 +75,24 @@ export default function SatelliteLoop({
       can say so instead of playing black. */
   const [failed, setFailed] = useState<Set<number>>(new Set());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  /** Decoded tiles, keyed by their URL. */
+  /** Decoded tiles, keyed by their URL. Emptied per frame — see `compose`. */
   const tiles = useRef<Map<string, HTMLImageElement>>(new Map());
+  /**
+   * One finished picture per frame, at the crop's native size.
+   *
+   * The loop used to hold every decoded TILE for the whole session, and that is
+   * what made this unusable on a phone. A tile is 678x678, so a decoded one
+   * costs about 1.8 MB of bitmap however small the PNG was; four per frame
+   * across thirty frames is 221 MB held at once. A desktop shrugs; iOS Safari
+   * discards the tab, and the symptom is a satellite tab that never fills in.
+   *
+   * The crop is only 500x500 of those pixels — the tile offsets are in the same
+   * units, so one crop unit IS one native tile pixel and nothing is lost by
+   * compositing at that size. Each frame becomes a single 500x500 canvas of
+   * about 1 MB and its four source tiles are released immediately: 15 MB for a
+   * fifteen-frame loop instead of 110 MB, for exactly the same picture.
+   */
+  const shots = useRef<Map<number, HTMLCanvasElement>>(new Map());
 
   const { data, isLoading, isError, error } = useQuery<SatelliteData>({
     queryKey: ["sat", stormId, product, zoom, frames],
@@ -85,8 +115,41 @@ export default function SatelliteLoop({
     if (!data?.available || !data.frames?.length) return;
     let cancelled = false;
     tiles.current = new Map();
+    shots.current = new Map();
     setLoaded(new Set());
     setFailed(new Set());
+
+    /**
+     * Flatten one frame's tiles into a single canvas and let the tiles go.
+     *
+     * Done the moment a frame's tiles have all settled rather than at paint
+     * time, because the point is to stop holding them — deferring it would keep
+     * every tile alive for the whole session, which is the thing being fixed.
+     */
+    const compose = (i: number) => {
+      const f = data.frames[i];
+      if (!f) return false;
+      const cv = document.createElement("canvas");
+      cv.width = data.cropSize;
+      cv.height = data.cropSize;
+      const ctx = cv.getContext("2d");
+      if (!ctx) return false;
+      ctx.fillStyle = "#000";
+      ctx.fillRect(0, 0, cv.width, cv.height);
+      let drew = 0;
+      for (const t of data.tiles) {
+        const url = tileUrl(f.base, t.row, t.col);
+        const img = tiles.current.get(url);
+        if (img) {
+          ctx.drawImage(img, t.left, t.top, data.tileSize, data.tileSize);
+          drew++;
+        }
+        tiles.current.delete(url);      // released either way
+      }
+      if (drew === 0) return false;
+      shots.current.set(i, cv);
+      return true;
+    };
 
     const n = data.frames.length;
     // Playback order from where the playhead actually starts: newest first,
@@ -111,15 +174,40 @@ export default function SatelliteLoop({
         if (--left > 0) return;
         // A frame counts as ready only if something actually decoded. Marking
         // an all-errors frame "loaded" is what let the loop hold on black.
-        if (got > 0) setLoaded((s) => new Set(s).add(job.i));
+        if (got > 0 && compose(job.i)) setLoaded((s) => new Set(s).add(job.i));
         else setFailed((s) => new Set(s).add(job.i));
         pump();
       };
-      for (const url of job.urls) {
+      for (const url of job.urls) load(url, 0);
+
+      /**
+       * Fetch one tile, and try again before giving up on it.
+       *
+       * CIRA drops a share of connections when several are open at once — not
+       * an HTTP error, the socket simply closes mid-exchange, and the browser
+       * reports it as `onerror` exactly like a 404. Measured here: a tile that
+       * returned nothing was served in full on an immediate retry.
+       *
+       * Without a retry each of those drops permanently killed a tile, and a
+       * frame whose four tiles all dropped was marked dead for the session. On
+       * a phone, where drops are commoner still, enough frames died that the
+       * loop had nothing to play — which is the "no frames load" this is here
+       * to fix. Two attempts with a short pause turns a transient socket close
+       * back into a picture.
+       */
+      function load(url: string, attempt: number) {
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.onload = () => { tiles.current.set(url, img); done(true); };
-        img.onerror = () => done(false);
+        img.onload = () => { if (!cancelled) { tiles.current.set(url, img); done(true); } };
+        img.onerror = () => {
+          if (cancelled) return;
+          if (attempt < TILE_RETRIES) {
+            // Staggered, so a burst of failures does not retry as a burst.
+            setTimeout(() => { if (!cancelled) load(url, attempt + 1); }, 350 * (attempt + 1));
+            return;
+          }
+          done(false);
+        };
         img.src = url;
       }
     };
@@ -141,15 +229,11 @@ export default function SatelliteLoop({
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
 
-    const f = data.frames[i];
-    if (!f) return;
-    const k = w / data.cropSize;              // crop pixels → canvas pixels
-    const size = data.tileSize * k;
-    for (const t of data.tiles) {
-      const img = tiles.current.get(tileUrl(f.base, t.row, t.col));
-      if (!img) continue;
-      ctx.drawImage(img, t.left * k, t.top * k, size, size);
-    }
+    // One draw of one finished picture, scaled to fit. The per-tile
+    // arithmetic moved to `compose`, where it happens once per frame instead of
+    // on every repaint.
+    const shot = shots.current.get(i);
+    if (shot) ctx.drawImage(shot, 0, 0, w, h);
   }, [data]);
 
   useEffect(() => { paint(idx); }, [paint, idx, loaded]);

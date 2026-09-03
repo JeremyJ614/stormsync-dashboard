@@ -19,6 +19,7 @@ import {
 import {
   ALERT_LEVELS, TIER_NAME, money,
   fetchAlertPrices, adminAlertRoster, adminSetAlertLevel, adminSaveAlertPrice,
+  adminSetAlertOverride, adminAlertOverrides,
   adminAlertRequests, adminHandleAlertRequest, sendManualAlert,
   type AlertPriceRow, type AlertRosterRow, type AdminRequest, type ManualResult,
 } from "../../lib/alerts";
@@ -327,6 +328,11 @@ function SendPane({ rows }: { rows: AlertRosterRow[] }) {
 
 // ─── who has what ────────────────────────────────────────────────────────────
 function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: () => void }) {
+  // Which members are on a level an admin set by hand. Fetched alongside the
+  // roster rather than folded into it: `admin_alert_roster` already returns
+  // thirteen columns and its signature cannot gain one without being dropped.
+  const [overrides, setOverrides] = useState<Record<string, number>>({});
+  useEffect(() => { void adminAlertOverrides().then(setOverrides); }, [rows]);
   const [q, setQ] = useState("");
   const [onlyLevel, setOnlyLevel] = useState<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -399,27 +405,39 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
    * The five squares could always do this, one tap at a time, but nobody read
    * them as an up/downgrade control — they read as five unlabelled buttons, and
    * "put this member on Contact Alerts" meant working out which of the five to
-   * press and in which direction. This says what it does: everything up to the
-   * target is granted, everything above it is revoked, and levels their tier
-   * already includes are left alone because those are not ours to take.
+   * press and in which direction.
+   *
+   * It used to work by granting and revoking one rung at a time, skipping any
+   * level the member's tier already included, on the reasoning that those were
+   * not ours to take. That reasoning is what made the control only work
+   * upwards: tier is a floor in `alert_levels_for`, so a tier-4 member could
+   * not be moved below level 4 by any number of revokes — the only way down was
+   * to demote their subscription, which is not the same decision at all.
+   *
+   * It now sets an override, which replaces the calculation rather than adding
+   * to it. One number, both directions, and "Clear" hands them back to whatever
+   * their plan and purchases say.
    */
   async function setTo(row: AlertRosterRow, target: number) {
     setBusy(`${row.user_id}:set`);
-    const changes: { level: number; on: boolean }[] = [];
-    for (const l of ALERT_LEVELS) {
-      const has = row.levels.includes(l.level);
-      const byTier = has && !row.purchased.includes(l.level);
-      if (byTier) continue;                       // included with their plan
-      const want = l.level <= target;
-      if (want !== has) changes.push({ level: l.level, on: want });
+    const res = await adminSetAlertOverride(row.user_id, target);
+    if (res.ok) {
+      void audit("alert.grant", { type: "user", id: row.user_id, label: row.name || row.email },
+        { level: target, via: "override" });
+      onChanged();
     }
-    for (const c of changes) {
-      const res = await adminSetAlertLevel(row.user_id, c.level, c.on);
-      if (!res.ok) break;
-      void audit(c.on ? "alert.grant" : "alert.revoke",
-        { type: "user", id: row.user_id, label: row.name || row.email }, { level: c.level, via: "set-level" });
+    setBusy(null);
+  }
+
+  /** Back to whatever their plan and purchases entitle them to. */
+  async function clearOverride(row: AlertRosterRow) {
+    setBusy(`${row.user_id}:set`);
+    const res = await adminSetAlertOverride(row.user_id, null);
+    if (res.ok) {
+      void audit("alert.grant", { type: "user", id: row.user_id, label: row.name || row.email },
+        { via: "override-cleared" });
+      onChanged();
     }
-    if (changes.length) onChanged();
     setBusy(null);
   }
 
@@ -509,6 +527,9 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
               </div>
               <div className="text-[11px] truncate" style={{ color: ROYAL.dim }}>
                 {r.email} · {TIER_NAME[r.tier]} · scope {r.scope}
+                {overrides[r.user_id] !== undefined && (
+                  <> · <span style={{ color: ROYAL.gold }}>set by you</span></>
+                )}
               </div>
             </div>
             {/* Up/downgrade in one control, next to the per-level squares that
@@ -538,6 +559,17 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
                       className="w-7 h-8 rounded-lg grid place-items-center text-sm font-black disabled:opacity-30"
                       style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
                     >+</button>
+                    {/* Only shown when there is something to undo, so the
+                        common case stays two buttons and a number. */}
+                    {overrides[r.user_id] !== undefined && (
+                      <button
+                        onClick={() => void clearOverride(r)}
+                        disabled={busy === key}
+                        title="Back to what their plan includes"
+                        className="ml-1 px-1.5 h-8 rounded-lg text-[9px] font-bold uppercase tracking-[0.1em] disabled:opacity-30"
+                        style={{ background: "rgba(217,183,117,0.12)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}
+                      >Clear</button>
+                    )}
                   </>
                 );
               })()}

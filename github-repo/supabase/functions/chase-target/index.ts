@@ -1064,6 +1064,9 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── year context, for the Yearly tab ─────────────────────────────────────
+    // The year's ledger BEFORE today is written. This is the right thing to
+    // hand the model — it is being asked to place today against the rest of the
+    // year, and the rest of the year does not include today.
     const { data: yearCtx } = await admin.rpc("chase_year_context");
     const year = Array.isArray(yearCtx) ? yearCtx[0] : yearCtx;
 
@@ -1211,7 +1214,9 @@ Deno.serve(async (req: Request) => {
         rank: yearlyRank,
         label: shortLabel(aiData.yearly_label, YEARLY_LABEL[yearlyRank] ?? ""),
         summary: String(aiData.yearly_summary ?? ""),
-        context: year ?? null,
+        // Filled in after the upsert — see below. Storing the pre-run ledger
+        // here is what made the page contradict itself.
+        context: null as unknown,
       },
       tips: Array.isArray(aiData.tips) ? aiData.tips.map(String).slice(0, 4) : [],
       safety: String(aiData.safety ?? "Chase with a partner, keep an escape route east or south, and never core-punch a rain-wrapped supercell."),
@@ -1221,11 +1226,43 @@ Deno.serve(async (req: Request) => {
     };
 
     await admin.from("chase_outlook").upsert(row, { onConflict: "outlook_date" });
-    await admin.from("chase_runs").insert({
+
+    /*
+     * Re-read the ledger now that today is in it, and store THAT.
+     *
+     * The context used to be the same snapshot handed to the model, taken
+     * before today's row existed. On a first run of the day that is merely
+     * incomplete; on a RE-RUN it is wrong in a way anybody would notice,
+     * because the snapshot then contains the previous run's own score for
+     * today. That is exactly what happened here: a manual run scored 9.0, the
+     * scheduled run an hour later scored 8.0, and the page ended up saying
+     * "today: 8.0" directly above "best so far: 9.0 on today's date" — two
+     * numbers for the same day, and a narrative reasoning about "the 9.0 day we
+     * saw earlier", which was also today.
+     *
+     * Reading it back afterwards means the ledger always describes the rows as
+     * they actually stand, and no ordering of runs can make it disagree with
+     * the score printed above it.
+     */
+    const { data: freshCtx } = await admin.rpc("chase_year_context");
+    const settled = Array.isArray(freshCtx) ? freshCtx[0] : freshCtx;
+    if (settled) {
+      await admin.from("chase_outlook")
+        .update({ yearly: { ...row.yearly, context: settled } })
+        .eq("outlook_date", outlookDate);
+    }
+    // The result is checked, not discarded. This insert failed silently for two
+    // days — the sequence behind its serial key was not granted to
+    // `service_role` after the project was rebuilt — and because nothing looked
+    // at the error, a day the engine never ran was indistinguishable from a day
+    // it ran fine. A run log that can fail quietly is worse than no run log:
+    // it looks like evidence.
+    const logged = await admin.from("chase_runs").insert({
       outlook_date: outlookDate, status: row.status, model: row.model, trigger: auth.trigger,
       duration_ms: Date.now() - started, candidates: candidates.length, scored: scored.length,
       detail: row.error,
     });
+    if (logged.error) console.error("chase_runs insert failed:", logged.error.message);
 
     return json({ ok: true, status: row.status, outlook_date: outlookDate, day_score: finalScore, targets: targets.length, scored: scored.length });
   } catch (e) {

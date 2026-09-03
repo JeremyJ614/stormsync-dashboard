@@ -331,6 +331,35 @@ export async function adminSetAlertLevel(
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
+/**
+ * Put a member on an alert level outright, or hand them back to the normal rules.
+ *
+ * `level` null clears the override. 0 means no alerts at all — a real setting,
+ * and distinct from null, which is what makes taking somebody off alerts
+ * possible without touching what they pay for.
+ */
+export async function adminSetAlertOverride(
+  userId: string, level: number | null,
+): Promise<{ ok: boolean; error?: string }> {
+  const { data, error } = await supabase.rpc("admin_set_alert_override", {
+    p_user: userId, p_level: level,
+  });
+  if (error) return { ok: false, error: error.message };
+  const d = (data ?? {}) as { ok?: boolean; error?: string };
+  return d.ok === true ? { ok: true } : { ok: false, error: d.error ?? "Could not set that." };
+}
+
+/** Which members are on an admin-set level, so the roster can say so. */
+export async function adminAlertOverrides(): Promise<Record<string, number>> {
+  const { data, error } = await supabase.rpc("admin_alert_overrides");
+  if (error) return {};
+  const out: Record<string, number> = {};
+  for (const r of (data ?? []) as { user_id: string; override: number }[]) {
+    out[r.user_id] = Number(r.override);
+  }
+  return out;
+}
+
 export async function adminSaveAlertPrice(
   level: number, patch: { free_price?: number | null; basic_price?: number | null; vip_price?: number | null; label?: string; blurb?: string },
 ): Promise<{ ok: boolean; error?: string }> {

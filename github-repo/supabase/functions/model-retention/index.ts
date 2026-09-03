@@ -71,8 +71,12 @@ Deno.serve(async (req: Request) => {
 
   const rows = (stale ?? []) as { name: string; size: number | string }[];
   const bytes = rows.reduce((n, r) => n + (Number(r.size) || 0), 0);
-  if (rows.length === 0) return json({ ok: true, deleted: 0, freedBytes: 0, runsPruned: 0, note: "nothing stale" });
   if (dryRun) return json({ ok: true, dryRun: true, wouldDelete: rows.length, wouldFreeBytes: bytes });
+
+  // No stale FRAMES is the normal quiet day, and it used to return here. That
+  // was wrong: it also skipped the manifest sweeps below, which are the ones
+  // that clean up rows pointing at frames that are already gone — so on every
+  // day the bucket was tidy, the dropdown's dead entries survived untouched.
 
   // Remove the frames first. If this dies part-way the manifest rows stay put,
   // so the next pass sees the same cycles as stale and finishes the job —
@@ -101,16 +105,36 @@ Deno.serve(async (req: Request) => {
   }
 
   const orphansSwept = failures.length === 0 ? await sweepOrphans() : 0;
+  const emptyRuns = failures.length === 0 ? await pruneEmptyRuns() : 0;
 
   return json({
     ok: failures.length === 0,
     deleted,
     freedBytes: bytes,
     runsPruned,
+    emptyRuns,
     orphansSwept,
+    ...(rows.length === 0 ? { note: "no stale frames" } : {}),
     ...(failures.length ? { errors: failures.slice(0, 3) } : {}),
   });
 });
+
+/**
+ * Drop manifest rows whose frames are gone.
+ *
+ * The archive dropdown is built from `model_runs`, and a row there is a promise
+ * that the frames exist. When the old project blew its quota the files went and
+ * the rows stayed, so the viewer offered twenty-four cycles that answered
+ * "Frames unavailable" — one report of a broken module caused entirely by
+ * bookkeeping. Neither of the two prunes above catches it: one looks for
+ * objects outside the newest cycles, and there are none for these; the other
+ * counts rows without asking whether they point at anything.
+ */
+async function pruneEmptyRuns(): Promise<number> {
+  const { data, error } = await admin.rpc("prune_orphan_model_runs", { grace_minutes: 90 });
+  if (error) return 0;
+  return Number(data ?? 0);
+}
 
 /**
  * Work the backlog of files stranded by the one-time outage recovery.

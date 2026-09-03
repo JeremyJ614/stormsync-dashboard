@@ -197,7 +197,24 @@ export default function SatelliteLoop({
        */
       function load(url: string, attempt: number) {
         const img = new Image();
-        img.crossOrigin = "anonymous";
+        // NO `crossOrigin` HERE, DELIBERATELY, AND IT MUST NOT COME BACK.
+        //
+        // Setting it to "anonymous" puts the request in CORS mode, and CIRA
+        // SLIDER answers with no `Access-Control-Allow-Origin` header at all —
+        // verified against the live host, which also 405s an OPTIONS preflight.
+        // So the browser blocked every tile before it was ever decoded, on
+        // every device, for every storm. That is the whole of the "satellite
+        // tab loads no frames" report: not the frame count, not memory, not
+        // CIRA being down. The tiles answer 200 with a 280 kB PNG to anything
+        // that asks in no-cors mode, which is what an <img> does by default.
+        //
+        // It cost nothing to remove. `crossOrigin` exists to keep a canvas
+        // untainted so its pixels can be read back, and nothing here reads
+        // pixels back — there is no toDataURL, toBlob or getImageData in this
+        // component, and the Download control is a plain link to the tile on
+        // CIRA rather than a canvas export. It was defensive boilerplate
+        // guarding a capability the component does not use, and it disabled
+        // the feature it was attached to.
         img.onload = () => { if (!cancelled) { tiles.current.set(url, img); done(true); } };
         img.onerror = () => {
           if (cancelled) return;
@@ -296,7 +313,7 @@ export default function SatelliteLoop({
       <Panel title="Satellite" eyebrow="Live imagery">
         <Empty
           title="Imagery is not coming through"
-          detail={`The loop for ${stormName} was built — ${count} frames on ${data.satelliteLabel} — but not one tile would load. That is CIRA SLIDER's end rather than ours; it is usually back within the hour.`}
+          detail={`The loop for ${stormName} was built — ${count} frames on ${data.satelliteLabel} — but not one tile would load. Imagery usually returns within the hour; if this persists, the tiles themselves can be opened from the Tile link.`}
         />
       </Panel>
     );

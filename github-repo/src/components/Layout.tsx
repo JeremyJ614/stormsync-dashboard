@@ -13,6 +13,7 @@ import type { Location } from "../hooks/useLocation";
 import { useAuth } from "../hooks/useAuth";
 import { ALL_NAV_ITEMS, useNavSections } from "../lib/navModel";
 import { MenuHost } from "./nav/MenuHost";
+import { PushInvite } from "./PushInvite";
 import { useMenuNav } from "./nav/menus/useMenuNav";
 import { subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot, styleFor } from "../lib/menuStyle";
 import { SavedLocations } from "./SavedLocations";
@@ -165,6 +166,10 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
 
   return (
     <div className="min-h-screen bg-background flex royal-ground">
+
+      {/* Asked once per member, a few seconds after the app settles, and only
+          where push can actually work. */}
+      <PushInvite />
 
       {!railed && <MenuHost style={menuStyle} nav={menuNav} />}
 

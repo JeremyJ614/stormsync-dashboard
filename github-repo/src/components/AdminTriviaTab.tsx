@@ -41,6 +41,8 @@ export function AdminTriviaTab() {
   const [err, setErr] = useState("");
   const [editing, setEditing] = useState<{ input: QuestionInput; id?: string } | null>(null);
   const [saving, setSaving] = useState(false);
+  /** A refused write, said out loud. Kept apart from `err`, which is the load. */
+  const [writeError, setWriteError] = useState<string | null>(null);
 
   const reload = useCallback(async () => {
     setLoading(true); setErr("");
@@ -104,23 +106,31 @@ export function AdminTriviaTab() {
 
   async function remove(q: TriviaQuestion) {
     if (!confirm(`Delete the ${q.category} question for ${q.askDate} (slot ${q.slot})?\n\nMembers who already answered keep their points.`)) return;
-    await adminDeleteQuestion(q.id);
+    const r = await adminDeleteQuestion(q.id);
+    if (!r.ok) { setWriteError(r.error ?? "Could not delete that question."); return; }
+    setWriteError(null);
     reload();
   }
 
   async function toggleActive(q: TriviaQuestion) {
-    await adminSaveQuestion({
+    const r = await adminSaveQuestion({
       askDate: q.askDate, slot: q.slot, category: q.category, question: q.question,
       choices: q.choices, answerIndex: q.answerIndex ?? 0,
       explanation: q.explanation ?? "", points: q.points, active: !q.active,
     }, q.id);
+    // This is the button that "did nothing": the refusal used to be discarded
+    // and the list simply reloaded unchanged.
+    if (!r.ok) { setWriteError(r.error ?? "Could not change that question."); return; }
+    setWriteError(null);
     reload();
   }
 
   async function bumpPoints(q: TriviaQuestion, points: number) {
     if (!Number.isFinite(points) || points < 0) return;
-    await adminSetPoints(q.id, points);
-    setRows((prev) => prev.map((r) => (r.id === q.id ? { ...r, points } : r)));
+    const r = await adminSetPoints(q.id, points);
+    if (!r.ok) { setWriteError(r.error ?? "Could not change the points."); return; }
+    setWriteError(null);
+    setRows((prev) => prev.map((r2) => (r2.id === q.id ? { ...r2, points } : r2)));
   }
 
   return (
@@ -156,6 +166,14 @@ export function AdminTriviaTab() {
 
       {err && !editing && (
         <div className="text-xs text-red-400 flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" /> {err}</div>
+      )}
+
+      {writeError && (
+        <div className="text-xs text-red-400 flex items-start gap-1.5 rounded-lg px-2.5 py-2 bg-red-500/10 border border-red-500/25">
+          <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+          <span className="flex-1">{writeError}</span>
+          <button onClick={() => setWriteError(null)} className="shrink-0 opacity-70 hover:opacity-100">Dismiss</button>
+        </div>
       )}
 
       {loading ? (

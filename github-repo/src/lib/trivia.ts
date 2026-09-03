@@ -156,7 +156,9 @@ export interface QuestionInput {
   explanation?: string; points: number; active?: boolean;
 }
 
-export async function adminSaveQuestion(input: QuestionInput, id?: string) {
+export interface MutationOutcome { ok: boolean; error?: string }
+
+export async function adminSaveQuestion(input: QuestionInput, id?: string): Promise<MutationOutcome> {
   const row = {
     ask_date: input.askDate, slot: input.slot, category: input.category,
     question: input.question, choices: input.choices, answer_index: input.answerIndex,
@@ -169,11 +171,23 @@ export async function adminSaveQuestion(input: QuestionInput, id?: string) {
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 
-export async function adminDeleteQuestion(id: string) {
-  await supabase.from("trivia_questions").delete().eq("id", id);
+/**
+ * Delete and point changes report failures now.
+ *
+ * They used to discard the error, which is how the admin panel's hide button
+ * came to "do nothing": the column-level SELECT grant on `trivia_questions` did
+ * not survive the move to the new Supabase project, and Postgres needs SELECT on
+ * a column to reference it in a WHERE clause — so `update … where id = ?` was
+ * being refused, the refusal was thrown away, and the UI reloaded and showed the
+ * unchanged row. A write that cannot fail visibly is a write you cannot trust.
+ */
+export async function adminDeleteQuestion(id: string): Promise<MutationOutcome> {
+  const { error } = await supabase.from("trivia_questions").delete().eq("id", id);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 /** Change just the point value of one question. */
-export async function adminSetPoints(id: string, points: number) {
-  await supabase.from("trivia_questions").update({ points }).eq("id", id);
+export async function adminSetPoints(id: string, points: number): Promise<MutationOutcome> {
+  const { error } = await supabase.from("trivia_questions").update({ points }).eq("id", id);
+  return error ? { ok: false, error: error.message } : { ok: true };
 }

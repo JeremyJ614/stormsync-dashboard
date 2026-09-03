@@ -130,6 +130,24 @@ export async function deleteChase(id: string): Promise<{ ok: boolean; error?: st
 }
 
 /**
+ * Wipe a season, or the whole log.
+ *
+ * Chasing is an annual thing and the log is meant to be started fresh, so
+ * clearing it is a first-class action rather than thirty presses of the bin
+ * icon. `year` scopes it to one season; null means everything. Returns how many
+ * rows actually went, because "are you sure" is only meaningful if what comes
+ * back matches what you were told you were deleting.
+ */
+export async function deleteChases(year: number | null): Promise<{ ok: boolean; count?: number; error?: string }> {
+  // PostgREST refuses an unfiltered DELETE, by design.
+  let q = supabase.from("chases").delete().not("id", "is", null);
+  if (year != null) q = q.gte("chase_date", `${year}-01-01`).lte("chase_date", `${year}-12-31`);
+  const { data, error } = await q.select("id");
+  if (error) { logger.error("deleteChases failed", { scope: "chases", error }); return { ok: false, error: error.message }; }
+  return { ok: true, count: data?.length ?? 0 };
+}
+
+/**
  * Turn drawn waypoints into the road that was actually driven.
  *
  * Falls back to the drawn line rather than failing, and says which it got, so a
@@ -168,6 +186,50 @@ export async function snapRoute(points: LngLat[]): Promise<{ coords: LngLat[]; m
     miles: Number(data.miles ?? 0),
     snapped: data.snapped === true,
   };
+}
+
+// ─── places ──────────────────────────────────────────────────────────────────
+
+export interface Place { label: string; lon: number; lat: number }
+
+/**
+ * Turn a place name into a point, or a point into a place name.
+ *
+ * Both directions go through `snap-route`, which is admin-only and sets the
+ * identifying User-Agent that Nominatim's usage policy asks for — a browser
+ * cannot set that header, and a public geocoder called directly from every
+ * editor session is exactly what the policy is about.
+ *
+ * A failure returns an empty list rather than throwing. Geocoding is an
+ * assistant for placing a waypoint; the admin can always click the map instead,
+ * and losing their drawing to a lookup failure would be absurd.
+ */
+export async function findPlaces(query: string): Promise<Place[]> {
+  if (query.trim().length < 2) return [];
+  try {
+    const { data, error } = await supabase.functions.invoke("snap-route", {
+      body: { mode: "geocode", query: query.trim() },
+    });
+    if (error || !data?.ok) return [];
+    return (data.places ?? []) as Place[];
+  } catch (error) {
+    logger.error("findPlaces failed", { scope: "chases", error });
+    return [];
+  }
+}
+
+/** What is at this point, in words. Used to name a waypoint the admin clicked. */
+export async function describePoint(p: LngLat): Promise<Place | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke("snap-route", {
+      body: { mode: "geocode", at: p },
+    });
+    if (error || !data?.ok) return null;
+    return ((data.places ?? []) as Place[])[0] ?? null;
+  } catch (error) {
+    logger.error("describePoint failed", { scope: "chases", error });
+    return null;
+  }
 }
 
 /** Great-circle length of a line, in miles. */

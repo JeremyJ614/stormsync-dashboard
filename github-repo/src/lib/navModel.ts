@@ -17,6 +17,7 @@ import {
   Gamepad2, Satellite, Target, RotateCcw, ShieldAlert, ScanSearch,
   GitCompareArrows, Radar, Waypoints, History, Compass,
   BookMarked, CloudRain, Sun, Waves, CreditCard, Flame, Snowflake, Video,
+  ShieldCheck,
 } from "lucide-react";
 import { subscribeNav, getNavSnapshot, getNavServerSnapshot } from "./navConfig";
 import { hasModuleAccess, navVisible, ALL_MODULES, type User } from "../hooks/useAuth";
@@ -104,6 +105,26 @@ export const ICON_BY_PATH: Record<string, LucideIcon> = Object.fromEntries(
 );
 
 /**
+ * The owner's own section.
+ *
+ * Not part of `NAV_SECTIONS` and not in the admin-managed nav config, because
+ * neither of those is the right home for it: the DB config is a list of member
+ * modules an admin curates, and putting the admin panel in it would make it
+ * something an admin could accidentally hide from themselves — or worse, order
+ * into a section members can see. It is appended after everything else, only for
+ * an admin, and it is the same in both the hardcoded and DB-driven paths.
+ */
+const ADMIN_SECTION: NavSection = {
+  label: "Admin",
+  icon: ShieldCheck,
+  items: [{ label: "Admin Panel", path: "/admin", icon: ShieldCheck }],
+};
+
+function withAdmin(sections: NavSection[], user: User | null): NavSection[] {
+  return user?.isAdmin ? [...sections, ADMIN_SECTION] : sections;
+}
+
+/**
  * The sections a given member should actually see, in order.
  *
  * Structure comes from the admin-managed DB config; until that loads (or if it
@@ -111,22 +132,25 @@ export const ICON_BY_PATH: Record<string, LucideIcon> = Object.fromEntries(
  * blank. `locked` marks a module that is visible but not in the member's plan —
  * every menu style shows those rather than hiding them, because the catalogue
  * being browsable is the point.
+ *
+ * An admin gets one extra section on the end with the panel in it, so every menu
+ * style picks it up without any of them knowing what an admin is.
  */
 export function useNavSections(user: User | null): NavSection[] {
   const navCfg = useSyncExternalStore(subscribeNav, getNavSnapshot, getNavServerSnapshot);
 
   return useMemo(() => {
     if (!navCfg.loaded || navCfg.sections.length === 0) {
-      return NAV_SECTIONS.map((sec) => ({
+      return withAdmin(NAV_SECTIONS.map((sec) => ({
         ...sec,
         icon: sectionIcon(sec.label, sec.items[0]?.icon as LucideIcon | undefined),
         items: sec.items
           .filter((item) => navVisible(user, item.path))
           .map((item) => ({ ...item, locked: !hasModuleAccess(user, item.path) })),
-      })).filter((sec) => sec.items.length > 0);
+      })).filter((sec) => sec.items.length > 0), user);
     }
     const known = new Set(ALL_MODULES.map((m) => m.id));
-    return [...navCfg.sections]
+    return withAdmin([...navCfg.sections]
       .sort((a, b) => a.sortOrder - b.sortOrder)
       .map((sec) => ({
         label: sec.name,
@@ -141,6 +165,6 @@ export function useNavSections(user: User | null): NavSection[] {
             locked: !hasModuleAccess(user, m.moduleId),
           })),
       }))
-      .filter((sec) => sec.items.length > 0);
+      .filter((sec) => sec.items.length > 0), user);
   }, [user, navCfg]);
 }

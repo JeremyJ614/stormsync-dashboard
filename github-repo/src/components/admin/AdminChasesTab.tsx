@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  Check, Loader2, MapPin, Pencil, Plus, Route as RouteIcon, Save, Tornado,
-  Trash2, Undo2, X, Zap,
+  Check, Crosshair, Loader2, MapPin, Pencil, Plus, Route as RouteIcon, Save, Search,
+  Tornado, Trash2, Undo2, X, Zap,
 } from "lucide-react";
 import {
-  listChases, createChase, updateChase, deleteChase, snapRoute, haversineMiles,
-  efColor, type Chase, type ChaseInput, type ChaseStat, type LngLat, type TornadoPath,
+  listChases, createChase, updateChase, deleteChase, deleteChases, snapRoute, haversineMiles,
+  findPlaces, describePoint,
+  efColor, type Chase, type ChaseInput, type ChaseStat, type LngLat, type Place,
+  type TornadoPath,
 } from "../../lib/chases";
 import { STORMSYNC_DARK, applyRoyalBasemap } from "../../lib/basemap";
 import { audit } from "../../lib/adminAudit";
@@ -25,6 +27,20 @@ import { ROYAL, HEADING } from "../../lib/royal";
  * view. If snapping is unavailable the drawn line is kept and marked as
  * unsnapped rather than the save failing, because losing somebody's drawing to
  * a third party's outage would be unforgivable.
+ *
+ * WAYPOINTS BY NAME. Clicking a map is a poor way to say "we started in Terre
+ * Haute": you have to find it first, and the point you land on is approximate.
+ * So a chase can be built by typing place names, and a point clicked on the map
+ * is reverse-geocoded and joins the same list — one column of named waypoints
+ * however they were added, reorderable and removable. The two inputs produce the
+ * same thing because they are the same thing.
+ *
+ * MILEAGE. `routeMiles` is the SNAPPED road distance and nothing else. It used
+ * to persist through further editing: snap early, add ten more points, save, and
+ * the chase was filed with the mileage of the route as it stood ten points ago —
+ * which is how a 635-mile drive came to be recorded as 0.2 miles. Any change to
+ * the route clears it now, and what is displayed falls back to the straight-line
+ * distance, labelled as such.
  */
 type Mode = "route" | "tornado" | null;
 
@@ -32,6 +48,18 @@ const BLANK: ChaseInput = {
   title: "", chaseDate: new Date().toISOString().slice(0, 10), summary: "",
   route: [], tornadoPaths: [], stats: [], published: false,
 };
+
+/**
+ * A route point that knows where it is.
+ *
+ * `label` is filled asynchronously — a click puts the point on the map at once
+ * and the name arrives a moment later, because waiting on a geocoder before
+ * showing the pin you just placed would make the map feel broken.
+ */
+interface Waypoint { label: string; lon: number; lat: number }
+
+/** A stored route this short is a list of waypoints; longer is snapped road. */
+const LOOKS_LIKE_WAYPOINTS = 30;
 
 export function AdminChasesTab() {
   const [chases, setChases] = useState<Chase[] | null>(null);
@@ -41,13 +69,56 @@ export function AdminChasesTab() {
   const [tornadoIdx, setTornadoIdx] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [waypoints, setWaypoints] = useState<Waypoint[]>([]);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeHits, setPlaceHits] = useState<Place[] | null>(null);
+  const [searching, setSearching] = useState(false);
+  const [wipeYear, setWipeYear] = useState<string>("all");
+
+  const years = useMemo(
+    () => Array.from(new Set((chases ?? []).map((c) => c.chaseDate.slice(0, 4)))).sort().reverse(),
+    [chases]);
 
   const load = useCallback(() => { void listChases().then(setChases).catch(() => setChases([])); }, []);
   useEffect(() => { load(); }, [load]);
 
   function reset() {
     setEditingId(null); setForm(BLANK); setMode(null); setTornadoIdx(0); setNote(null);
+    setWaypoints([]); setPlaceQuery(""); setPlaceHits(null);
   }
+
+  /** The waypoint list is the route, until it is snapped. */
+  const applyWaypoints = useCallback((list: Waypoint[]) => {
+    setWaypoints(list);
+    setForm((f) => ({
+      ...f,
+      route: list.map((w) => [w.lon, w.lat] as LngLat),
+      routeSnapped: false,
+      routeMiles: null,
+    }));
+  }, []);
+
+  /** Add a point and go and find out what it is called. */
+  const addWaypoint = useCallback((p: LngLat, label?: string) => {
+    const provisional: Waypoint = { label: label ?? "Locating…", lon: p[0], lat: p[1] };
+    setWaypoints((prev) => {
+      const next = [...prev, provisional];
+      setForm((f) => ({
+        ...f,
+        route: next.map((w) => [w.lon, w.lat] as LngLat),
+        routeSnapped: false,
+        routeMiles: null,
+      }));
+      return next;
+    });
+    if (label) return;
+    void describePoint(p).then((place) => {
+      setWaypoints((prev) => prev.map((w) =>
+        w.lon === p[0] && w.lat === p[1] && w.label === "Locating…"
+          ? { ...w, label: place?.label ?? `${p[1].toFixed(3)}, ${p[0].toFixed(3)}` }
+          : w));
+    });
+  }, []);
 
   function edit(c: Chase) {
     setEditingId(c.id);
@@ -58,12 +129,21 @@ export function AdminChasesTab() {
       media: c.media, published: c.published, sortOrder: c.sortOrder,
     });
     setMode(null); setTornadoIdx(0); setNote(null);
+    // A short stored route is the waypoints somebody placed; a long one is road
+    // geometry a router produced, and pretending each of its 758 vertices is a
+    // waypoint would be unusable. The long one stays on the map as it is.
+    setWaypoints(c.route.length > 0 && c.route.length <= LOOKS_LIKE_WAYPOINTS
+      ? c.route.map(([lon, lat]) => ({ label: `${lat.toFixed(3)}, ${lon.toFixed(3)}`, lon, lat }))
+      : []);
+    setPlaceQuery(""); setPlaceHits(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   const addPoint = useCallback((p: LngLat) => {
     setForm((f) => {
-      if (mode === "route") return { ...f, route: [...f.route, p], routeSnapped: false };
+      // Route clicks are handled by `addWaypoint` so the point lands in the
+      // named list too — this branch only exists for the tornado case below.
+      if (mode === "route") return f;
       if (mode === "tornado") {
         const paths = f.tornadoPaths.slice();
         if (!paths[tornadoIdx]) paths[tornadoIdx] = { coords: [], ef: null };
@@ -74,9 +154,32 @@ export function AdminChasesTab() {
     });
   }, [mode, tornadoIdx]);
 
+  /** One handler for the map. Route clicks name themselves; tornado clicks do not. */
+  const onMapPoint = useCallback((p: LngLat) => {
+    if (mode === "route") { addWaypoint(p); return; }
+    addPoint(p);
+  }, [mode, addWaypoint, addPoint]);
+
+  async function searchPlaces() {
+    if (placeQuery.trim().length < 2) return;
+    setSearching(true); setPlaceHits(null);
+    setPlaceHits(await findPlaces(placeQuery));
+    setSearching(false);
+  }
+
+  /** Reordering is how you fix a stop dropped out of sequence. */
+  function swap<T>(list: T[], a: number, b: number): T[] {
+    if (b < 0 || b >= list.length) return list;
+    const next = list.slice();
+    [next[a], next[b]] = [next[b], next[a]];
+    return next;
+  }
+
   function undoPoint() {
     setForm((f) => {
-      if (mode === "route") return { ...f, route: f.route.slice(0, -1), routeSnapped: false };
+      if (mode === "route") {
+        return { ...f, route: f.route.slice(0, -1), routeSnapped: false, routeMiles: null };
+      }
       if (mode === "tornado") {
         const paths = f.tornadoPaths.slice();
         const cur = paths[tornadoIdx];
@@ -114,6 +217,29 @@ export function AdminChasesTab() {
     await audit("settings.change", { type: "chase", id: editingId ?? "new", label: payload.title },
       { published: payload.published, points: payload.route.length, tornadoes: payload.tornadoPaths.length });
     reset(); load();
+  }
+
+  /**
+   * Clear the log, or one season of it.
+   *
+   * Typed confirmation rather than an OK button: this is the one action here
+   * that cannot be walked back, and a chase log is years of somebody's life.
+   */
+  async function wipe() {
+    const year = wipeYear === "all" ? null : Number(wipeYear);
+    const scope = year == null ? "every chase" : `every ${year} chase`;
+    const n = (chases ?? []).filter((c) => year == null || c.chaseDate.startsWith(String(year))).length;
+    if (n === 0) { setNote("Nothing to clear there."); return; }
+    const typed = prompt(`This deletes ${scope} — ${n} of them — permanently.\n\nType DELETE to confirm.`);
+    if (typed?.trim().toUpperCase() !== "DELETE") return;
+    setBusy("wipe"); setNote(null);
+    const r = await deleteChases(year);
+    setBusy(null);
+    if (!r.ok) { setNote(r.error ?? "Could not clear the log."); return; }
+    await audit("settings.change", { type: "chase", id: "bulk", label: scope }, { deleted: r.count ?? 0 });
+    setNote(`Cleared ${r.count ?? 0} chase${r.count === 1 ? "" : "s"}.`);
+    if (editingId) reset();
+    load();
   }
 
   async function remove(c: Chase) {
@@ -159,7 +285,7 @@ export function AdminChasesTab() {
           tornadoPaths={form.tornadoPaths}
           mode={mode}
           activeTornado={tornadoIdx}
-          onPoint={addPoint}
+          onPoint={onMapPoint}
         />
 
         <div className="flex flex-wrap items-center gap-2">
@@ -194,9 +320,94 @@ export function AdminChasesTab() {
 
           <span className="text-[11px]" style={{ color: ROYAL.dim }}>
             {form.route.length} route point{form.route.length === 1 ? "" : "s"}
-            {form.routeMiles != null && ` · ${form.routeMiles} mi`}
-            {form.routeSnapped && " · snapped"}
+            {form.route.length > 1 && (form.routeSnapped
+              ? ` · ${form.routeMiles} mi by road`
+              : ` · ${haversineMiles(form.route)} mi as the crow flies`)}
           </span>
+        </div>
+
+        {/* ── waypoints, however they were added ──────────────────────────── */}
+        <div className="rounded-lg p-3 space-y-2.5"
+             style={{ border: `1px solid ${ROYAL.hairline}`, background: "rgba(255,255,255,0.015)" }}>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10.5px] font-semibold uppercase tracking-[0.16em]"
+                  style={{ color: ROYAL.dim, fontFamily: HEADING }}>
+              Waypoints
+            </span>
+            {waypoints.length > 0 && (
+              <button onClick={() => applyWaypoints([])} className="text-[10.5px]" style={{ color: ROYAL.dim }}>
+                Clear
+              </button>
+            )}
+          </div>
+
+          <div className="flex gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                      style={{ color: ROYAL.dim }} />
+              <input value={placeQuery}
+                     onChange={(e) => setPlaceQuery(e.target.value)}
+                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void searchPlaces(); } }}
+                     placeholder="Town, address, or landmark"
+                     className={`${field} pl-8 text-xs`} />
+            </div>
+            <button onClick={() => void searchPlaces()}
+                    disabled={placeQuery.trim().length < 2 || searching}
+                    className="px-3 py-2 rounded-lg text-xs font-semibold shrink-0 grid place-items-center disabled:opacity-40"
+                    style={{ background: "rgba(217,183,117,0.12)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
+              {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "Find"}
+            </button>
+          </div>
+
+          {placeHits !== null && placeHits.length > 0 && (
+            <div className="rounded-lg overflow-hidden" style={{ border: `1px solid ${ROYAL.hairline}` }}>
+              {placeHits.map((p, i) => (
+                <button key={`${p.lon},${p.lat},${i}`}
+                        onClick={() => {
+                          addWaypoint([p.lon, p.lat], p.label);
+                          setPlaceHits(null); setPlaceQuery("");
+                        }}
+                        className="w-full text-left px-2.5 py-2 text-[11.5px] flex items-start gap-2 hover:bg-white/5"
+                        style={{ borderTop: i === 0 ? undefined : `1px solid ${ROYAL.hairline}`, color: ROYAL.text }}>
+                  <MapPin className="w-3.5 h-3.5 mt-[1px] shrink-0" style={{ color: ROYAL.gold }} />
+                  <span className="min-w-0">{p.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          {placeHits !== null && placeHits.length === 0 && !searching && (
+            <p className="text-[11px]" style={{ color: ROYAL.dim }}>Nothing matched that. Try a town and state.</p>
+          )}
+
+          {waypoints.length === 0 ? (
+            <p className="text-[11px] leading-relaxed" style={{ color: ROYAL.dim }}>
+              {form.route.length > 0
+                ? `This chase already holds ${form.route.length} points of road geometry. Adding a waypoint starts the route over.`
+                : "Search for a place, or turn on Draw the route and click the map — either way the stop lands in this list."}
+            </p>
+          ) : (
+            <ol className="space-y-1">
+              {waypoints.map((w, i) => (
+                <li key={`${w.lon},${w.lat},${i}`}
+                    className="flex items-center gap-1.5 rounded-lg px-2 py-1.5"
+                    style={{ border: `1px solid ${ROYAL.hairline}` }}>
+                  <span className="w-5 h-5 grid place-items-center rounded-full text-[9.5px] font-bold shrink-0"
+                        style={{ background: "rgba(217,183,117,0.14)", color: ROYAL.gold }}>{i + 1}</span>
+                  <span className="text-[11.5px] flex-1 min-w-0 truncate" style={{ color: ROYAL.text }}>{w.label}</span>
+                  <button onClick={() => applyWaypoints(swap(waypoints, i, i - 1))} disabled={i === 0}
+                          aria-label={`Move ${w.label} earlier`}
+                          className="px-1 leading-none text-[12px] disabled:opacity-25" style={{ color: ROYAL.dim }}>↑</button>
+                  <button onClick={() => applyWaypoints(swap(waypoints, i, i + 1))} disabled={i === waypoints.length - 1}
+                          aria-label={`Move ${w.label} later`}
+                          className="px-1 leading-none text-[12px] disabled:opacity-25" style={{ color: ROYAL.dim }}>↓</button>
+                  <button onClick={() => applyWaypoints(waypoints.filter((_, j) => j !== i))}
+                          aria-label={`Remove ${w.label}`} className="px-1" style={{ color: ROYAL.dim }}>
+                    <X className="w-3 h-3" />
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
         </div>
 
         {/* Tornado tracks */}
@@ -313,6 +524,32 @@ export function AdminChasesTab() {
           </div>
         )}
       </div>
+
+      {/* ── clearing the log ────────────────────────────────────────────── */}
+      {(chases?.length ?? 0) > 0 && (
+        <div className="bg-card border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-2.5"
+             style={{ borderColor: "rgba(248,113,113,0.22)" }}>
+          <div className="min-w-0 sm:flex-1">
+            <h3 className="text-sm font-semibold" style={{ color: "#f87171" }}>Clear the log</h3>
+            <p className="text-[11px] mt-0.5" style={{ color: ROYAL.dim }}>
+              For starting a season fresh. There is no undo.
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5">
+          <select value={wipeYear} onChange={(e) => setWipeYear(e.target.value)}
+                  className="flex-1 sm:flex-none bg-muted/30 border border-border rounded-lg px-2.5 py-2 text-xs outline-none">
+            <option value="all">All chases</option>
+            {years.map((y) => <option key={y} value={y}>{y} season</option>)}
+          </select>
+          <button onClick={wipe} disabled={busy === "wipe"}
+                  className="px-3 py-2 rounded-lg text-xs font-semibold flex items-center gap-1.5 disabled:opacity-50"
+                  style={{ background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.3)", color: "#f87171" }}>
+            {busy === "wipe" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            Clear
+          </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

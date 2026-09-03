@@ -4,14 +4,15 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Calendar, ChevronDown, Gauge, Loader2, MapPin, Route as RouteIcon, Sparkles, Tornado, Wind,
+  ArrowLeft, Calendar, ChevronDown, Gauge, Loader2, MapPin, Route as RouteIcon,
+  Sparkles, Tornado, Wind,
 } from "lucide-react";
 import { ModuleShell } from "../components/ModuleShell";
 import { STORMSYNC_DARK, applyRoyalBasemap } from "../lib/basemap";
 import { renderMarkdown } from "../lib/markdown";
 import {
   listChases, chaseBounds, chaseSeasonTotals, efColor,
-  type Chase,
+  type Chase, type LngLat,
 } from "../lib/chases";
 import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 import { useChaseSeen } from "../lib/chaseSeen";
@@ -31,18 +32,70 @@ export default function Chases() {
   const q = useQuery({ queryKey: ["chases"], queryFn: listChases, staleTime: 5 * 60_000 });
   const all = useMemo(() => q.data ?? [], [q.data]);
 
+  // ── what you are looking at ───────────────────────────────────────────────
+  //
+  // Three narrowings, each one optional and each one reversible: a year, then a
+  // month inside it, then a single chase. Landing on the page with nothing
+  // chosen shows the whole log, which is the honest default — the archive is
+  // the thing being sold, and hiding it behind a date picker would be daft.
+  const [year, setYear] = useState<string | "all">("all");
+  const [month, setMonth] = useState<string | "all">("all");
+  const [selected, setSelected] = useState<string | null>(null);
+
   const years = useMemo(() => {
     const s = new Set(all.map((c) => c.chaseDate.slice(0, 4)));
     return [...s].sort().reverse();
   }, [all]);
-  const [year, setYear] = useState<string | "all">("all");
-  const chases = useMemo(
+
+  const inYear = useMemo(
     () => (year === "all" ? all : all.filter((c) => c.chaseDate.startsWith(year))),
     [all, year],
   );
 
-  const [selected, setSelected] = useState<string | null>(null);
-  const totals = useMemo(() => chaseSeasonTotals(chases), [chases]);
+  // Only the months actually chased. A row of twelve buttons where eight of them
+  // do nothing tells you less than a row of four that all do something.
+  const months = useMemo(() => {
+    const s = new Set(inYear.map((c) => c.chaseDate.slice(5, 7)));
+    return [...s].sort();
+  }, [inYear]);
+
+  const chases = useMemo(
+    () => (month === "all" ? inYear : inYear.filter((c) => c.chaseDate.slice(5, 7) === month)),
+    [inYear, month],
+  );
+
+  // A month that survives a year change would silently empty the page.
+  useEffect(() => {
+    if (month !== "all" && !months.includes(month)) setMonth("all");
+  }, [months, month]);
+
+  // Picking a chase means picking a chase — the map holds it alone, not it plus
+  // everything else greyed out.
+  const visible = useMemo(
+    () => (selected == null ? chases : chases.filter((c) => c.id === selected)),
+    [chases, selected],
+  );
+  const totals = useMemo(() => chaseSeasonTotals(visible), [visible]);
+
+  // The list carries its own dividers so the archive reads as seasons rather
+  // than as one undifferentiated column: years while you are looking at all of
+  // them, months once you are inside one. `visible` arrives newest-first, so
+  // consecutive runs are the groups.
+  const groups = useMemo(() => {
+    if (selected != null) return [{ key: "one", label: null as string | null, items: visible }];
+    const keyOf = (c: Chase) =>
+      year === "all" ? c.chaseDate.slice(0, 4) : month === "all" ? c.chaseDate.slice(5, 7) : "one";
+    const labelOf = (k: string) =>
+      year === "all" ? k : month === "all" ? `${MONTHS[Number(k) - 1]} ${year}` : scopeLabel(year, month);
+    const out: { key: string; label: string | null; items: Chase[] }[] = [];
+    for (const c of visible) {
+      const k = keyOf(c);
+      const last = out[out.length - 1];
+      if (last && last.key === k) last.items.push(c);
+      else out.push({ key: k, label: labelOf(k), items: [c] });
+    }
+    return out;
+  }, [visible, year, month, selected]);
 
   // "New" is measured against everything published, not the year in view — a
   // chase filtered off screen has not been seen just because it is not here.
@@ -86,37 +139,71 @@ export default function Chases() {
 
           {years.length > 1 && (
             <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              <YearChip on={year === "all"} onClick={() => { setYear("all"); setSelected(null); }}>All years</YearChip>
+              <FilterChip on={year === "all"} onClick={() => { setYear("all"); setSelected(null); }}>All years</FilterChip>
               {years.map((y) => (
-                <YearChip key={y} on={year === y} onClick={() => { setYear(y); setSelected(null); }}>{y}</YearChip>
+                <FilterChip key={y} on={year === y} onClick={() => { setYear(y); setSelected(null); }}>{y}</FilterChip>
               ))}
             </div>
           )}
 
-          <ChaseMap chases={chases} selected={selected} onSelect={setSelected} />
+          {months.length > 1 && (
+            <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <FilterChip small on={month === "all"} onClick={() => { setMonth("all"); setSelected(null); }}>
+                {year === "all" ? "Every month" : "Whole season"}
+              </FilterChip>
+              {months.map((m) => (
+                <FilterChip key={m} small on={month === m} onClick={() => { setMonth(m); setSelected(null); }}>
+                  {MONTHS[Number(m) - 1]}
+                </FilterChip>
+              ))}
+            </div>
+          )}
 
-          <EfLegend chases={chases} />
+          {selected != null && (
+            <button onClick={() => setSelected(null)}
+                    className="w-full flex items-center gap-2 rounded-xl px-3 py-2.5 text-left"
+                    style={{ background: "rgba(217,183,117,0.07)", border: `1px solid ${ROYAL.goldSoft}` }}>
+              <ArrowLeft className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.gold }} />
+              <span className="text-[12px] font-semibold" style={{ color: ROYAL.gold }}>
+                Back to {chases.length} chase{chases.length === 1 ? "" : "s"}
+              </span>
+              <span className="text-[11px] ml-auto truncate" style={{ color: ROYAL.dim }}>
+                {scopeLabel(year, month)}
+              </span>
+            </button>
+          )}
+
+          <ChaseMap chases={visible} selected={selected} onSelect={setSelected} />
+
+          <EfLegend chases={visible} />
 
           <div className="space-y-2">
-            {chases.map((c) => (
-              <ChaseCard
-                key={c.id}
-                chase={c}
-                isNew={seen.isNew(c.id)}
-                open={selected === c.id}
-                onToggle={() => {
-                  // Marking on expand rather than on render is the whole point:
-                  // the marker survives a scroll past and clears on a look.
-                  //
-                  // Both calls are made here rather than one inside the other's
-                  // updater: a state updater must be pure, and calling a second
-                  // component's setter from inside one is the kind of thing that
-                  // works until React decides to re-run it.
-                  const willOpen = selected !== c.id;
-                  setSelected(willOpen ? c.id : null);
-                  if (willOpen) seen.markSeen(c.id);
-                }}
-              />
+            {groups.map((g) => (
+              <section key={g.key} className="space-y-2">
+                {g.label && <SectionHead label={g.label} count={g.items.length} />}
+                {g.items.map((c) => (
+                  <ChaseCard
+                    key={c.id}
+                    chase={c}
+                    isNew={seen.isNew(c.id)}
+                    open={selected === c.id}
+                    onToggle={() => {
+                      // Marking on expand rather than on render is the whole
+                      // point: the marker survives a scroll past and clears on
+                      // a look.
+                      //
+                      // Both calls are made here rather than one inside the
+                      // other's updater: a state updater must be pure, and
+                      // calling a second component's setter from inside one is
+                      // the kind of thing that works until React decides to
+                      // re-run it.
+                      const willOpen = selected !== c.id;
+                      setSelected(willOpen ? c.id : null);
+                      if (willOpen) seen.markSeen(c.id);
+                    }}
+                  />
+                ))}
+              </section>
             ))}
           </div>
         </>
@@ -321,7 +408,7 @@ function ChaseMap({
       )}
       <div className="absolute left-2 bottom-2 px-2 py-1 rounded-md text-[10px]"
            style={{ background: "rgba(8,8,18,0.8)", color: ROYAL.dim, border: `1px solid ${ROYAL.hairline}` }}>
-        Tap a line to open that chase
+        {selected ? "One chase — tap Back above for the rest" : "Tap a line to open that chase"}
       </div>
     </div>
   );
@@ -368,6 +455,77 @@ function NewChasesBanner({ count, onDismiss }: { count: number; onDismiss: () =>
         Mark all seen
       </button>
     </motion.div>
+  );
+}
+
+function SectionHead({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2.5 pt-2 pb-0.5">
+      <span className="text-[10px] font-bold uppercase tracking-[0.2em]"
+            style={{ color: ROYAL.gold, fontFamily: HEADING }}>{label}</span>
+      <span className="h-px flex-1" style={{ background: `linear-gradient(90deg, ${ROYAL.goldSoft}, transparent)` }} />
+      <span className="text-[10px] tabular-nums" style={{ color: ROYAL.dim }}>{count}</span>
+    </div>
+  );
+}
+
+/**
+ * The shape of the drive, at thumbnail size.
+ *
+ * The list was six rounded rectangles that differed only in their text. Every
+ * chase already carries a line nobody was looking at, and drawn small it gives
+ * each row a face you can recognise before you have read it — a hook west of
+ * Amarillo does not look like a run up I-35. It costs nothing: the geometry is
+ * already in memory for the map above.
+ */
+function RouteGlyph({ chase }: { chase: Chase }) {
+  const g = useMemo(() => {
+    const all: LngLat[] = [...chase.route, ...chase.tornadoPaths.flatMap((t) => t.coords)];
+    if (all.length < 2) return null;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const [x, y] of all) {
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+    }
+    const W = 54, H = 44, PAD = 6;
+    // One scale for both axes, or a two-hour drive due north reads as a
+    // cross-country sweep.
+    const spanX = Math.max(maxX - minX, 1e-6), spanY = Math.max(maxY - minY, 1e-6);
+    const k = Math.min((W - PAD * 2) / spanX, (H - PAD * 2) / spanY);
+    const ox = (W - spanX * k) / 2, oy = (H - spanY * k) / 2;
+    // Latitude grows north, SVG y grows down.
+    const to = ([x, y]: LngLat): [number, number] => [ox + (x - minX) * k, H - (oy + (y - minY) * k)];
+    const path = (pts: LngLat[]) =>
+      pts.map((p, i) => `${i ? "L" : "M"}${to(p).map((n) => n.toFixed(1)).join(" ")}`).join("");
+    return {
+      W, H,
+      road: chase.route.length > 1 ? path(chase.route) : null,
+      start: chase.route.length > 1 ? to(chase.route[0]) : null,
+      end: chase.route.length > 1 ? to(chase.route[chase.route.length - 1]) : null,
+      tracks: chase.tornadoPaths.filter((t) => t.coords.length > 1)
+        .map((t) => ({ d: path(t.coords), colour: efColor(t.ef) })),
+    };
+  }, [chase]);
+
+  if (!g) return null;
+  return (
+    <svg width={g.W} height={g.H} viewBox={`0 0 ${g.W} ${g.H}`} aria-hidden
+         className="shrink-0 rounded-lg"
+         style={{ background: "rgba(255,255,255,0.025)", border: `1px solid ${ROYAL.hairline}` }}>
+      {g.road && (
+        <>
+          <path d={g.road} fill="none" stroke={ROYAL.gold} strokeOpacity={0.35} strokeWidth={3}
+                strokeLinecap="round" strokeLinejoin="round" />
+          <path d={g.road} fill="none" stroke={ROYAL.gold} strokeWidth={1}
+                strokeLinecap="round" strokeLinejoin="round" />
+        </>
+      )}
+      {g.tracks.map((t, i) => (
+        <path key={i} d={t.d} fill="none" stroke={t.colour} strokeWidth={1.8} strokeLinecap="round" />
+      ))}
+      {g.start && <circle cx={g.start[0]} cy={g.start[1]} r={1.8} fill="#5fd9a8" />}
+      {g.end && <circle cx={g.end[0]} cy={g.end[1]} r={1.8} fill="#f87171" />}
+    </svg>
   );
 }
 
@@ -422,6 +580,7 @@ function ChaseCard({ chase, open, onToggle, isNew }: { chase: Chase; open: boole
       )}
 
       <button onClick={onToggle} className="relative z-10 w-full text-left px-4 py-3 flex items-start gap-3">
+        <RouteGlyph chase={chase} />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[10.5px]" style={{ color: ROYAL.dim }}>
             <Calendar className="w-3 h-3" />
@@ -541,10 +700,22 @@ function Chip({ icon: Icon, tint, children }: { icon?: typeof RouteIcon; tint?: 
   );
 }
 
-function YearChip({ on, onClick, children }: { on: boolean; onClick: () => void; children: React.ReactNode }) {
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+
+/** What the filters currently add up to, in words. */
+function scopeLabel(year: string, month: string): string {
+  const m = month === "all" ? null : MONTHS[Number(month) - 1];
+  if (year === "all") return m ? `Every ${m}` : "All years";
+  return m ? `${m} ${year}` : year;
+}
+
+function FilterChip({ on, small, onClick, children }: {
+  on: boolean; small?: boolean; onClick: () => void; children: React.ReactNode;
+}) {
   return (
     <button onClick={onClick}
-      className="shrink-0 px-3 py-1.5 rounded-lg text-[12px] font-semibold"
+      className={`shrink-0 rounded-lg font-semibold ${small ? "px-2.5 py-1 text-[11px]" : "px-3 py-1.5 text-[12px]"}`}
       style={{
         background: on ? "rgba(217,183,117,0.14)" : "rgba(255,255,255,0.03)",
         border: `1px solid ${on ? ROYAL.goldSoft : ROYAL.hairline}`,

@@ -23,7 +23,8 @@ import {
 } from "../lib/plans";
 import { getBillingStatus, openBillingPortal, tierKeyOf, addonPriceFor, moduleStateFor } from "../lib/subscription";
 import {
-  ALERT_LEVELS, fetchAlertPrices, fetchMyLevels, startAlertLevelCheckout, money as alertMoney,
+  ALERT_LEVELS, fetchAlertPrices, fetchMyLevels, startAlertLevelCheckout, dropAlertLevel,
+  money as alertMoney, type LevelSource,
 } from "../lib/alerts";
 import { AlertLadder } from "../components/alerts/AlertLadder";
 import { TTL } from "../lib/queryClient";
@@ -576,7 +577,9 @@ export default function Subscription() {
  */
 function AlertLevelsPanel({ tier }: { tier: TierKey }) {
   const [err, setErr] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [dropping, setDropping] = useState<number | null>(null);
   const pricesQ = useQuery({ queryKey: ["alert-prices"], queryFn: fetchAlertPrices, staleTime: TTL.config });
   const levelsQ = useQuery({ queryKey: ["my-alert-levels"], queryFn: fetchMyLevels, staleTime: TTL.config });
 
@@ -591,11 +594,25 @@ function AlertLevelsPanel({ tier }: { tier: TierKey }) {
   }, 0);
 
   async function buy(level: number) {
-    setBusy(true); setErr(null);
+    setBusy(true); setErr(null); setNote(null);
     const r = await startAlertLevelCheckout(level);
     if (r.ok && r.url) { window.location.href = r.url; return; }
     setErr(r.error ?? "Could not start checkout.");
     setBusy(false);
+  }
+
+  async function drop(level: number, source: LevelSource) {
+    const def = ALERT_LEVELS.find((l) => l.level === level);
+    const question = source === "purchased"
+      ? `Cancel ${def?.name}? Billing for that level stops and you lose it straight away. Everything your plan includes stays.`
+      : `Remove ${def?.name} from your account? You can ask for it again later.`;
+    if (!globalThis.confirm(question)) return;
+    setDropping(level); setErr(null); setNote(null);
+    const r = await dropAlertLevel(level);
+    setDropping(null);
+    if (!r.ok) { setErr(r.error ?? "Could not change that level."); return; }
+    setNote(r.message ?? "That level has been removed.");
+    await levelsQ.refetch();
   }
 
   if (pricesQ.isLoading || levelsQ.isLoading) {
@@ -628,11 +645,18 @@ function AlertLevelsPanel({ tier }: { tier: TierKey }) {
             <AlertCircle className="w-3.5 h-3.5 shrink-0" /> {err}
           </p>
         )}
+        {note && (
+          <p className="text-xs flex items-center gap-1.5 mb-3" style={{ color: "#8fe3c4" }}>
+            <Check className="w-3.5 h-3.5 shrink-0" /> {note}
+          </p>
+        )}
         <AlertLadder
           tier={tierNum}
           prices={pricesQ.data ?? []}
           held={held}
           onAdd={busy ? undefined : (level) => void buy(level)}
+          onRemove={(level, source) => void drop(level, source)}
+          busyLevel={dropping}
         />
       </Panel>
 
@@ -664,7 +688,8 @@ function AlertLevelsPanel({ tier }: { tier: TierKey }) {
           </div>
         )}
         <p className="text-[11.5px] mt-3" style={{ color: ROYAL.dim }}>
-          Cancel or change a level any time from the billing portal on the Your&nbsp;plan tab.
+          Drop a level with the button on its rung — that cancels its billing and nothing else. The billing
+          portal on the Your&nbsp;plan tab is still there for payment details and invoices.
         </p>
       </Panel>
     </>

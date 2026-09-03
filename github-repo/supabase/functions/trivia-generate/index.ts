@@ -11,8 +11,30 @@ const GEMINI_KEY = Deno.env.get("GEMINI_KEY_TRIVIA") ?? Deno.env.get("GEMINI_API
 // Ordered newest-usable FIRST. gemini-2.5-flash now 404s ("no longer available
 // to new users"), so leading with it burnt a wasted request on every single
 // generation before falling through. Overridable without a redeploy.
-const MODELS = (Deno.env.get("GEMINI_MODELS") ?? "gemini-flash-latest,gemini-2.0-flash,gemini-2.5-flash")
-  .split(",").map((m) => m.trim()).filter(Boolean);
+/**
+ * Which Gemini models to try, in order.
+ *
+ * Validated rather than trusted. `GEMINI_MODELS` is a secret, and a secret that
+ * is meant to hold a comma-separated list of model names is one paste away from
+ * holding an API key instead — which is exactly what happened: the whole
+ * narrative came back as
+ * `GenerateContentRequest.model: unexpected model name format`, because the
+ * key was going into the URL where the model belongs. A model name is lower
+ * case letters, digits, dots and hyphens, so anything else is discarded and the
+ * built-in list is used. Silently degrading to a working default beats an AI
+ * write that fails every day until somebody reads the error field.
+ */
+const DEFAULT_GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash"];
+const IS_MODEL_NAME = /^[a-z0-9][a-z0-9.-]{2,60}$/;
+function geminiModels(): string[] {
+  const raw = (Deno.env.get("GEMINI_MODELS") ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  const good = raw.filter((m) => IS_MODEL_NAME.test(m));
+  if (raw.length && !good.length) {
+    console.warn("GEMINI_MODELS holds no usable model name; falling back to the built-in list");
+  }
+  return good.length ? good : DEFAULT_GEMINI_MODELS;
+}
+const MODELS = geminiModels();
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const CORS = {

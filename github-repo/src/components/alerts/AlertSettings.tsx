@@ -21,7 +21,8 @@ import {
 import {
   ALERT_LEVELS, SCOPE_LABEL, SCOPE_BLURB, money,
   fetchAlertPrices, fetchMyLevels, fetchAlertPrefs, saveAlertPrefs,
-  fetchMyEmergencyPin, startAlertLevelCheckout, withdrawAlertRequest, fetchMyAlertRequests, CARRIERS,
+  fetchMyEmergencyPin, startAlertLevelCheckout, dropAlertLevel, withdrawAlertRequest,
+  fetchMyAlertRequests, CARRIERS,
   DEFAULT_ALERT_PREFS, type AlertScope, type AlertPrefs,
 } from "../../lib/alerts";
 import { supabase } from "../../lib/supabase";
@@ -87,6 +88,17 @@ export function AlertSettings() {
     onSuccess: (r) => {
       if (r.ok && r.url) { window.location.href = r.url; return; }
       setFlash(r.error ?? "Could not start checkout.");
+      setTimeout(() => setFlash(null), 3500);
+    },
+  });
+
+  // Giving one back. The same server route the billing page uses, so the two
+  // screens cannot disagree about what dropping a level does.
+  const give = useMutation({
+    mutationFn: dropAlertLevel,
+    onSuccess: (r) => {
+      setFlash(r.ok ? (r.message ?? "That level has been removed.") : (r.error ?? "Could not change that level."));
+      if (r.ok) void qc.invalidateQueries({ queryKey: ["my-alert-levels"] });
       setTimeout(() => setFlash(null), 3500);
     },
   });
@@ -180,6 +192,14 @@ export function AlertSettings() {
           held={held}
           still={still}
           onAdd={(level) => ask.mutate(level)}
+          onRemove={(level, source) => {
+            const name = ALERT_LEVELS.find((l) => l.level === level)?.name ?? `Level ${level}`;
+            const question = source === "purchased"
+              ? `Cancel ${name}? Billing for that level stops and you lose it straight away. Everything your plan includes stays.`
+              : `Remove ${name} from your account? You can ask for it again later.`;
+            if (globalThis.confirm(question)) give.mutate(level);
+          }}
+          busyLevel={give.isPending ? (give.variables as number) : null}
         />
       </section>
 

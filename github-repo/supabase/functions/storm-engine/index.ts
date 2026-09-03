@@ -32,8 +32,30 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // gemini-2.5-flash now returns 404 "no longer available to new users", which made
 // every nightly brief fall through to the deterministic SPC-risk template. Try a
 // chain, newest-usable first, and allow an env override without a redeploy.
-const GEMINI_MODELS = (Deno.env.get("GEMINI_MODELS") ?? "gemini-flash-latest,gemini-2.0-flash,gemini-2.5-flash")
-  .split(",").map((m) => m.trim()).filter(Boolean);
+/**
+ * Which Gemini models to try, in order.
+ *
+ * Validated rather than trusted. `GEMINI_MODELS` is a secret, and a secret that
+ * is meant to hold a comma-separated list of model names is one paste away from
+ * holding an API key instead — which is exactly what happened: the whole
+ * narrative came back as
+ * `GenerateContentRequest.model: unexpected model name format`, because the
+ * key was going into the URL where the model belongs. A model name is lower
+ * case letters, digits, dots and hyphens, so anything else is discarded and the
+ * built-in list is used. Silently degrading to a working default beats an AI
+ * write that fails every day until somebody reads the error field.
+ */
+const DEFAULT_GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash"];
+const IS_MODEL_NAME = /^[a-z0-9][a-z0-9.-]{2,60}$/;
+function geminiModels(): string[] {
+  const raw = (Deno.env.get("GEMINI_MODELS") ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  const good = raw.filter((m) => IS_MODEL_NAME.test(m));
+  if (raw.length && !good.length) {
+    console.warn("GEMINI_MODELS holds no usable model name; falling back to the built-in list");
+  }
+  return good.length ? good : DEFAULT_GEMINI_MODELS;
+}
+const GEMINI_MODELS = geminiModels();
 const GEMINI_URL = (model: string, key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 

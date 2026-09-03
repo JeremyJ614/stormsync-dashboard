@@ -11,6 +11,21 @@
  * cross-fading — which is what made playback stutter. Tiles are decoded once
  * and then each frame is six drawImage calls, and the loop runs on
  * requestAnimationFrame so a frame advances on a paint rather than between two.
+ *
+ * WHY IT USED TO LOOK BROKEN. The playhead starts on the newest frame, which is
+ * the one anybody opening this tab wants to see — and the loader worked through
+ * the frames from oldest to newest, four at a time. So the frame on screen was
+ * the last one to arrive: on a storm whose tiles run 300 KB each, that is the
+ * better part of a minute of black canvas with nothing but a small "Buffering"
+ * chip to explain it. It was not failing, but there is no useful difference
+ * between a tab that takes a minute to show anything and one that is broken.
+ *
+ * Frames are now decoded in playback order starting from the frame actually on
+ * screen, so the first thing that finishes is the first thing you are looking
+ * at. And a frame is only counted as ready if at least one of its tiles really
+ * decoded — an errored tile used to settle exactly like a loaded one, so a
+ * genuinely dead frame was shown as black rather than skipped, and a genuinely
+ * dead product still reported "Buffering 30/30".
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -42,6 +57,9 @@ export default function SatelliteLoop({
   const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [loaded, setLoaded] = useState<Set<number>>(new Set());
+  /** Frames whose tiles all failed. Kept apart from `loaded` so a dead product
+      can say so instead of playing black. */
+  const [failed, setFailed] = useState<Set<number>>(new Set());
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   /** Decoded tiles, keyed by their URL. */
   const tiles = useRef<Map<string, HTMLImageElement>>(new Map());
@@ -56,7 +74,9 @@ export default function SatelliteLoop({
   const count = data?.frames?.length ?? 0;
 
   // Reset the playhead whenever the frame set changes underneath us.
-  useEffect(() => { setIdx(Math.max(0, count - 1)); setLoaded(new Set()); }, [count, product, zoom]);
+  useEffect(() => {
+    setIdx(Math.max(0, count - 1)); setLoaded(new Set()); setFailed(new Set());
+  }, [count, product, zoom]);
 
   // ── decode every tile once ────────────────────────────────────────────────
   // Four at a time so the frames finish roughly in the order they are played,
@@ -66,10 +86,17 @@ export default function SatelliteLoop({
     let cancelled = false;
     tiles.current = new Map();
     setLoaded(new Set());
+    setFailed(new Set());
 
-    const jobs: { i: number; urls: string[] }[] = data.frames.map((f, i) => ({
-      i, urls: data.tiles.map((t) => tileUrl(f.base, t.row, t.col)),
+    const n = data.frames.length;
+    // Playback order from where the playhead actually starts: newest first,
+    // then wrapping round through the oldest. Decoding 0…n-1 while showing
+    // n-1 is what made the tab look dead on open.
+    const order = Array.from({ length: n }, (_, k) => (n - 1 + k) % n);
+    const jobs = order.map((i) => ({
+      i, urls: data.tiles.map((t) => tileUrl(data.frames[i].base, t.row, t.col)),
     }));
+
     let next = 0;
     const CONCURRENCY = 4;
 
@@ -77,15 +104,22 @@ export default function SatelliteLoop({
       if (cancelled || next >= jobs.length) return;
       const job = jobs[next++];
       let left = job.urls.length;
-      const done = () => {
+      let got = 0;
+      const done = (ok: boolean) => {
         if (cancelled) return;
-        if (--left === 0) { setLoaded((s) => new Set(s).add(job.i)); pump(); }
+        if (ok) got++;
+        if (--left > 0) return;
+        // A frame counts as ready only if something actually decoded. Marking
+        // an all-errors frame "loaded" is what let the loop hold on black.
+        if (got > 0) setLoaded((s) => new Set(s).add(job.i));
+        else setFailed((s) => new Set(s).add(job.i));
+        pump();
       };
       for (const url of job.urls) {
         const img = new Image();
         img.crossOrigin = "anonymous";
-        img.onload = () => { tiles.current.set(url, img); done(); };
-        img.onerror = done;
+        img.onload = () => { tiles.current.set(url, img); done(true); };
+        img.onerror = () => done(false);
         img.src = url;
       }
     };
@@ -150,6 +184,10 @@ export default function SatelliteLoop({
 
   const active = data?.frames?.[idx];
   const buffered = loaded.size;
+  /** Nothing decoded and everything tried: the product is genuinely down. */
+  const allDead = count > 0 && failed.size === count;
+  /** The frame on screen has not arrived yet. Worth saying, not worth hiding. */
+  const waiting = count > 0 && !loaded.has(idx) && !allDead;
 
   if (isLoading) return <Panel title="Satellite" eyebrow="Live imagery"><Spinner label="Locating the storm on the GOES disk…" /></Panel>;
   if (isError) {
@@ -165,6 +203,16 @@ export default function SatelliteLoop({
         <Empty
           title="Outside GOES coverage"
           detail={data?.reason ?? "This storm sits beyond the GOES-East and GOES-West field of view, so no loop can be built for it."}
+        />
+      </Panel>
+    );
+  }
+  if (allDead) {
+    return (
+      <Panel title="Satellite" eyebrow="Live imagery">
+        <Empty
+          title="Imagery is not coming through"
+          detail={`The loop for ${stormName} was built — ${count} frames on ${data.satelliteLabel} — but not one tile would load. That is CIRA SLIDER's end rather than ours; it is usually back within the hour.`}
         />
       </Panel>
     );
@@ -211,13 +259,31 @@ export default function SatelliteLoop({
         <div className="absolute right-0 top-0 px-3 py-1.5 text-[10px] tracking-[0.18em] uppercase bg-black/55" style={{ color: GOLD }}>
           {stormName}
         </div>
-        {buffered < count && (
+        {buffered + failed.size < count && (
           <div className="absolute top-2 left-2 right-2 flex items-center gap-2">
             <span className="text-[10px] text-white/85 bg-black/70 rounded px-1.5 py-0.5 shrink-0 tabular-nums">
               Buffering {buffered}/{count}
+              {failed.size > 0 ? ` · ${failed.size} unavailable` : ""}
             </span>
             <div className="flex-1 h-1 rounded bg-black/60 overflow-hidden">
-              <div className="h-full transition-all" style={{ width: `${(buffered / Math.max(1, count)) * 100}%`, background: GOLD }} />
+              <div className="h-full transition-all" style={{ width: `${((buffered + failed.size) / Math.max(1, count)) * 100}%`, background: GOLD }} />
+            </div>
+          </div>
+        )}
+
+        {/* Something to look at while the first frame arrives. A black rectangle
+            with a 10px chip in the corner is indistinguishable from a broken
+            tab, which is exactly what it was being reported as. */}
+        {waiting && (
+          <div className="absolute inset-0 grid place-items-center bg-black/55 pointer-events-none">
+            <div className="flex flex-col items-center gap-2 px-4 text-center">
+              <Satellite className="w-5 h-5 animate-pulse" style={{ color: GOLD }} />
+              <span className="text-[11px] text-white/85">
+                Pulling {data.satelliteLabel} imagery for {stormName}…
+              </span>
+              <span className="text-[10px] text-white/50 tabular-nums">
+                {buffered} of {count} frames ready
+              </span>
             </div>
           </div>
         )}

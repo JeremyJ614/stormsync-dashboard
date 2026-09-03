@@ -4,8 +4,8 @@ import {
 } from "lucide-react";
 import {
   listPrizes, listDraws, ticketOverview, grantTickets,
-  syncSubscriptionTickets, DRAWS, drawMeta, periodLabel,
-  type DrawType, type RafflePrize, type RaffleDraw, type TicketHolder,
+  syncSubscriptionTickets, prizeOdds, setPrizeWeight, DRAWS, drawMeta, periodLabel,
+  type DrawType, type RafflePrize, type RaffleDraw, type TicketHolder, type PrizeOdds,
 } from "../../lib/raffles";
 import { RaffleMachine } from "./RaffleMachine";
 import { audit } from "../../lib/adminAudit";
@@ -203,13 +203,42 @@ function TicketsPane({ holders, onChanged }: { holders: TicketHolder[] | null; o
 
 // ── prizes, and running a draw ───────────────────────────────────────────────
 
+/**
+ * Prizes, their odds, and running a draw.
+ *
+ * The prize is drawn as well as the winner. Choosing one first made the
+ * interesting half of a raffle a decision the owner had already taken, so the
+ * button is per draw type now and says so — the drum shows "?" until the server
+ * comes back with what came out.
+ *
+ * Each prize carries a weight, and the odds beside it are the real ones: they
+ * come from `raffle_prize_odds`, the same function the draw uses, rather than
+ * from a second calculation here that could drift. Weight is a relative number
+ * rather than a percentage because percentages must sum to 100, and adding one
+ * prize should not mean re-balancing twenty rows.
+ */
 function PrizesPane({
   prizes, holders, onDrawn,
 }: { prizes: RafflePrize[]; holders: TicketHolder[] | null; onDrawn: () => void }) {
   const [drawType, setDrawType] = useState<DrawType>("monthly");
   const [result, setResult] = useState<string | null>(null);
-  // The prize whose drum is open. The machine owns the draw from here.
-  const [machine, setMachine] = useState<RafflePrize | null>(null);
+  // Open the drum for this draw type. The machine owns the draw — including
+  // which prize — from here.
+  const [machine, setMachine] = useState<DrawType | null>(null);
+  const [odds, setOdds] = useState<PrizeOdds[]>([]);
+  const [busyWeight, setBusyWeight] = useState<string | null>(null);
+
+  const loadOdds = useCallback(() => { void prizeOdds(drawType).then(setOdds); }, [drawType]);
+  useEffect(() => { loadOdds(); }, [loadOdds]);
+  const oddsFor = useMemo(() => new Map(odds.map((o) => [o.id, o])), [odds]);
+
+  async function saveWeight(id: string, weight: number) {
+    setBusyWeight(id);
+    const r = await setPrizeWeight(id, weight);
+    setBusyWeight(null);
+    if (!r.ok) { setResult(r.error ?? "Could not save that chance."); return; }
+    loadOdds();
+  }
 
   const list = useMemo(
     () => prizes.filter((p) => p.drawType === drawType).sort((a, b) => b.rank - a.rank),
@@ -244,6 +273,27 @@ function PrizesPane({
       </p>
       {result && <p className="text-[11.5px]" style={{ color: ROYAL.gold }}>{result}</p>}
 
+      {/* One button. The prize is drawn too — that is the whole change. */}
+      <button
+        onClick={() => { setResult(null); setMachine(drawType); }}
+        disabled={entrants.t === 0}
+        className="w-full px-3 py-3 rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-30"
+        style={{ background: "rgba(217,183,117,0.14)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}
+      >
+        <Dices className="w-4 h-4" />
+        Draw the {drawMeta(drawType).label.toLowerCase()} raffle
+      </button>
+      <p className="text-[11px] -mt-1" style={{ color: ROYAL.dim }}>
+        Both halves are random: the prize is drawn from the list below by its chance, then the winner is drawn from
+        the tickets. Nobody knows what is coming out — you included.
+      </p>
+
+      <div className="flex items-center justify-between px-1 text-[10px] uppercase tracking-[0.2em]"
+           style={{ color: ROYAL.dim }}>
+        <span>Prize</span>
+        <span>Chance · weight</span>
+      </div>
+
       <div className="bg-card border border-border rounded-xl divide-y overflow-hidden" style={{ borderColor: ROYAL.hairline }}>
         {list.map((p) => (
           <div key={p.id} className="px-3 py-2.5 flex items-center gap-3">
@@ -258,29 +308,73 @@ function PrizesPane({
                 {p.kind === "manual" && <span style={{ color: "#e2a06a" }}> · you hand this one over</span>}
               </span>
             </span>
-            <button onClick={() => { setResult(null); setMachine(p); }} disabled={entrants.t === 0}
-              className="shrink-0 px-2.5 py-1.5 rounded-lg text-[11px] font-semibold flex items-center gap-1.5 disabled:opacity-30"
-              style={{ background: "rgba(217,183,117,0.12)", border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
-              <Dices className="w-3.5 h-3.5" /> Draw
-            </button>
+            <WeightField
+              value={p.weight}
+              odds={oddsFor.get(p.id)?.odds ?? 0}
+              busy={busyWeight === p.id}
+              onCommit={(w) => void saveWeight(p.id, w)}
+            />
           </div>
         ))}
       </div>
 
+      <p className="text-[11px] px-1" style={{ color: ROYAL.dim }}>
+        The percentage is this prize's real chance of being the one drawn, computed from every active prize's weight
+        in this draw. The box next to it is the weight — a relative number, so raising one prize lowers the rest
+        without you having to touch them. Set a weight to 0 to keep a prize in the list but never draw it.
+      </p>
+
       {machine && (
         <RaffleMachine
-          prize={machine}
-          drawType={drawType}
+          drawType={machine}
           holders={holders ?? []}
           onClose={() => setMachine(null)}
-          onDrawn={async () => {
-            await audit("settings.change", { type: "raffle", id: machine.id, label: machine.label }, { drawType });
-            setResult(`Drawn — "${machine.label}". The Draws tab has the record.`);
+          onDrawn={async (drawn) => {
+            await audit("settings.change",
+              { type: "raffle", id: drawn?.id ?? machine, label: drawn?.prizeLabel ?? "random prize" },
+              { drawType: machine });
+            setResult(drawn
+              ? `Drawn — "${drawn.prizeLabel}" to ${drawn.winnerName}. The Draws tab has the record.`
+              : "Drawn. The Draws tab has the record.");
             onDrawn();
           }}
         />
       )}
     </div>
+  );
+}
+
+/**
+ * One prize's chance of coming up.
+ *
+ * Shows the odds it actually has and takes the weight that produces them. Two
+ * numbers rather than one because they answer different questions: the odds are
+ * what you want to know, the weight is what you can change, and conflating them
+ * would mean every edit re-scaling every other prize.
+ */
+function WeightField({
+  value, odds, busy, onCommit,
+}: { value: number; odds: number; busy: boolean; onCommit: (w: number) => void }) {
+  const [draft, setDraft] = useState(String(value));
+  useEffect(() => { setDraft(String(value)); }, [value]);
+  return (
+    <span className="shrink-0 flex items-center gap-1.5">
+      <span className="text-right tabular-nums text-[11px] w-12" style={{ color: odds > 0 ? ROYAL.gold : ROYAL.dim }}>
+        {odds.toFixed(2)}%
+      </span>
+      <input
+        type="number" min={0} step="0.05" value={draft} disabled={busy}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const n = Number(draft);
+          if (Number.isFinite(n) && n >= 0 && n !== value) onCommit(n);
+          else setDraft(String(value));
+        }}
+        aria-label="Chance weight"
+        className="w-16 rounded-lg px-2 py-1 text-[11px] tabular-nums outline-none disabled:opacity-40"
+        style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.text }}
+      />
+    </span>
   );
 }
 

@@ -19,12 +19,18 @@ import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../../lib/royal";
  * the right picture. Weighting by tickets is invisible in a list of names and
  * obvious when someone with nine balls in the drum keeps coming out.
  *
- * WHAT THIS DOES NOT DO: it does not pick the winner. `admin_run_raffle` does,
- * server-side, weighted by tickets, in the same transaction that hands over the
- * prize. The request goes out as the drum starts and the animation simply lands
- * on whichever ball belongs to the member the database already chose. An
- * animation that decided anything would be a lie told to an admin about their
- * own raffle, and it would not survive a page refresh.
+ * WHAT THIS DOES NOT DO: it does not pick the winner, and it no longer knows
+ * the prize either. `admin_run_raffle` draws both — the prize by weight from the
+ * active prizes for this draw type, the winner by ticket — server-side, in the
+ * same transaction that hands the prize over. The request goes out as the drum
+ * starts and the animation simply lands on whichever ball belongs to the member
+ * the database already chose. An animation that decided anything would be a lie
+ * told to an admin about their own raffle, and it would not survive a page
+ * refresh.
+ *
+ * The prize being unknown until the ball lands is the point. A raffle where the
+ * person running it already knows what is coming out is a giveaway with extra
+ * steps, so the drum shows "?" until the draw comes back.
  */
 
 /** Rendering every ball stops being legible — and smooth — long before this. */
@@ -45,11 +51,12 @@ function ballsFor(holders: TicketHolder[], drawType: DrawType): { userId: string
 export function RaffleMachine({
   prize, drawType, holders, onClose, onDrawn,
 }: {
-  prize: RafflePrize;
+  /** Omit to let the server draw the prize as well — the normal case. */
+  prize?: RafflePrize | null;
   drawType: DrawType;
   holders: TicketHolder[];
   onClose: () => void;
-  onDrawn: () => void;
+  onDrawn: (drawn: RaffleDraw | null) => void;
 }) {
   const canvas = useRef<HTMLCanvasElement>(null);
   const balls = useRef<Ball[]>([]);
@@ -205,7 +212,7 @@ export function RaffleMachine({
     // The draw and the spin run together: the drum is not stalling for effect,
     // it is turning while the database actually decides.
     const started = performance.now();
-    const r = await runRaffle(drawType, prize.id);
+    const r = await runRaffle(drawType, prize?.id ?? null);
     if (!r.ok || !r.drawId) {
       phase.current = "idle";
       setState("error");
@@ -225,7 +232,7 @@ export function RaffleMachine({
         phase.current = "done";
         setDraw(row);
         setState("won");
-        onDrawn();
+        onDrawn(row);
       }, still ? 0 : 900);
     }, still ? 0 : wait);
   }
@@ -252,8 +259,10 @@ export function RaffleMachine({
           <div className="text-[10px] uppercase tracking-[0.3em]" style={{ color: tint }}>
             {drawMeta(drawType).label} draw · {periodLabel(drawType, currentPeriod(drawType))}
           </div>
+          {/* The prize is not known until the draw comes back, so the header
+              says so rather than pretending. Once it lands it stays. */}
           <h2 className="text-lg font-bold mt-0.5" style={{ fontFamily: HEADING, color: ROYAL.text }}>
-            {prize.label}
+            {prize?.label ?? draw?.prizeLabel ?? (state === "drawing" ? "Drawing a prize…" : "Prize drawn at random")}
           </h2>
           <p className="text-[11.5px] mt-0.5" style={{ color: ROYAL.dim }}>
             {totals.entrants} member{totals.entrants === 1 ? "" : "s"} · {totals.tickets} ticket
@@ -274,6 +283,9 @@ export function RaffleMachine({
               <Trophy className="w-5 h-5 mx-auto mb-1" style={{ color: ROYAL.gold }} />
               <div className="text-base font-bold" style={{ fontFamily: HEADING, color: ROYAL.gold }}>
                 {draw.winnerName}
+              </div>
+              <div className="text-[11px] mt-0.5 font-semibold" style={{ color: ROYAL.text }}>
+                won {draw.prizeLabel}
               </div>
               <div className="text-[11.5px] mt-0.5" style={{ color: ROYAL.dim }}>
                 held {draw.winnerTickets} of {draw.ticketsTotal} ticket{draw.ticketsTotal === 1 ? "" : "s"}

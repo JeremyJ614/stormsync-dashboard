@@ -34,6 +34,13 @@ export interface RafflePrize {
   kind: "points" | "coupon_percent" | "badge" | "module" | "alert_level" | "manual";
   config: Record<string, unknown>;
   active: boolean;
+  /**
+   * Relative chance of being drawn, within its draw type. Not a percentage:
+   * percentages have to sum to 100, so adding one prize would mean editing
+   * every other one. The odds are computed from these and shown as percentages
+   * where they are edited.
+   */
+  weight: number;
 }
 
 export interface RaffleDraw {
@@ -78,7 +85,26 @@ export async function listPrizes(): Promise<RafflePrize[]> {
     kind: r.kind as RafflePrize["kind"],
     config: (r.config as Record<string, unknown>) ?? {},
     active: r.active === true,
+    weight: Number(r.weight ?? 1),
   }));
+}
+
+/** What each prize's chance actually is, computed by the same code the draw uses. */
+export interface PrizeOdds { id: string; label: string; rank: number; weight: number; odds: number }
+
+export async function prizeOdds(drawType: DrawType): Promise<PrizeOdds[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.rpc("raffle_prize_odds", { p_draw_type: drawType });
+  if (error) { logger.error("prizeOdds failed", { scope: "raffle", error }); return []; }
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id), label: String(r.label), rank: Number(r.rank ?? 0),
+    weight: Number(r.weight ?? 0), odds: Number(r.odds ?? 0),
+  }));
+}
+
+export async function setPrizeWeight(id: string, weight: number): Promise<{ ok: boolean; error?: string }> {
+  const { error } = await supabase.rpc("admin_set_prize_weight", { p_id: id, p_weight: weight });
+  return error ? { ok: false, error: error.message } : { ok: true };
 }
 
 export async function listDraws(limit = 25): Promise<RaffleDraw[]> {
@@ -141,11 +167,18 @@ export async function getDraw(id: string): Promise<RaffleDraw | null> {
   };
 }
 
+/**
+ * Run a draw.
+ *
+ * `prizeId` is optional and normally omitted: the server draws the prize by
+ * weight as well as the winner, so nobody — the owner included — knows what is
+ * coming out. Naming one is still allowed for "draw the grand prize now".
+ */
 export async function runRaffle(
-  drawType: DrawType, prizeId: string, note?: string,
+  drawType: DrawType, prizeId?: string | null, note?: string,
 ): Promise<{ ok: boolean; drawId?: string; error?: string }> {
   const { data, error } = await supabase.rpc("admin_run_raffle", {
-    p_draw_type: drawType, p_prize: prizeId, p_note: note?.trim() || null,
+    p_draw_type: drawType, p_prize: prizeId ?? null, p_note: note?.trim() || null,
   });
   if (error) return { ok: false, error: error.message };
   return { ok: true, drawId: String(data) };

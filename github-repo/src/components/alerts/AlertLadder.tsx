@@ -12,7 +12,7 @@
  */
 import { memo } from "react";
 import { motion } from "framer-motion";
-import { Check, Lock, Plus, Sparkles, ChevronRight } from "lucide-react";
+import { Check, Lock, Loader2, Minus, Plus, Sparkles, ChevronRight } from "lucide-react";
 import {
   ALERT_LEVELS, TIER_NAME, priceFor, money,
   type AlertLevelDef, type AlertPriceRow, type HeldLevel, type LevelSource,
@@ -27,6 +27,15 @@ interface Props {
   held?: HeldLevel[];
   /** Called when a level that costs money is chosen. Omit to render read-only. */
   onAdd?: (level: number, price: number) => void;
+  /**
+   * Called to give a level back. Only offered on a level the member bought or
+   * was granted — one included by their plan is theirs until the plan changes,
+   * and offering to remove it would be offering to take away something they are
+   * already paying for.
+   */
+  onRemove?: (level: number, source: LevelSource) => void;
+  /** Level currently being changed, so the rung can show it rather than freeze. */
+  busyLevel?: number | null;
   still?: boolean;
   /** Compact rungs, for the signup popup where vertical space is scarce. */
   dense?: boolean;
@@ -39,7 +48,7 @@ const SOURCE_LABEL: Record<LevelSource, string> = {
 };
 
 export const AlertLadder = memo(function AlertLadder({
-  tier, prices, held, onAdd, still = false, dense = false,
+  tier, prices, held, onAdd, onRemove, busyLevel = null, still = false, dense = false,
 }: Props) {
   const heldMap = new Map((held ?? []).map((h) => [h.level, h.source]));
   const priceRow = (lvl: number) => prices.find((p) => p.level === lvl);
@@ -61,6 +70,8 @@ export const AlertLadder = memo(function AlertLadder({
             source={heldMap.get(def.level)}
             showHeld={!!held}
             onAdd={onAdd}
+            onRemove={onRemove}
+            busy={busyLevel === def.level}
             still={still}
             dense={dense}
           />
@@ -71,7 +82,7 @@ export const AlertLadder = memo(function AlertLadder({
 });
 
 function Rung({
-  def, index, tier, price, source, showHeld, onAdd, still, dense,
+  def, index, tier, price, source, showHeld, onAdd, onRemove, busy, still, dense,
 }: {
   def: AlertLevelDef;
   index: number;
@@ -80,12 +91,16 @@ function Rung({
   source?: LevelSource;
   showHeld: boolean;
   onAdd?: (level: number, price: number) => void;
+  onRemove?: (level: number, source: LevelSource) => void;
+  busy: boolean;
   still: boolean;
   dense: boolean;
 }) {
   const included = tier >= def.includedFrom;
   const has = showHeld ? !!source : included;
   const buyable = !has && price != null && price > 0;
+  // Removable only when it is genuinely theirs to give back.
+  const removable = has && !!onRemove && (source === "purchased" || source === "granted");
 
   return (
     <motion.div
@@ -126,10 +141,26 @@ function Rung({
 
           <div className="shrink-0 text-right">
             {has ? (
-              <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider"
-                    style={{ background: `${def.color}22`, color: def.color }}>
-                <Check className="w-3 h-3" />
-                {showHeld ? SOURCE_LABEL[source ?? "tier"] : "Included"}
+              <span className="inline-flex items-center gap-1.5">
+                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider"
+                      style={{ background: `${def.color}22`, color: def.color }}>
+                  <Check className="w-3 h-3" />
+                  {showHeld ? SOURCE_LABEL[source ?? "tier"] : "Included"}
+                </span>
+                {removable && (
+                  <button
+                    onClick={() => onRemove?.(def.level, source ?? "granted")}
+                    disabled={busy}
+                    title={source === "purchased"
+                      ? "Cancel this level and stop being billed for it"
+                      : "Remove this level from your account"}
+                    aria-label={`Remove ${def.name}`}
+                    className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-bold uppercase tracking-wider transition-colors disabled:opacity-50"
+                    style={{ background: "rgba(255,255,255,0.05)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
+                  >
+                    {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Minus className="w-3 h-3" />} Drop
+                  </button>
+                )}
               </span>
             ) : buyable ? (
               onAdd ? (

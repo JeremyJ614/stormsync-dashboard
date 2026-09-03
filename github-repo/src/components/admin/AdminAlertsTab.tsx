@@ -393,6 +393,36 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
     setBusy(null);
   }
 
+  /**
+   * Move somebody to a level in one action.
+   *
+   * The five squares could always do this, one tap at a time, but nobody read
+   * them as an up/downgrade control — they read as five unlabelled buttons, and
+   * "put this member on Contact Alerts" meant working out which of the five to
+   * press and in which direction. This says what it does: everything up to the
+   * target is granted, everything above it is revoked, and levels their tier
+   * already includes are left alone because those are not ours to take.
+   */
+  async function setTo(row: AlertRosterRow, target: number) {
+    setBusy(`${row.user_id}:set`);
+    const changes: { level: number; on: boolean }[] = [];
+    for (const l of ALERT_LEVELS) {
+      const has = row.levels.includes(l.level);
+      const byTier = has && !row.purchased.includes(l.level);
+      if (byTier) continue;                       // included with their plan
+      const want = l.level <= target;
+      if (want !== has) changes.push({ level: l.level, on: want });
+    }
+    for (const c of changes) {
+      const res = await adminSetAlertLevel(row.user_id, c.level, c.on);
+      if (!res.ok) break;
+      void audit(c.on ? "alert.grant" : "alert.revoke",
+        { type: "user", id: row.user_id, label: row.name || row.email }, { level: c.level, via: "set-level" });
+    }
+    if (changes.length) onChanged();
+    setBusy(null);
+  }
+
   return (
     <div className="space-y-3">
       {/* The five counts, so the shape of the base is visible at a glance. */}
@@ -481,6 +511,38 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
                 {r.email} · {TIER_NAME[r.tier]} · scope {r.scope}
               </div>
             </div>
+            {/* Up/downgrade in one control, next to the per-level squares that
+                do the same thing a rung at a time. */}
+            <div className="flex items-center gap-1 shrink-0">
+              <span className="text-[9px] uppercase tracking-[0.16em] mr-0.5" style={{ color: ROYAL.dim }}>Set</span>
+              {(() => {
+                const cur = r.levels.length ? Math.max(...r.levels) : 0;
+                const key = `${r.user_id}:set`;
+                return (
+                  <>
+                    <button
+                      onClick={() => void setTo(r, Math.max(0, cur - 1))}
+                      disabled={cur === 0 || busy === key}
+                      title="Down one level"
+                      className="w-7 h-8 rounded-lg grid place-items-center text-sm font-black disabled:opacity-30"
+                      style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
+                    >−</button>
+                    <span className="w-10 text-center text-[11px] font-black tabular-nums"
+                          style={{ color: cur ? (ALERT_LEVELS.find((l) => l.level === cur)?.color ?? ROYAL.text) : ROYAL.dim }}>
+                      {busy === key ? "…" : cur === 0 ? "—" : `L${cur}`}
+                    </span>
+                    <button
+                      onClick={() => void setTo(r, Math.min(5, cur + 1))}
+                      disabled={cur === 5 || busy === key}
+                      title="Up one level"
+                      className="w-7 h-8 rounded-lg grid place-items-center text-sm font-black disabled:opacity-30"
+                      style={{ background: "rgba(255,255,255,0.04)", border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
+                    >+</button>
+                  </>
+                );
+              })()}
+            </div>
+
             <div className="flex gap-1 shrink-0">
               {ALERT_LEVELS.map((l) => {
                 const has = r.levels.includes(l.level);
@@ -509,8 +571,12 @@ function RosterPane({ rows, onChanged }: { rows: AlertRosterRow[]; onChanged: ()
         ))}
       </div>
       <p className="text-[11px] px-1" style={{ color: ROYAL.dim }}>
-        A dim outline means the level comes with their tier and cannot be revoked here — change the tier instead.
-        A bright outline means it was bought or granted, and tapping it takes it away.
+        <strong style={{ color: ROYAL.text }}>Set</strong> moves somebody up or down the ladder in one go: everything
+        up to the new level is granted and everything above it is taken away. The five squares do the same thing one
+        rung at a time. A dim outline means the level comes with their tier and cannot be revoked here — change the
+        tier instead. A bright outline means it was bought or granted, and tapping it takes it away. Revoking a level
+        somebody is <em>paying</em> for stops their access but not their Stripe subscription — cancel that from their
+        billing portal, or have them drop it from their own alert settings, which does both.
       </p>
     </div>
   );

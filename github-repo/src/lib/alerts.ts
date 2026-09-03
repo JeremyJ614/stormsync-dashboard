@@ -363,6 +363,36 @@ export async function startAlertLevelCheckout(level: number): Promise<{ ok: bool
   return { ok: true, url: data.url as string };
 }
 
+/**
+ * Give a rung back.
+ *
+ * Buying a level was one tap and giving one up was "open the Stripe portal,
+ * find the right subscription among your others, cancel that one" — which is
+ * not a downgrade path. This cancels exactly the subscription that level was
+ * bought under, or simply removes it when an admin granted it, and refuses on a
+ * level that comes with the member's plan because taking that away would be
+ * removing something their tier is still paying for.
+ *
+ * The entitlement is written and removed server-side under the service role, as
+ * everywhere else in the billing path: a member can read their entitlements and
+ * never write them.
+ */
+export async function dropAlertLevel(
+  level: number,
+): Promise<{ ok: boolean; cancelled?: boolean; message?: string; error?: string }> {
+  const { data, error } = await supabase.functions.invoke("stripe-portal", {
+    body: { mode: "drop_alert_level", level },
+  });
+  // A non-2xx from an edge function arrives as a FunctionsHttpError with the
+  // body attached, so the server's own wording is what the member should see.
+  if (error) {
+    const body = (data ?? null) as { error?: string } | null;
+    return { ok: false, error: body?.error ?? "Could not change that level — try again." };
+  }
+  if (!data?.ok) return { ok: false, error: data?.error ?? "Could not change that level." };
+  return { ok: true, cancelled: Boolean(data.cancelled), message: data.message as string | undefined };
+}
+
 // ─── legacy requests ─────────────────────────────────────────────────────────
 // Nothing files new requests any more, but rows already in the table still have
 // to be visible and dismissable — both to the member who filed one and to the

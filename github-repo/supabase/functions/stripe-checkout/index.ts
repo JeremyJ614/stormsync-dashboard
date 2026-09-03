@@ -227,18 +227,34 @@ Deno.serve(async (req)=>{
     if (couponCode && period !== "lifetime") {
       const { data: check } = await admin.rpc("validate_coupon", {
         p_code: couponCode,
-        p_tier: tier
+        p_tier: tier,
+        // A code minted as somebody's raffle prize belongs to them. Without the
+        // user id the check cannot tell, and a prize code pasted into a group
+        // chat would be a discount for everybody who read it.
+        p_user: user.id
       });
       if (check?.valid) {
-        const isOnce = String(check.kind).startsWith("first_month");
         const isPercent = String(check.kind).includes("percent");
+        // How long it runs for. `duration_months` is the authority when it is
+        // set — raffle prizes are routinely "25% off every month for a year",
+        // which is neither once nor for ever, and minting those as either would
+        // give away far too little or far too much. Codes that predate it carry
+        // null and keep exactly the behaviour they always had.
+        const months = check.duration_months == null ? null : Number(check.duration_months);
+        const isOnce = months === 1 || (months == null && String(check.kind).startsWith("first_month"));
+        const duration = isOnce ? "once"
+          : months == null ? "forever"
+          : "repeating";
+        const span = duration === "repeating" ? { duration_in_months: months } : {};
         const c = await stripeCall("coupons", isPercent ? {
           percent_off: check.value,
-          duration: isOnce ? "once" : "forever"
+          duration,
+          ...span
         } : {
           amount_off: Math.round(check.value * 100),
           currency: "usd",
-          duration: isOnce ? "once" : "forever"
+          duration,
+          ...span
         });
         stripeCouponId = c.id;
       }

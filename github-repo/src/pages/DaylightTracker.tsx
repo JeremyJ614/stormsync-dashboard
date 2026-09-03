@@ -180,7 +180,7 @@ function MapPopupPanel({
   return (
     <div
       className="absolute bottom-3 left-3 right-3 md:left-auto md:right-3 md:w-80 rounded-2xl overflow-hidden shadow-2xl"
-      style={{ zIndex: 1000, background: "hsl(232 22% 8%)", border: "1px solid rgba(204,204,255,0.18)" }}
+      style={{ zIndex: 10, background: "hsl(232 22% 8%)", border: "1px solid rgba(204,204,255,0.18)" }}
     >
       {/* Header */}
       <div className="flex items-start justify-between px-3 pt-3 pb-1">

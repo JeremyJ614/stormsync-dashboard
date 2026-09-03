@@ -82,6 +82,7 @@ const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"), "/duel"
 const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glossary");
 const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
 const Chases = lazyRoute(() => import("./pages/Chases"), "/chases");
+const Raffles = lazyRoute(() => import("./pages/Raffles"), "/raffles");
 const FloodOutlook = lazyRoute(() => import("./pages/FloodOutlook"), "/flooding");
 const WinterCenter = lazyRoute(() => import("./pages/WinterCenter"), "/winter");
 const TrafficCameras = lazyRoute(() => import("./pages/TrafficCameras"), "/cameras");
@@ -218,6 +219,7 @@ function AppInner() {
         <Route path="/glossary" component={() => <PW name="Glossary"><Gated path="/glossary"><WeatherGlossary /></Gated></PW>} />
         <Route path="/chasing" component={() => <PW name="Storm Chasing"><Gated path="/chasing"><StormChasingOutlook location={location} /></Gated></PW>} />
         <Route path="/chases" component={() => <PW name="StormSync Chases"><Gated path="/chases"><Chases /></Gated></PW>} />
+        <Route path="/raffles" component={() => <PW name="Raffles"><Gated path="/raffles"><Raffles /></Gated></PW>} />
         <Route path="/flooding" component={() => <PW name="Flooding Outlook"><Gated path="/flooding"><FloodOutlook location={location} /></Gated></PW>} />
         <Route path="/winter" component={() => <PW name="Winter Center"><Gated path="/winter"><WinterCenter location={location} /></Gated></PW>} />
         <Route path="/cameras" component={() => <PW name="Traffic Cameras"><Gated path="/cameras"><TrafficCameras location={location} /></Gated></PW>} />

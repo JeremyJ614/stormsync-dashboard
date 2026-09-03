@@ -7,6 +7,8 @@
  * out from under someone reading a warning. So: check often, hand over
  * silently when they are not looking, and ask when they are.
  */
+import { hasUnsavedWork, noteEditableInput } from "./unsavedWork";
+
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: "accepted" | "dismissed" }>;
@@ -67,8 +69,11 @@ function hasPartFilledForm(): boolean {
 }
 
 function pageIsBusy(): boolean {
-  // Typed input outranks everything: a reload here costs real work, even if
-  // they stepped away mid-form.
+  // Unsaved work outranks everything: a reload here costs real work, even if
+  // they stepped away mid-form. `hasUnsavedWork` covers both the surfaces that
+  // declare themselves — the News editor does — and typed-into rich-text
+  // regions, which a scan of form elements cannot see at all.
+  if (hasUnsavedWork()) return true;
   if (hasPartFilledForm()) return true;
   if (document.visibilityState === "hidden") return false;
   return Date.now() - lastInteraction <= IDLE_MS;
@@ -86,6 +91,12 @@ export function initPwa(): void {
     const t = e.target;
     if (t instanceof HTMLInputElement || t instanceof HTMLTextAreaElement || t instanceof HTMLSelectElement) {
       edited.add(t);
+      lastInteraction = Date.now();
+    } else {
+      // Everything that is not one of those three: TipTap, and any other
+      // rich-text surface. Without this branch the News editor never
+      // registered as touched.
+      noteEditableInput(t);
       lastInteraction = Date.now();
     }
   }, { passive: true, capture: true });
@@ -120,9 +131,16 @@ export function initPwa(): void {
           });
         });
 
-        // If they were busy when it arrived, take it the moment they leave.
+        // If they were busy when it arrived, take it the moment they leave —
+        // but leaving is not the same as being finished. This handler used to
+        // fire on `hidden` alone, so switching apps to fetch a link swapped the
+        // build and reloaded the page while nobody was watching; the member came
+        // back to an empty form and no explanation. Unsaved work still holds the
+        // update, however long they are away.
         document.addEventListener("visibilitychange", () => {
-          if (document.visibilityState === "hidden" && waitingWorker) applyUpdate();
+          if (document.visibilityState !== "hidden") return;
+          if (!waitingWorker || pageIsBusy()) return;
+          applyUpdate();
         });
       }).catch(() => {});
 

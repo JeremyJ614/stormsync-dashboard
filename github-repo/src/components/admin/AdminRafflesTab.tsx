@@ -8,6 +8,7 @@ import {
   type DrawType, type RafflePrize, type RaffleDraw, type TicketHolder, type PrizeOdds,
 } from "../../lib/raffles";
 import { RaffleMachine } from "./RaffleMachine";
+import { AdminTestRaffle } from "./AdminTestRaffle";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING } from "../../lib/royal";
 
@@ -22,7 +23,7 @@ import { ROYAL, HEADING } from "../../lib/royal";
  * transaction, so there is no gap between "you won" and getting it.
  */
 export function AdminRafflesTab() {
-  const [tab, setTab] = useState<"tickets" | "prizes" | "draws">("tickets");
+  const [tab, setTab] = useState<"tickets" | "prizes" | "draws" | "test">("tickets");
   const [holders, setHolders] = useState<TicketHolder[] | null>(null);
   const [prizes, setPrizes] = useState<RafflePrize[]>([]);
   const [draws, setDraws] = useState<RaffleDraw[]>([]);
@@ -68,7 +69,8 @@ export function AdminRafflesTab() {
       </div>
 
       <div className="flex gap-1 bg-card border border-border rounded-xl p-1">
-        {([["tickets", "Who has tickets"], ["prizes", "Prizes"], ["draws", "Draws"]] as const).map(([k, l]) => (
+        {([["tickets", "Who has tickets"], ["prizes", "Prizes"],
+           ["draws", "Draws"], ["test", "Test Raffle"]] as const).map(([k, l]) => (
           <button key={k} onClick={() => setTab(k)}
             className={`flex-1 py-2 rounded-lg text-[12.5px] font-semibold ${
               tab === k ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
@@ -80,6 +82,7 @@ export function AdminRafflesTab() {
       {tab === "tickets" && <TicketsPane holders={holders} onChanged={load} />}
       {tab === "prizes" && <PrizesPane prizes={prizes} holders={holders} onDrawn={load} />}
       {tab === "draws" && <DrawsPane draws={draws} />}
+      {tab === "test" && <AdminTestRaffle />}
     </div>
   );
 }

@@ -426,9 +426,9 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "density" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Tornado Density — All Tornadoes ({m!.minYear}–{m!.maxYear})</h3>
-              <div className="relative">
+              <div className="sswx-map-shell">
                 <ClimoMap mode="grid" grid={data.densityGrid} />
-                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
+                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">Tornadoes / cell</div>
                   {heatLegend(Math.max(...data.densityGrid.map(g => g[2]))).map(l => (
                     <div key={l.label} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: l.color }} /><span className="text-[10px] text-white">{l.label}</span></div>
@@ -442,9 +442,9 @@ export default function TornadoClimatology({ location }: Props) {
           {tab === "hotspots" && (
             <>
               <h3 className="text-sm font-semibold mb-3">Significant Tornado Hotspots — EF2+ only</h3>
-              <div className="relative">
+              <div className="sswx-map-shell">
                 <ClimoMap mode="grid" grid={data.densityGridEF2} />
-                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
+                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">EF2+ / cell</div>
                   {heatLegend(Math.max(...data.densityGridEF2.map(g => g[2]))).map(l => (
                     <div key={l.label} className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm" style={{ background: l.color }} /><span className="text-[10px] text-white">{l.label}</span></div>
@@ -470,9 +470,9 @@ export default function TornadoClimatology({ location }: Props) {
                   </select>
                 </div>
               </div>
-              <div className="relative">
+              <div className="sswx-map-shell">
                 <ClimoMap mode="tracks" tracks={data.tracks} minEF={minEF} sinceYear={sinceYear} />
-                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 1000 }}>
+                <div className="absolute bottom-2 right-2 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none" style={{ zIndex: 10 }}>
                   <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">EF rating</div>
                   {[2, 3, 4, 5].map(ef => (
                     <div key={ef} className="flex items-center gap-2"><div className="w-3 h-1.5 rounded-sm" style={{ background: EF_COLOR[ef] }} /><span className="text-[10px] text-white">EF{ef}</span></div>

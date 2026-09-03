@@ -12,6 +12,7 @@ import { InstallApp } from "../components/InstallApp";
 import { AlertSettings } from "../components/alerts/AlertSettings";
 import { PhoneSettingsCard } from "../components/PhoneSettingsCard";
 import { RaffleTicketsCard } from "../components/RaffleTicketsCard";
+import { PrizeVault } from "../components/PrizeVault";
 import { ReplayIntroCard } from "../components/intro/ReplayIntroCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
@@ -148,6 +149,8 @@ export default function Profile() {
       <AppearancePanel />
 
       {/* Raffle tickets */}
+      <PrizeVault />
+
       <RaffleTicketsCard />
 
       {/* Phone-only settings */}

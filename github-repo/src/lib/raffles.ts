@@ -31,7 +31,7 @@ export interface RafflePrize {
   rank: number;
   label: string;
   description: string | null;
-  kind: "points" | "coupon_percent" | "badge" | "module" | "alert_level" | "manual";
+  kind: "points" | "coupon_percent" | "badge" | "module" | "alert_level" | "manual" | "effects";
   config: Record<string, unknown>;
   active: boolean;
   /**
@@ -212,4 +212,221 @@ export function periodLabel(drawType: DrawType, start: string | null): string {
   return drawType === "yearly"
     ? String(d.getUTCFullYear())
     : d.toLocaleString(undefined, { month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+
+// ─── the catalogue, the ledger, and the claiming ─────────────────────────────
+
+/**
+ * One prize as the members-facing module shows it.
+ *
+ * `odds` arrives already worked out, because the percentage of a prize depends
+ * on every other prize in its draw and computing that on the client would mean
+ * the number moving about as rows arrive.
+ */
+export interface CatalogueEntry {
+  drawType: DrawType;
+  rank: number;
+  label: string;
+  description: string | null;
+  effects: RewardEffect[];
+  weight: number;
+  odds: number;
+}
+
+/** One thing a prize does. `else` is what to try when it cannot be given. */
+export interface RewardEffect {
+  t: string;
+  n?: number;
+  percent?: number;
+  months?: number | null;
+  months_from_membership?: boolean;
+  ids?: string[];
+  levels?: number[];
+  steps?: number[];
+  tier?: number;
+  id?: string;
+  each?: number;
+  from_top?: number;
+  below_rank?: number;
+  slot?: string;
+  draws?: string[];
+  detail?: string;
+  monthly?: number;
+  yearly?: number;
+  random?: number;
+  blessed?: number;
+  else?: RewardEffect;
+}
+
+export async function raffleCatalogue(): Promise<CatalogueEntry[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.rpc("raffle_catalogue");
+  if (error) { logger.error("raffleCatalogue failed", { scope: "raffles", error }); return []; }
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    drawType: r.draw_type as DrawType,
+    rank: Number(r.rank),
+    label: String(r.label),
+    description: (r.description as string | null) ?? null,
+    effects: (((r.config as Record<string, unknown>)?.effects) as RewardEffect[]) ?? [],
+    weight: Number(r.weight ?? 0),
+    odds: Number(r.odds ?? 0),
+  }));
+}
+
+/** Something a member has been given that is still playing out, or still theirs to take. */
+export interface Benefit {
+  id: string;
+  kind: string;
+  label: string;
+  detail: string | null;
+  config: Record<string, unknown>;
+  status: "pending" | "active" | "claimable" | "spent" | "revoked";
+  monthsTotal: number | null;
+  monthsUsed: number;
+  perpetual: boolean;
+  couponCode: string | null;
+  createdAt: string;
+}
+
+export async function myBenefits(): Promise<Benefit[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.rpc("my_benefits");
+  if (error) { logger.error("myBenefits failed", { scope: "raffles", error }); return []; }
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    id: String(r.id),
+    kind: String(r.kind),
+    label: String(r.label),
+    detail: (r.detail as string | null) ?? null,
+    config: (r.config as Record<string, unknown>) ?? {},
+    status: r.status as Benefit["status"],
+    monthsTotal: r.months_total == null ? null : Number(r.months_total),
+    monthsUsed: Number(r.months_used ?? 0),
+    perpetual: r.perpetual === true,
+    couponCode: (r.coupon_code as string | null) ?? null,
+    createdAt: String(r.created_at),
+  }));
+}
+
+export interface Leader { userId: string; display: string; points: number }
+
+export async function pointsLeaders(top = 3): Promise<Leader[]> {
+  if (!isSupabaseConfigured) return [];
+  const { data, error } = await supabase.rpc("points_leaders", { p_top: top });
+  if (error) return [];
+  return ((data ?? []) as Record<string, unknown>[]).map((r) => ({
+    userId: String(r.user_id), display: String(r.display), points: Number(r.points ?? 0),
+  }));
+}
+
+interface ClaimResult { ok: boolean; error?: string; taken?: number; picked?: string[] }
+
+function claimed(data: unknown, error: { message: string } | null): ClaimResult {
+  if (error) return { ok: false, error: error.message };
+  const d = (data ?? {}) as Record<string, unknown>;
+  return {
+    ok: d.ok === true,
+    error: (d.error as string) ?? undefined,
+    taken: d.taken == null ? undefined : Number(d.taken),
+    picked: (d.picked as string[]) ?? undefined,
+  };
+}
+
+export async function claimModuleCredit(benefitId: string, modules: string[]): Promise<ClaimResult> {
+  const { data, error } = await supabase.rpc("claim_module_credit",
+    { p_benefit: benefitId, p_modules: modules });
+  return claimed(data, error);
+}
+
+export async function claimPointsSteal(benefitId: string): Promise<ClaimResult> {
+  const { data, error } = await supabase.rpc("claim_points_steal", { p_benefit: benefitId });
+  return claimed(data, error);
+}
+
+export async function claimPointsWipe(benefitId: string): Promise<ClaimResult> {
+  const { data, error } = await supabase.rpc("claim_points_wipe", { p_benefit: benefitId });
+  return claimed(data, error);
+}
+
+export interface SimEntrant { name: string; tickets: number }
+export interface SimResult {
+  ok: boolean;
+  error?: string;
+  runs: number;
+  ticketsTotal: number;
+  first: { winner: string; prize: string } | null;
+  winners: Record<string, number>;
+  prizes: Record<string, number>;
+}
+
+/** A draw that changes nothing — for seeing what the odds actually do. */
+export async function simulateRaffle(
+  drawType: DrawType, entrants: SimEntrant[], runs: number,
+): Promise<SimResult> {
+  const empty: SimResult = { ok: false, runs: 0, ticketsTotal: 0, first: null, winners: {}, prizes: {} };
+  const { data, error } = await supabase.rpc("admin_simulate_raffle",
+    { p_draw_type: drawType, p_entrants: entrants, p_runs: runs });
+  if (error) return { ...empty, error: error.message };
+  const d = (data ?? {}) as Record<string, unknown>;
+  if (d.ok !== true) return { ...empty, error: (d.error as string) ?? "Could not run it." };
+  return {
+    ok: true,
+    runs: Number(d.runs ?? 0),
+    ticketsTotal: Number(d.tickets_total ?? 0),
+    first: (d.first as SimResult["first"]) ?? null,
+    winners: (d.winners as Record<string, number>) ?? {},
+    prizes: (d.prizes as Record<string, number>) ?? {},
+  };
+}
+
+/**
+ * What an effect promises, in a sentence.
+ *
+ * The member-facing module shows this rather than the raw JSON, and the profile
+ * shows it against what they hold. Written once so the two never disagree about
+ * what a prize was.
+ */
+export function describeEffect(e: RewardEffect): string {
+  const forHowLong = (m?: number | null) =>
+    m == null ? "for life" : m === 1 ? "for one month" : `for ${m} months`;
+  const tail = e.else ? ` — or, if you already have it, ${describeEffect(e.else)}` : "";
+
+  switch (e.t) {
+    case "points":       return `${(e.n ?? 0).toLocaleString()} points${tail}`;
+    case "points_monthly":
+      return `${(e.n ?? 0).toLocaleString()} points at the start of each of ${e.months} months${tail}`;
+    case "tickets": {
+      const bits = (["monthly", "yearly", "random", "blessed"] as const)
+        .filter((k) => (e[k] ?? 0) > 0)
+        .map((k) => `${e[k]} ${k}`);
+      return `${bits.join(", ")} ticket${bits.length === 1 && e[bits[0].split(" ")[1] as "monthly"] === 1 ? "" : "s"}${tail}`;
+    }
+    case "discount":
+      return e.months_from_membership
+        ? `${e.percent}% off for every month you have been a member${tail}`
+        : `${e.percent}% off ${forHowLong(e.months)}${tail}`;
+    case "free_months":
+      return e.months == null ? `free, for life${tail}`
+        : e.months === 1 ? `one month free${tail}` : `${e.months} months free${tail}`;
+    case "ladder":
+      return `${e.steps?.[0]}% off, stepping down each month over ${e.steps?.length} months${tail}`;
+    case "tier":
+      return `Advanced tier ${forHowLong(e.months)}${tail}`;
+    case "modules":
+      return `${(e.ids ?? []).length} named module${(e.ids ?? []).length === 1 ? "" : "s"} ${forHowLong(e.months)}${tail}`;
+    case "module_credit":
+      return `${e.n} module${e.n === 1 ? "" : "s"} of your choosing, ${forHowLong(e.months)}${tail}`;
+    case "alert_levels":
+      return `alert level${(e.levels ?? []).length === 1 ? "" : "s"} ${(e.levels ?? []).join(" and ")}${tail}`;
+    case "badge":         return `an ultra-rare badge${tail}`;
+    case "points_steal":  return `take ${e.each?.toLocaleString()} points from each of the top ${e.from_top}${tail}`;
+    case "points_wipe":   return `clear everyone ranked ${e.below_rank} and below, and take the lot${tail}`;
+    case "engraving":     return e.slot === "blessed"
+      ? "the one blessed name at the top of the wall" : "your name engraved on the wall";
+    case "beta_access":   return `early access to everything we launch ${forHowLong(e.months)}${tail}`;
+    case "referral_gift": return e.detail ?? "a referral code that gifts the same thing";
+    case "extra_draw":    return "you draw the prizes yourself";
+    case "manual":        return e.detail ?? "handed over personally";
+    default:              return e.t;
+  }
 }

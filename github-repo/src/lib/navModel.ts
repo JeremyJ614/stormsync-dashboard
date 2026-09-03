@@ -17,7 +17,7 @@ import {
   Gamepad2, Satellite, Target, RotateCcw, ShieldAlert, ScanSearch,
   GitCompareArrows, Radar, Waypoints, History, Compass,
   BookMarked, CloudRain, Sun, Waves, CreditCard, Flame, Snowflake, Video,
-  ShieldCheck,
+  ShieldCheck, Ticket,
 } from "lucide-react";
 import { subscribeNav, getNavSnapshot, getNavServerSnapshot } from "./navConfig";
 import { hasModuleAccess, navVisible, ALL_MODULES, type User } from "../hooks/useAuth";
@@ -89,6 +89,7 @@ export const NAV_SECTIONS = [
       { label: "Forecast Game",     path: "/game",     icon: Gamepad2 },
       { label: "Daily Trivia",      path: "/trivia",   icon: Brain },
       { label: "Loyalty Dashboard", path: "/loyalty",  icon: Trophy },
+      { label: "Raffles",           path: "/raffles", icon: Ticket },
       { label: "Weather Glossary",  path: "/glossary", icon: BookOpen },
       { label: "Subscription",      path: "/subscription", icon: CreditCard },
       { label: "FAQ",               path: "/faq",      icon: HelpCircle },

@@ -642,3 +642,16 @@ html, body {
 @keyframes sswx-ero-rain { to { background-position: 120px 260px; } }
 .sswx-ero-rain { animation: sswx-ero-rain 9s linear infinite; opacity: .5; }
 @media (prefers-reduced-motion: reduce) { .sswx-ero-rain { animation: none; } }
+
+/* ── map shells ──────────────────────────────────────────────────────────────
+   A map's own furniture — a legend, a loading pill, a detail card — is
+   positioned over the canvas and has to clear MapLibre's controls, so those
+   overlays were given MapLibre-scale z-indexes in the thousands. Those numbers
+   only ever meant "above the map", but z-index is global: at 1000 they also
+   cleared the header and painted straight over the menu overlay, which is what
+   put a reflectivity legend on top of the section list.
+
+   The shell now opens its own stacking context, so whatever a map's furniture
+   numbers itself it stays inside its own box. The overlays themselves are back
+   to single digits, which is all they ever needed against a canvas. */
+.sswx-map-shell { position: relative; isolation: isolate; }

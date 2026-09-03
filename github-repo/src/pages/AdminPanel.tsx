@@ -16,6 +16,8 @@ import {
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
 import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
+import { useDraft } from "../lib/draft";
+import { markUnsaved, releaseUnsaved } from "../lib/unsavedWork";
 import { AdminNavTab } from "../components/AdminNavTab";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
@@ -838,6 +840,43 @@ const isoToLocalInput = (iso?: string) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+/** Every field of the News form, as one value that can be stored and restored. */
+interface NewsDraft {
+  editingId: string | null;
+  title: string;
+  excerpt: string;
+  category: string;
+  tags: string[];
+  body: string;
+  imageUrl: string;
+  videoUrl: string;
+  embedHtml: string;
+  pinned: boolean;
+  status: NewsStatus;
+  schedule: string;
+  minTier: number;
+}
+
+const BLANK_NEWS: NewsDraft = {
+  editingId: null, title: "", excerpt: "", category: "", tags: [], body: "",
+  imageUrl: "", videoUrl: "", embedHtml: "", pinned: false, status: "published",
+  schedule: "", minTier: 1,
+};
+
+/**
+ * Nothing worth keeping.
+ *
+ * Only the fields somebody types into count. `minTier` and `status` have
+ * defaults that are set whether or not anyone has touched the form, so storing
+ * a draft on their account would leave a recovery prompt after merely opening
+ * the tab.
+ */
+function isBlankNews(d: NewsDraft): boolean {
+  return !d.title.trim() && !d.body.trim() && !d.excerpt.trim() && !d.category.trim()
+    && d.tags.length === 0 && !d.imageUrl.trim() && !d.videoUrl.trim()
+    && !d.embedHtml.trim() && !d.schedule && !d.pinned;
+}
+
 function NewsTab({ adminName }: { adminName: string }) {
   const [items, setItems] = useState<NewsPost[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -860,16 +899,58 @@ function NewsTab({ adminName }: { adminName: string }) {
   const refresh = useCallback(async () => { try { setItems(await listAllNews()); } catch { /* empty state */ } }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // ── the draft ─────────────────────────────────────────────────────────────
+  //
+  // Writing a post is the longest single sitting anybody spends in this app,
+  // and it is the one most likely to be interrupted — going off to fetch an
+  // image URL is part of the job. Two things protect it: the app declares the
+  // form as unsaved work so a service-worker swap waits (see `unsavedWork`),
+  // and the form writes itself to storage so an eviction by the phone itself,
+  // which nothing in here can prevent, still costs nothing.
+  const form: NewsDraft = useMemo(() => ({
+    editingId, title, excerpt, category, tags, body,
+    imageUrl, videoUrl, embedHtml, pinned, status, schedule, minTier,
+  }), [editingId, title, excerpt, category, tags, body,
+       imageUrl, videoUrl, embedHtml, pinned, status, schedule, minTier]);
+
+  const applyForm = useCallback((d: NewsDraft) => {
+    setEditingId(d.editingId ?? null); setTitle(d.title ?? ""); setExcerpt(d.excerpt ?? "");
+    setCategory(d.category ?? ""); setTags(d.tags ?? []); setTagInput(""); setBody(d.body ?? "");
+    setImageUrl(d.imageUrl ?? ""); setVideoUrl(d.videoUrl ?? ""); setEmbedHtml(d.embedHtml ?? "");
+    setPinned(!!d.pinned); setStatus(d.status ?? "published"); setSchedule(d.schedule ?? "");
+    setMinTier(d.minTier ?? 1);
+  }, []);
+
+  const draft = useDraft<NewsDraft>("admin-news", form, applyForm, isBlankNews);
+
+  // What the form looked like when it was last loaded or saved. Anything else
+  // on screen is unsaved work, whether it is a new post or an edit to an old
+  // one — an edit somebody loses is every bit as annoying as a draft.
+  const baseline = useRef<string>(JSON.stringify(BLANK_NEWS));
+  const dirty = JSON.stringify(form) !== baseline.current;
+  useEffect(() => {
+    markUnsaved("admin-news", dirty);
+    return () => releaseUnsaved("admin-news");
+  }, [dirty]);
+
   function reset() {
     setEditingId(null); setTitle(""); setExcerpt(""); setCategory(""); setTags([]); setTagInput("");
     setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPinned(false);
-    setStatus("published"); setSchedule(""); setMinTier(1); 
+    setStatus("published"); setSchedule(""); setMinTier(1);
+    baseline.current = JSON.stringify(BLANK_NEWS);
+    draft.clear();
   }
   function loadForEdit(p: NewsPost) {
     setEditingId(p.id); setTitle(p.title); setExcerpt(p.excerpt ?? ""); setCategory(p.category ?? "");
     setTags(p.tags); setTagInput(""); setBody(p.body); setImageUrl(p.imageUrl ?? "");
     setVideoUrl(p.videoUrl ?? ""); setEmbedHtml(p.embedHtml ?? ""); setPinned(p.pinned);
-    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier); 
+    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier);
+    baseline.current = JSON.stringify({
+      editingId: p.id, title: p.title, excerpt: p.excerpt ?? "", category: p.category ?? "",
+      tags: p.tags, body: p.body, imageUrl: p.imageUrl ?? "", videoUrl: p.videoUrl ?? "",
+      embedHtml: p.embedHtml ?? "", pinned: p.pinned, status: p.status,
+      schedule: isoToLocalInput(p.publishAt), minTier: p.minTier,
+    } satisfies NewsDraft);
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   function addTag(raw: string) {
@@ -892,6 +973,8 @@ function NewsTab({ adminName }: { adminName: string }) {
     const r = editingId ? await updateNews(editingId, input) : await createNews({ ...input, author: adminName });
     setBusy(false);
     if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
+    // Only now is the draft genuinely redundant.
+    releaseUnsaved("admin-news");
     reset(); void refresh();
   }
   async function del(id: string) {
@@ -913,6 +996,24 @@ function NewsTab({ adminName }: { adminName: string }) {
           </h3>
           {editingId && <button onClick={reset} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"><X className="w-3 h-3" /> Cancel edit</button>}
         </div>
+
+        {draft.recovered && (
+          <div className="rounded-lg px-3 py-2.5 flex flex-wrap items-center gap-2"
+               style={{ border: "1px solid rgba(217,183,117,0.35)", background: "rgba(217,183,117,0.08)" }}>
+            <FileText className="w-3.5 h-3.5 shrink-0 text-primary" />
+            <span className="text-[12px] flex-1 min-w-0">
+              An unsaved post from last time —{" "}
+              <strong>{draft.recovered.title?.trim() || "untitled"}</strong>.
+            </span>
+            <button onClick={draft.restore}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-primary/20 border border-primary/40 text-primary">
+              Bring it back
+            </button>
+            <button onClick={draft.discard} className="px-2 py-1 text-[11px] text-muted-foreground">
+              Discard
+            </button>
+          </div>
+        )}
 
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className={fieldCls} />
         <input value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="Excerpt / summary (optional — shown in the feed preview)" className={`${fieldCls} text-xs`} />

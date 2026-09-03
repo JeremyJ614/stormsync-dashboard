@@ -13,26 +13,79 @@ import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 
 // ─── Color palette — mirrors the SPC Outlook module ───────────────────────
-export const PROB_STEPS = [
-  { key: 0, label: "Highly Unlikely", note: "General storms · <2%",   color: "#3a5a6a" },
-  { key: 1, label: "Not Likely",      note: "~5% within 25 mi",       color: "#83EBF2" },
-  { key: 2, label: "Maybe",           note: "~15% within 25 mi",      color: "#6395EE" },
-  { key: 3, label: "Likely",          note: "~30% within 25 mi",      color: "#4f48c4" },
-  { key: 4, label: "Very Likely",     note: "~45% within 25 mi",      color: "#8b1fd4" },
-  { key: 5, label: "Almost Certain",  note: "60%+ within 25 mi",      color: "#CCCCFF" },
+/**
+ * The five-level scale, and why it is not the SPC's six.
+ *
+ * The old scale ran from "Highly Unlikely" through "Maybe" to "Almost Certain"
+ * across six steps mapped one-for-one onto the SPC's categories, and it read far
+ * too cautiously: a Slight risk — a day on which storms are genuinely expected
+ * somewhere near you — came out as "Maybe", which is not what a member is
+ * looking at this page to be told.
+ *
+ * So the scale is five levels and the categories fold into them: General
+ * Thunder is level 1, Marginal 2, Slight 3, Enhanced 4, and Moderate and High
+ * both land on 5. Nothing about the underlying SPC data is altered; this is a
+ * naming and colouring decision about how that data is presented, and the
+ * percentages are still shown against every level so the mapping is auditable.
+ *
+ * On the colours: 1 through 4 are as specified — pearl white, yellow-green,
+ * satin sheet gold, red orange. Level 5 was specified as gunmetal grey
+ * (#353E43), which does not work here and the brief said as much: against this
+ * module's near-black basemap a #353E43 fill is all but invisible, and a top
+ * level you cannot see is worse than a top level in the wrong colour. It uses
+ * the stated fallback, Nevada #666A6D, lifted to full opacity and given a
+ * bright white casing and a heavier outline — so it stays the steel-grey the
+ * brief asked for while still reading unmistakably as the worst level on the
+ * map.
+ */
+export interface ProbStep {
+  /** 1-5. Also the array position + 1. */
+  level: number;
+  label: string;
+  note: string;
+  color: string;
+  /** The outline, where it differs from the fill. */
+  outline?: string;
+  /** Fill opacity override — level 5 is opaque so grey cannot recede. */
+  opacity?: number;
+}
+
+export const PROB_STEPS: ProbStep[] = [
+  // Opacity climbs with the level, and level 1 is deliberately a long way down.
+  // General thunder routinely covers half the country; at the same 55% the
+  // other levels use, a pearl-white slab that size buries the basemap and the
+  // whole map reads as one alarming wash. At 14% it is a tint you can see
+  // through, its own white outline still draws the boundary, and the levels
+  // that matter sit on top of it.
+  { level: 1, label: "Very Slim Chance",              note: "General thunderstorms · under 5% within 25 mi", color: "#F3F2ED", opacity: 0.14 },
+  { level: 2, label: "Slight Possibility",            note: "SPC Marginal · about 5% within 25 mi",          color: "#CCFF00", opacity: 0.42 },
+  { level: 3, label: "Likely",                        note: "SPC Slight · about 15% within 25 mi",           color: "#CBA135", opacity: 0.52 },
+  { level: 4, label: "Near Guaranteed",               note: "SPC Enhanced · about 30% within 25 mi",         color: "#FF4D00", opacity: 0.64 },
+  { level: 5, label: "Destructive Storms Guaranteed", note: "SPC Moderate or High · 45%+ within 25 mi",      color: "#666A6D", outline: "#FFFFFF", opacity: 0.85 },
 ];
 
+/** Look a level up by its number rather than by array position. */
+export function stepAt(level: number): ProbStep {
+  return PROB_STEPS[Math.max(1, Math.min(PROB_STEPS.length, level)) - 1];
+}
+
+/** SPC category → level. Moderate and High both top out the scale. */
 const CAT_STEP: Record<string, number> = {
-  TSTM: 0, MRGL: 1, SLGT: 2, ENH: 3, MDT: 4, HIGH: 5,
+  TSTM: 1, MRGL: 2, SLGT: 3, ENH: 4, MDT: 5, HIGH: 5,
 };
 
+/**
+ * Probability → level, for the Day 4-8 products, which are probabilistic
+ * rather than categorical. The thresholds are the same ones the SPC uses to
+ * draw each category, so a 15% day reads the same on Day 6 as a Slight does on
+ * Day 1 instead of drifting a level between the two halves of the module.
+ */
 function pctStep(pct: number): number {
-  if (pct >= 60) return 5;
-  if (pct >= 45) return 4;
-  if (pct >= 30) return 3;
-  if (pct >= 15) return 2;
-  if (pct >= 5)  return 1;
-  return 0;
+  if (pct >= 45) return 5;
+  if (pct >= 30) return 4;
+  if (pct >= 15) return 3;
+  if (pct >= 5)  return 2;
+  return 1;
 }
 
 function labelToPct(label: string): number | null {
@@ -100,7 +153,9 @@ function ProbMap({
         source: "prob",
         paint: {
           "fill-color": ["get", "__color"],
-          "fill-opacity": 0.55,
+          // Per-feature, so the top level can be opaque without lifting the
+          // whole ramp and burying the basemap under the lower ones.
+          "fill-opacity": ["coalesce", ["get", "__opacity"], 0.55],
         },
       }, beneath);
 
@@ -109,8 +164,8 @@ function ProbMap({
         type: "line",
         source: "prob",
         paint: {
-          "line-color": ["get", "__color"],
-          "line-width": 1.6,
+          "line-color": ["coalesce", ["get", "__outline"], ["get", "__color"]],
+          "line-width": ["coalesce", ["get", "__width"], 1.6],
           "line-opacity": 1,
         },
       }, beneath);
@@ -134,6 +189,7 @@ export function ProbabilityMap({ day }: { day: number }) {
   const mapRef = useRef<maplibregl.Map | null>(null);
   const [mapReady, setMapReady] = useState(false);
   const [status, setStatus]     = useState<Status>("loading");
+  // 0 means nothing has been drawn; every real value is a level, 1-5.
   const [topStep, setTopStep]   = useState(0);
 
   const isProb  = day >= 4;
@@ -175,9 +231,17 @@ export function ProbabilityMap({ day }: { day: number }) {
           }
           if (step == null) continue;
           if (step > maxStep) maxStep = step;
+          const meta = stepAt(step);
           features.push({
             ...f,
-            properties: { ...f.properties, __color: PROB_STEPS[step].color, __step: step },
+            properties: {
+              ...f.properties,
+              __color: meta.color,
+              __outline: meta.outline ?? meta.color,
+              __opacity: meta.opacity ?? 0.55,
+              __width: meta.outline ? 2.4 : 1.6,
+              __step: step,
+            },
           });
         }
 
@@ -231,7 +295,7 @@ export function ProbabilityMap({ day }: { day: number }) {
     }, "image/png");
   }, [day]);
 
-  const top = PROB_STEPS[topStep];
+  const top = topStep > 0 ? stepAt(topStep) : null;
 
   return (
     <div className="space-y-2">
@@ -280,8 +344,8 @@ export function ProbabilityMap({ day }: { day: number }) {
             style={{ zIndex: 10 }}
           >
             <div className="text-[9px] uppercase tracking-[0.25em] text-white/55">Peak Likelihood</div>
-            <div className="text-xs font-bold mt-0.5" style={{ color: top.color }}>
-              {top.label}
+            <div className="text-xs font-bold mt-0.5" style={{ color: top ? top.color : "#ffffff" }}>
+              {top ? `${top.level} · ${top.label}` : "None"}
             </div>
           </div>
         )}
@@ -294,8 +358,10 @@ export function ProbabilityMap({ day }: { day: number }) {
           >
             <div className="text-[9px] uppercase tracking-[0.2em] text-white/50 mb-1">Severe Chance</div>
             {[...PROB_STEPS].reverse().map(s => (
-              <div key={s.key} className="flex items-center gap-2">
-                <div className="w-3 h-3 rounded-sm flex-shrink-0" style={{ background: s.color }} />
+              <div key={s.level} className="flex items-center gap-2">
+                <div className="w-3 h-3 rounded-sm flex-shrink-0"
+                     style={{ background: s.color, border: s.outline ? `1px solid ${s.outline}` : "none" }} />
+                <span className="text-[10px] text-white font-medium leading-none tabular-nums opacity-60">{s.level}</span>
                 <span className="text-[10px] text-white font-medium leading-none">{s.label}</span>
               </div>
             ))}

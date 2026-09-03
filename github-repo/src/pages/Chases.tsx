@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Calendar, ChevronDown, Gauge, Loader2, MapPin, Route as RouteIcon, Tornado, Wind,
+  Calendar, ChevronDown, Gauge, Loader2, MapPin, Route as RouteIcon, Sparkles, Tornado, Wind,
 } from "lucide-react";
 import { ModuleShell } from "../components/ModuleShell";
 import { STORMSYNC_DARK, applyRoyalBasemap } from "../lib/basemap";
@@ -13,6 +14,7 @@ import {
   type Chase,
 } from "../lib/chases";
 import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
+import { useChaseSeen } from "../lib/chaseSeen";
 
 /**
  * StormSync Chases.
@@ -41,6 +43,11 @@ export default function Chases() {
 
   const [selected, setSelected] = useState<string | null>(null);
   const totals = useMemo(() => chaseSeasonTotals(chases), [chases]);
+
+  // "New" is measured against everything published, not the year in view — a
+  // chase filtered off screen has not been seen just because it is not here.
+  const allIds = useMemo(() => all.map((c) => c.id), [all]);
+  const seen = useChaseSeen(allIds);
 
   return (
     <ModuleShell
@@ -73,6 +80,10 @@ export default function Chases() {
             />
           </div>
 
+          {seen.newCount > 0 && (
+            <NewChasesBanner count={seen.newCount} onDismiss={seen.markAllSeen} />
+          )}
+
           {years.length > 1 && (
             <div className="flex gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <YearChip on={year === "all"} onClick={() => { setYear("all"); setSelected(null); }}>All years</YearChip>
@@ -91,8 +102,20 @@ export default function Chases() {
               <ChaseCard
                 key={c.id}
                 chase={c}
+                isNew={seen.isNew(c.id)}
                 open={selected === c.id}
-                onToggle={() => setSelected((s) => (s === c.id ? null : c.id))}
+                onToggle={() => {
+                  // Marking on expand rather than on render is the whole point:
+                  // the marker survives a scroll past and clears on a look.
+                  //
+                  // Both calls are made here rather than one inside the other's
+                  // updater: a state updater must be pure, and calling a second
+                  // component's setter from inside one is the kind of thing that
+                  // works until React decides to re-run it.
+                  const willOpen = selected !== c.id;
+                  setSelected(willOpen ? c.id : null);
+                  if (willOpen) seen.markSeen(c.id);
+                }}
               />
             ))}
           </div>
@@ -306,19 +329,99 @@ function ChaseMap({
 
 // ── list ─────────────────────────────────────────────────────────────────────
 
-function ChaseCard({ chase, open, onToggle }: { chase: Chase; open: boolean; onToggle: () => void }) {
+/**
+ * The banner above the list. Says how many, and lets somebody clear the lot
+ * without opening each one — a marker you cannot dismiss is an irritation.
+ */
+function NewChasesBanner({ count, onDismiss }: { count: number; onDismiss: () => void }) {
+  const still = prefersReducedMotion();
+  return (
+    <motion.div
+      className="relative overflow-hidden rounded-xl px-3.5 py-2.5 flex items-center gap-2.5"
+      style={{
+        border: `1px solid ${ROYAL.goldSoft}`,
+        background: "linear-gradient(100deg, rgba(217,183,117,0.12), rgba(217,183,117,0.03))",
+      }}
+      initial={still ? false : { opacity: 0, y: -8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={still ? { duration: 0 } : { duration: 0.3, ease: EASE }}
+    >
+      {!still && (
+        <motion.span
+          className="pointer-events-none absolute inset-y-0 w-24"
+          style={{ background: "linear-gradient(90deg, transparent, rgba(217,183,117,0.22), transparent)" }}
+          initial={{ x: -120 }}
+          animate={{ x: 720 }}
+          transition={{ duration: 1.8, repeat: Infinity, repeatDelay: 2.4, ease: EASE }}
+          aria-hidden
+        />
+      )}
+      <Sparkles className="relative w-4 h-4 shrink-0" style={{ color: ROYAL.gold }} />
+      <span className="relative flex-1 text-[12.5px]" style={{ color: ROYAL.text }}>
+        <strong>{count} new chase{count === 1 ? "" : "s"}</strong> since you last looked.
+      </span>
+      <button
+        onClick={onDismiss}
+        className="relative shrink-0 text-[11px] px-2 py-1 rounded-lg border"
+        style={{ borderColor: ROYAL.goldSoft, color: ROYAL.gold }}
+      >
+        Mark all seen
+      </button>
+    </motion.div>
+  );
+}
+
+function ChaseCard({ chase, open, onToggle, isNew }: { chase: Chase; open: boolean; onToggle: () => void; isNew: boolean }) {
   const strongest = chase.tornadoPaths.reduce<number | null>(
     (m, t) => (t.ef == null ? m : m == null ? t.ef : Math.max(m, t.ef)), null);
 
+  const still = prefersReducedMotion();
+  // The marker is loud on purpose and it is temporary by construction: it is
+  // only ever drawn while `isNew`, and expanding the card clears that.
+  const lit = isNew && !still;
+
   return (
-    <div
-      className="rounded-2xl overflow-hidden border transition-colors"
+    <motion.div
+      className="relative rounded-2xl overflow-hidden border transition-colors"
       style={{
-        borderColor: open ? ROYAL.goldSoft : "hsl(var(--border))",
-        background: open ? "rgba(217,183,117,0.05)" : "hsl(var(--card))",
+        borderColor: isNew ? ROYAL.gold : open ? ROYAL.goldSoft : "hsl(var(--border))",
+        background: open ? "rgba(217,183,117,0.05)" : isNew ? "rgba(217,183,117,0.045)" : "hsl(var(--card))",
       }}
+      initial={false}
+      animate={lit
+        ? { boxShadow: [
+            "0 0 0 0 rgba(217,183,117,0)",
+            "0 0 26px -6px rgba(217,183,117,0.55)",
+            "0 0 0 0 rgba(217,183,117,0)",
+          ] }
+        : { boxShadow: "0 0 0 0 rgba(217,183,117,0)" }}
+      transition={lit ? { duration: 2.6, repeat: Infinity, ease: EASE } : { duration: 0.3 }}
     >
-      <button onClick={onToggle} className="w-full text-left px-4 py-3 flex items-start gap-3">
+      {/* A champagne edge that runs the perimeter, and a sheen that crosses the
+          face behind the content. Two different motions at two different speeds
+          is what stops it reading as a plain flashing box. */}
+      {lit && (
+        <>
+          <motion.span
+            className="pointer-events-none absolute inset-y-0 w-32 z-0"
+            style={{ background: "linear-gradient(90deg, transparent, rgba(217,183,117,0.20), transparent)" }}
+            initial={{ x: -160 }}
+            animate={{ x: 900 }}
+            transition={{ duration: 2.1, repeat: Infinity, repeatDelay: 1.5, ease: EASE }}
+            aria-hidden
+          />
+          <motion.span
+            className="pointer-events-none absolute inset-x-0 top-0 h-px z-10"
+            style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.gold}, transparent)` }}
+            initial={{ opacity: 0.3 }}
+            animate={{ opacity: [0.3, 1, 0.3] }}
+            transition={{ duration: 2.6, repeat: Infinity, ease: EASE }}
+            aria-hidden
+          />
+        </>
+      )}
+
+      <button onClick={onToggle} className="relative z-10 w-full text-left px-4 py-3 flex items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 text-[10.5px]" style={{ color: ROYAL.dim }}>
             <Calendar className="w-3 h-3" />
@@ -328,6 +431,21 @@ function ChaseCard({ chase, open, onToggle }: { chase: Chase; open: boolean; onT
             {!chase.published && (
               <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase"
                     style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>Draft</span>
+            )}
+            {isNew && (
+              <motion.span
+                className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-[0.14em] flex items-center gap-1"
+                style={{ background: ROYAL.gold, color: "#0b0b12" }}
+                initial={still ? false : { scale: 0.6, opacity: 0 }}
+                animate={still
+                  ? { scale: 1, opacity: 1 }
+                  : { scale: [1, 1.07, 1], opacity: 1 }}
+                transition={still
+                  ? { duration: 0 }
+                  : { scale: { duration: 1.8, repeat: Infinity, ease: EASE }, opacity: { duration: 0.3 } }}
+              >
+                <Sparkles className="w-2.5 h-2.5" /> New
+              </motion.span>
             )}
           </div>
           <div className="text-[15px] font-semibold mt-0.5 truncate"
@@ -360,7 +478,7 @@ function ChaseCard({ chase, open, onToggle }: { chase: Chase; open: boolean; onT
       </button>
 
       {open && (
-        <div className="px-4 pb-4 space-y-3">
+        <div className="relative z-10 px-4 pb-4 space-y-3">
           {chase.coverUrl && (
             <img src={chase.coverUrl} alt="" loading="lazy"
                  className="w-full rounded-xl border" style={{ borderColor: ROYAL.hairline }} />
@@ -391,7 +509,7 @@ function ChaseCard({ chase, open, onToggle }: { chase: Chase; open: boolean; onT
           )}
         </div>
       )}
-    </div>
+    </motion.div>
   );
 }
 

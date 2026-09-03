@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import {
   DollarSign, Gift, Layers, Package, Ticket, Users2, Loader2, Plus, Trash2, Save, Check, Pencil,
-  Share2, Power, Clock,
+  Share2, Power, Clock, Zap,
 } from "lucide-react";
 import { ALL_MODULES, HIDDEN_MODULES } from "../hooks/useAuth";
 import {
@@ -18,9 +18,10 @@ import {
   adminReferralOverview, adminReferrals, fulfilReferral,
   type Promo, type ReferralOverviewRow, type ReferralRow,
 } from "../lib/promos";
+import { AdminRewardsCard } from "./admin/AdminRewardsCard";
 import { audit } from "../lib/adminAudit";
 
-type SubTab = "pricing" | "lifetime" | "bundles" | "addons" | "coupons" | "promo" | "referrals";
+type SubTab = "pricing" | "lifetime" | "bundles" | "addons" | "coupons" | "promo" | "rewards" | "referrals";
 
 const TIER_LABELS: Record<TierKey, string> = { free: "Free", basic: "Basic", vip: "VIP", advanced: "Advanced" };
 
@@ -41,6 +42,7 @@ export default function AdminBillingTab() {
           { id: "addons", label: "Module Add-Ons", icon: Package },
           { id: "coupons", label: "Coupons", icon: Ticket },
           { id: "promo", label: "Promotions", icon: Users2 },
+          { id: "rewards", label: "Referral Rewards", icon: Zap },
           { id: "referrals", label: "Referrals", icon: Share2 },
         ] as { id: SubTab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
           const Icon = t.icon;
@@ -59,6 +61,7 @@ export default function AdminBillingTab() {
       {sub === "addons" && <ModuleAddonsCard />}
       {sub === "coupons" && <CouponsCard />}
       {sub === "promo" && <PromotionsCard />}
+      {sub === "rewards" && <AdminRewardsCard />}
       {sub === "referrals" && <ReferralsCard />}
     </div>
   );
@@ -712,9 +715,9 @@ function PromotionsCard() {
                 ))}
                 <p className="px-3 py-2 text-[11px] text-muted-foreground">
                   A referral counts when the person referred actually pays, not when they sign up. Past the last
-                  rung the ladder keeps paying its top rung. Rewards are recorded as owed and fulfilled from the
-                  Referrals tab — what "50% off" means depends on what they are paying for, so it is your call,
-                  not arithmetic.
+                  rung the ladder keeps paying its top rung. Rewards are granted automatically the moment payment
+                  clears — swap what each rung pays on the <strong>Referral Rewards</strong> tab. Only a reward
+                  marked “fulfilled by hand” waits for you on the Referrals tab.
                 </p>
               </div>
             )}

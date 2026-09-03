@@ -24,6 +24,45 @@ export interface Promo {
   config: Record<string, unknown>;
 }
 
+/**
+ * What a reward actually does, in terms the database can carry out.
+ *
+ * These are the effects `apply_reward_effects` understands. A reward is a
+ * composition of them, which is why thirty-odd rewards need no new code: a new
+ * one is a new combination, not a new branch.
+ */
+export interface RewardEffects {
+  /** Mints a personal single-use coupon. */
+  percentOff?: number;
+  flatOff?: number;
+  firstMonthOnly?: boolean;
+  couponDays?: number;
+  /** A 100%-off coupon usable this many times. */
+  freeMonths?: number;
+  /** N cheapest paid modules they do not already hold. */
+  addons?: number;
+  /** …or exactly these. */
+  addonModules?: string[];
+  /** 1-5. Additive with anything already held. */
+  alertLevel?: number;
+  /** Raised, never lowered. Accepts 1-4 or the tier's name. */
+  tier?: number | string;
+  points?: number;
+  raffleTickets?: number;
+  raffleDrawType?: "monthly" | "yearly";
+  badge?: string;
+  /** Opt out of automation for this rung: record it and leave it for a person. */
+  manual?: boolean;
+}
+
+/** One reward the ladder can pay. Stored in the promo's own config. */
+export interface RewardCatalogEntry {
+  key: string;
+  label: string;
+  group: string;
+  effects: RewardEffects;
+}
+
 /** A rung of the referral ladder. Editable in the admin panel, so read defensively. */
 export interface ReferralRung {
   rank: number;
@@ -33,6 +72,11 @@ export interface ReferralRung {
   addonMonths: number;
   freeMonths: number;
   tier: string | null;
+  /** Which catalogue entry this rung was built from, if any. */
+  catalog?: string;
+  /** What it grants. The rung carries its own copy so editing the catalogue
+      cannot silently change what somebody was already promised. */
+  effects?: RewardEffects;
 }
 
 export async function listPromos(): Promise<Promo[]> {
@@ -74,8 +118,80 @@ function parseRungs(raw: unknown): ReferralRung[] {
       addonMonths: Number(o.addonMonths ?? 0),
       freeMonths: Number(o.freeMonths ?? 0),
       tier: (o.tier as string | null) ?? null,
+      catalog: typeof o.catalog === "string" ? o.catalog : undefined,
+      effects: (o.effects && typeof o.effects === "object" ? o.effects as RewardEffects : undefined),
     };
   }).sort((a, b) => a.rank - b.rank);
+}
+
+/** The reward catalogue, read defensively — it is admin-editable jsonb. */
+export function rewardCatalog(p: Promo | undefined): RewardCatalogEntry[] {
+  const raw = p?.config?.catalog;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((e) => {
+    const o = e as Record<string, unknown>;
+    const key = String(o.key ?? "");
+    if (!key) return [];
+    return [{
+      key,
+      label: String(o.label ?? key),
+      group: String(o.group ?? "Other"),
+      effects: (o.effects && typeof o.effects === "object" ? o.effects as RewardEffects : {}),
+    }];
+  });
+}
+
+/**
+ * Put a catalogue reward on a rung.
+ *
+ * The rung takes a copy of the reward's effects rather than a reference, so a
+ * later edit to the catalogue cannot retroactively change what a rung pays. The
+ * legacy `percentOff`/`addons`/`freeMonths`/`tier` fields are kept in step
+ * because the member-facing ladder still reads them, and a rung that displayed
+ * one thing while granting another would be worse than either.
+ */
+export function applyCatalogToRung(rung: ReferralRung, entry: RewardCatalogEntry): ReferralRung {
+  const e = entry.effects;
+  return {
+    ...rung,
+    label: entry.label,
+    catalog: entry.key,
+    effects: { ...e },
+    percentOff: Number(e.percentOff ?? (e.freeMonths ? 100 : 0)),
+    addons: Number(e.addons ?? (Array.isArray(e.addonModules) ? e.addonModules.length : 0)),
+    addonMonths: rung.addonMonths || 2,
+    freeMonths: Number(e.freeMonths ?? 0),
+    tier: e.tier == null ? null : String(e.tier),
+  };
+}
+
+/** Human summary of what a set of effects does. Used in the picker and the ladder. */
+export function describeEffects(e: RewardEffects | undefined): string[] {
+  if (!e) return [];
+  const out: string[] = [];
+  if (e.percentOff) out.push(`${e.percentOff}% off${e.firstMonthOnly ? " a first month" : ""}`);
+  if (e.flatOff) out.push(`$${e.flatOff} off`);
+  if (e.freeMonths) out.push(`${e.freeMonths} month${e.freeMonths === 1 ? "" : "s"} free`);
+  if (Array.isArray(e.addonModules) && e.addonModules.length) out.push(`modules ${e.addonModules.join(", ")}`);
+  else if (e.addons) out.push(`${e.addons} add-on${e.addons === 1 ? "" : "s"}`);
+  if (e.alertLevel) out.push(`alert level ${e.alertLevel}`);
+  if (e.tier) out.push(`tier → ${e.tier}`);
+  if (e.points) out.push(`${e.points.toLocaleString()} points`);
+  if (e.raffleTickets) out.push(`${e.raffleTickets} ${e.raffleDrawType ?? "monthly"} ticket${e.raffleTickets === 1 ? "" : "s"}`);
+  if (e.badge) out.push(`badge ${e.badge}`);
+  if (e.manual) out.push("fulfilled by hand");
+  return out;
+}
+
+/** Save just the ladder's rungs, leaving the rest of the promo config alone. */
+export async function saveReferralRungs(promo: Promo, rungs: ReferralRung[]): Promise<MutationResult> {
+  const ordered = rungs.map((r, i) => ({ ...r, rank: i + 1 }));
+  return savePromo({ ...promo, config: { ...promo.config, rungs: ordered } });
+}
+
+/** Save an edited catalogue. */
+export async function saveRewardCatalog(promo: Promo, catalog: RewardCatalogEntry[]): Promise<MutationResult> {
+  return savePromo({ ...promo, config: { ...promo.config, catalog } });
 }
 
 // ─── referrals, for the member ───────────────────────────────────────────────

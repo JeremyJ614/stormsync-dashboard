@@ -9,7 +9,7 @@ import {
   computeSRHFromProfile, compute06kmShear, computeSWTI,
 } from "../utils/weatherCalc";
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { AlertTriangle, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, GripVertical, EyeOff, Plus, Settings2, RotateCcw, Check, Sunrise, Sunset } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, EyeOff, Plus, Settings2, RotateCcw, Check, Sunrise, Sunset } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { DASHBOARD_WIDGETS, WIDGET_LABELS, getLayout, saveLayout, type WidgetId, type DashboardLayout } from "../lib/dashboardLayout";
 import {
@@ -113,15 +113,37 @@ export default function Dashboard({ location }: Props) {
 
   const [layout, setLayout] = useState<DashboardLayout>(getLayout);
   const [editing, setEditing] = useState(false);
-  const [dragId, setDragId] = useState<WidgetId | null>(null);
 
   function update(next: DashboardLayout) { saveLayout(next); setLayout(next); }
-  function moveWidget(from: WidgetId, to: WidgetId) {
-    if (from === to) return;
+
+  /**
+   * Move a widget one place, the way the admin panel's editor does.
+   *
+   * This used to be HTML5 drag-and-drop, and on a phone that is not a reorder
+   * control at all: `draggable` needs a real drag, which touch does not
+   * generate, so the gesture either did nothing or resolved against whichever
+   * tile the browser decided the pointer was over. That is the "tiles moved to
+   * random places". The churn around it came from the grid — tiles span one
+   * column or four, so a reorder changes every tile's box at once and each one
+   * animates independently.
+   *
+   * The ordering maths was sound; the input method was not. Two arrows per tile
+   * is what the admin panel's editor uses, it works with a thumb, and one press
+   * moves one place with nothing to interpret.
+   */
+  function nudge(id: WidgetId, dir: -1 | 1) {
+    const shown = layout.order.filter((w) => !layout.hidden.includes(w));
+    const vi = shown.indexOf(id);
+    const target = shown[vi + dir];
+    if (vi < 0 || target === undefined) return;
+
     const order = [...layout.order];
-    const fi = order.indexOf(from), ti = order.indexOf(to);
-    if (fi < 0 || ti < 0) return;
-    order.splice(fi, 1); order.splice(ti, 0, from);
+    const a = order.indexOf(id), b = order.indexOf(target);
+    if (a < 0 || b < 0) return;
+    // A straight swap with the next visible neighbour. Hidden widgets sitting
+    // between the two keep their place, which is what makes the visible list
+    // move by exactly one.
+    [order[a], order[b]] = [order[b], order[a]];
     update({ ...layout, order });
   }
   const hide = (id: WidgetId) => update({ ...layout, hidden: [...layout.hidden, id] });
@@ -404,7 +426,7 @@ export default function Dashboard({ location }: Props) {
 
       {/* A grid rather than a stack: compact tiles sit two-up on phones and
           four-up on desktop, while the original full-width panels span the row.
-          Drag-and-drop ordering is unchanged. */}
+          Ordering is by the arrows on each tile while customising. */}
       <LayoutGroup id="dashboard">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
         {visible.map((id, idx) => {
@@ -426,18 +448,27 @@ export default function Dashboard({ location }: Props) {
                 duration: 0.45,
                 ease: EASE,
               }}
-              draggable={editing}
-              onDragStart={() => setDragId(id)}
-              onDragOver={(e) => { if (editing && dragId && dragId !== id) e.preventDefault(); }}
-              onDrop={() => { if (dragId) moveWidget(dragId, id); setDragId(null); }}
-              onDragEnd={() => setDragId(null)}
               className={`${compact ? "col-span-1" : "col-span-2 md:col-span-4"} ${
-                editing ? `relative rounded-xl border border-dashed border-primary/30 p-2 transition-opacity ${dragId === id ? "opacity-40" : ""}` : ""}`}
+                editing ? "relative rounded-xl border border-dashed border-primary/30 p-2" : ""}`}
             >
               {editing && (
                 <div className="flex items-center justify-between mb-2 px-1 gap-1">
-                  <span className="flex items-center gap-1.5 text-[11px] text-muted-foreground cursor-grab active:cursor-grabbing min-w-0"><GripVertical className="w-4 h-4 shrink-0" /> <span className="truncate">{WIDGET_LABELS[id]}</span></span>
-                  <button onClick={() => hide(id)} className="text-muted-foreground hover:text-red-400 flex items-center gap-1 text-[11px]"><EyeOff className="w-3.5 h-3.5" /> Hide</button>
+                  <span className="flex items-center gap-0.5 shrink-0">
+                    <button onClick={() => nudge(id, -1)} disabled={idx === 0}
+                            aria-label={`Move ${WIDGET_LABELS[id]} earlier`}
+                            className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30">
+                      <ArrowUp className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => nudge(id, 1)} disabled={idx === visible.length - 1}
+                            aria-label={`Move ${WIDGET_LABELS[id]} later`}
+                            className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30">
+                      <ArrowDown className="w-4 h-4" />
+                    </button>
+                  </span>
+                  <span className="text-[11px] text-muted-foreground truncate flex-1 min-w-0">
+                    {WIDGET_LABELS[id]}
+                  </span>
+                  <button onClick={() => hide(id)} className="text-muted-foreground hover:text-red-400 flex items-center gap-1 text-[11px] shrink-0"><EyeOff className="w-3.5 h-3.5" /> Hide</button>
                 </div>
               )}
               {inner ?? <div className="text-xs text-muted-foreground italic px-2 py-3">Nothing to show here right now.</div>}

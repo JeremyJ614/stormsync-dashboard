@@ -153,7 +153,7 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   // there is only ever one way to open navigation on screen at a time, and
   // every non-rail style gives the content the full width back.
   const menuCfg = useSyncExternalStore(subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot);
-  const menuStyle = styleFor(menuCfg, Boolean(user?.isAdmin));
+  const menuStyle = styleFor(menuCfg, Boolean(user?.isAdmin), user?.menuStyle);
   const menuNav = useMenuNav(location);
   const railed = menuStyle === "rail";
   // Canvas Push tilts the app itself away, which only Layout can do.

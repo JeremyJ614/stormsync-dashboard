@@ -46,11 +46,18 @@ export function ComicMenu({ nav }: { nav: MenuNav }) {
       <motion.div
         className="absolute inset-0"
         style={{
-          // Newsprint, aged at the edges. The page is the backdrop.
+          // The page is dark, and the panels are the only bright thing on it.
+          //
+          // This was a full-bleed sheet of newsprint, which is what a comic
+          // actually is — and which made the menu the single most glaring
+          // screen in an app that is otherwise near-black. Opening it at night
+          // was unpleasant. The panels keep their printed colours and their
+          // newsprint gutters; what changes is what surrounds them, so the ink
+          // now reads as a comic laid on a dark table rather than a lightbox.
           background:
-            `radial-gradient(120% 90% at 50% 40%, rgba(255,255,255,0.5), transparent 70%),` +
-            `linear-gradient(160deg, #efe7d6, #e2d8c3)`,
-          backgroundColor: NEWSPRINT,
+            `radial-gradient(120% 85% at 50% 32%, rgba(58,50,74,0.55), transparent 70%),` +
+            `linear-gradient(160deg, #14111c, #0a0810)`,
+          backgroundColor: INK,
           pointerEvents: open ? "auto" : "none",
         }}
         initial={false}
@@ -72,8 +79,11 @@ export function ComicMenu({ nav }: { nav: MenuNav }) {
           >
             {/* The title block, ruled like a masthead. */}
             <div
-              className="mx-1 mb-2.5 px-3 py-2"
-              style={{ background: INK, border: `3px solid ${INK}`, boxShadow: `4px 4px 0 rgba(0,0,0,0.35)` }}
+              className="mb-2.5 px-3 py-2 mx-auto w-full"
+              // Same measure as the panel grid: a masthead wider than the strip
+              // it heads reads as a different page.
+              style={{ maxWidth: 348, background: INK, border: `3px solid ${INK}`,
+                       boxShadow: `4px 4px 0 rgba(0,0,0,0.35)` }}
             >
               <div className="text-[8.5px] uppercase tracking-[0.4em]" style={{ color: "#d9b775" }}>
                 {current ? "Meanwhile…" : "StormSync presents"}
@@ -92,7 +102,10 @@ export function ComicMenu({ nav }: { nav: MenuNav }) {
             <AnimatePresence mode="wait" initial={false}>
               <motion.div
                 key={current ? `s${section}` : "top"}
-                className="grid grid-cols-3 gap-1.5 content-center"
+                // A touch smaller than before: the panels were filling the
+                // width edge to edge, and a comic page has a margin.
+                className="grid grid-cols-3 gap-1.5 content-center mx-auto w-full"
+                style={{ maxWidth: 348 }}
                 initial={calm ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={calm ? { opacity: 0 } : { opacity: 0, transition: { duration: 0.1 } }}
@@ -165,7 +178,7 @@ export function ComicMenu({ nav }: { nav: MenuNav }) {
                     <motion.div
                       key={e.key}
                       className="relative"
-                      style={{ aspectRatio: "1 / 1.06" }}
+                      style={{ aspectRatio: "1 / 1.02" }}
                       initial={calm ? false : { scale: 0.25, opacity: 0, rotate: tilt * 7 }}
                       animate={{ scale: 1, opacity: 1, rotate: tilt }}
                       // Exit is a duration, not the entry spring. A spring is

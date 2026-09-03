@@ -30,6 +30,7 @@ import { AdminHealthTab } from "../components/AdminHealthTab";
 import { AdminUsageTab } from "../components/AdminUsageTab";
 import { AdminAuditTab } from "../components/AdminAuditTab";
 import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
+import { AdminMapColorsCard } from "../components/admin/AdminMapColorsCard";
 import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { AdminTiersTab } from "../components/admin/AdminTiersTab";
 import { AdminChasesTab } from "../components/admin/AdminChasesTab";
@@ -1165,6 +1166,7 @@ function SettingsTab() {
       <AdminOwnerNotifyCard />
 
       <AdminMenuStyleCard />
+      <AdminMapColorsCard />
       <EmergencyRecipientsCard />
       <LoyaltyRulesCard />
       <div className="bg-card border border-border rounded-xl p-4">

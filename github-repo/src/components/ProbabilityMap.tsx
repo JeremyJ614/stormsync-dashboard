@@ -6,7 +6,7 @@
  * SPC GeoJSON is loaded as a transparent fill layer on top so every label
  * and border punches through. Colors mirror the SPC Outlook module palette.
  */
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Download, Share2 } from "lucide-react";
 import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -28,15 +28,20 @@ import { BASE_API } from "../config";
  * naming and colouring decision about how that data is presented, and the
  * percentages are still shown against every level so the mapping is auditable.
  *
- * On the colours: 1 through 4 are as specified — pearl white, yellow-green,
- * satin sheet gold, red orange. Level 5 was specified as gunmetal grey
- * (#353E43), which does not work here and the brief said as much: against this
- * module's near-black basemap a #353E43 fill is all but invisible, and a top
- * level you cannot see is worse than a top level in the wrong colour. It uses
- * the stated fallback, Nevada #666A6D, lifted to full opacity and given a
- * bright white casing and a heavier outline — so it stays the steel-grey the
- * brief asked for while still reading unmistakably as the worst level on the
- * map.
+ * On the colours. Levels 1 and 3 are as first specified — pearl white and
+ * satin sheet gold. Level 2 is mint green and level 4 rose red.
+ *
+ * Level 5 went the other way twice. Gunmetal #353E43 was the original ask; it
+ * was moved to the stated fallback, Nevada #666A6D, because a near-black fill
+ * on a near-black basemap is a top level you cannot see. But lifting it to full
+ * opacity and casing it in bright white produced the opposite problem, and it
+ * is the one that actually matters: at a glance the white casing read as level
+ * 1's pearl white, so the worst level on the map and the most benign one looked
+ * alike. The casing is gone and the fill is back to gunmetal, which is now
+ * unambiguous precisely because nothing else near it is dark.
+ *
+ * All of it is editable in the admin panel without a deploy — see `mapPalette`.
+ * These are the defaults, not the last word.
  */
 export interface ProbStep {
   /** 1-5. Also the array position + 1. */
@@ -58,15 +63,23 @@ export const PROB_STEPS: ProbStep[] = [
   // through, its own white outline still draws the boundary, and the levels
   // that matter sit on top of it.
   { level: 1, label: "Very Slim Chance",              note: "General thunderstorms · under 5% within 25 mi", color: "#F3F2ED", opacity: 0.14 },
-  { level: 2, label: "Slight Possibility",            note: "SPC Marginal · about 5% within 25 mi",          color: "#CCFF00", opacity: 0.42 },
+  { level: 2, label: "Slight Possibility",            note: "SPC Marginal · about 5% within 25 mi",          color: "#4FFFB0", opacity: 0.42 },
   { level: 3, label: "Likely",                        note: "SPC Slight · about 15% within 25 mi",           color: "#CBA135", opacity: 0.52 },
-  { level: 4, label: "Near Guaranteed",               note: "SPC Enhanced · about 30% within 25 mi",         color: "#FF4D00", opacity: 0.64 },
-  { level: 5, label: "Destructive Storms Guaranteed", note: "SPC Moderate or High · 45%+ within 25 mi",      color: "#666A6D", outline: "#FFFFFF", opacity: 0.85 },
+  { level: 4, label: "Near Guaranteed",               note: "SPC Enhanced · about 30% within 25 mi",         color: "#C21E56", opacity: 0.7 },
+  { level: 5, label: "Destructive Storms Guaranteed", note: "SPC Moderate or High · 45%+ within 25 mi",      color: "#353E43", opacity: 0.92 },
 ];
 
-/** Look a level up by its number rather than by array position. */
+/**
+ * Look a level up by its number, with any admin override applied.
+ *
+ * The override lands on the fill and on the outline together: an outline that
+ * kept the old colour after the fill changed would draw a halo nobody asked
+ * for, which is most of what was wrong with level 5.
+ */
 export function stepAt(level: number): ProbStep {
-  return PROB_STEPS[Math.max(1, Math.min(PROB_STEPS.length, level)) - 1];
+  const base = PROB_STEPS[Math.max(1, Math.min(PROB_STEPS.length, level)) - 1];
+  const color = paletteColor(`prob:${base.level}`, base.color);
+  return color === base.color ? base : { ...base, color, outline: base.outline ? color : undefined };
 }
 
 /** SPC category → level. Moderate and High both top out the scale. */
@@ -98,6 +111,7 @@ function labelToPct(label: string): number | null {
 // Renders city labels, state names, international borders and coastlines
 // at 60fps via WebGL with zero API key required.
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
+import { paletteColor, subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 
 const DARK_STYLE = STORMSYNC_DARK;
 
@@ -191,6 +205,11 @@ export function ProbabilityMap({ day }: { day: number }) {
   const [status, setStatus]     = useState<Status>("loading");
   // 0 means nothing has been drawn; every real value is a level, 1-5.
   const [topStep, setTopStep]   = useState(0);
+  // Subscribing rather than reading once: an admin editing the scale in the
+  // panel next door has to see this map repaint as they type, which is the only
+  // way to judge a colour against a real outlook.
+  const palette = useSyncExternalStore(
+    subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
 
   const isProb  = day >= 4;
   const product = isProb ? `day${day}prob` : `day${day}otlk_cat`;
@@ -256,7 +275,7 @@ export function ProbabilityMap({ day }: { day: number }) {
       .catch(() => { if (!cancelled) setStatus("error"); });
 
     return () => { cancelled = true; };
-  }, [mapReady, product, isProb]);
+  }, [mapReady, product, isProb, palette]);
 
   // ── Download: grab the live WebGL canvas ──────────────────────────────
   const download = useCallback(() => {

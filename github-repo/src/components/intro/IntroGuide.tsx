@@ -21,9 +21,10 @@ import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   X, ChevronRight, ChevronLeft, Sparkles, BellRing, MapPin, LayoutDashboard,
-  Compass, ShieldCheck, Check, PlayCircle, Layers, Award, Ticket, Smartphone,
+  Compass, ShieldCheck, Check, PlayCircle, Layers, Award, Ticket, Smartphone, LayoutGrid,
 } from "lucide-react";
 import { guideByGroup, type ModuleGuideEntry } from "../../lib/moduleGuide";
+import { MenuPicker } from "../MenuPicker";
 import { ROYAL, HEADING, EASE, SPRING, prefersReducedMotion } from "../../lib/royal";
 
 interface WelcomeCard {
@@ -32,6 +33,8 @@ interface WelcomeCard {
   title: string;
   body: string;
   color: string;
+  /** A slide that does something rather than only saying something. */
+  action?: "menu";
 }
 
 const WELCOME: WelcomeCard[] = [
@@ -74,6 +77,12 @@ const WELCOME: WelcomeCard[] = [
     icon: Ticket, color: "#8fb2ff", eyebrow: "Worth having",
     title: "Your plan puts you in a draw",
     body: "Four raffles — monthly, yearly, one that can run at any time, and one that is simply given. Entries come with your plan and from taking part, and the pick is weighted by tickets, so holding four really is four chances. Most prizes land on your account the moment you win.",
+  },
+  {
+    icon: LayoutGrid, color: "#c084fc", eyebrow: "Make it yours",
+    title: "Pick how you get around",
+    body: "There are fifteen menus and they are not variations on one idea — a radar scope, a departure board, a comic page, a neon street, a black hole. None of them is the right one, so choose whichever you like. It changes the moment you tap it, and you can change it again whenever you want from My Profile.",
+    action: "menu",
   },
   {
     icon: Smartphone, color: "#5fd9a8", eyebrow: "On your phone",
@@ -318,6 +327,15 @@ function WelcomeSlide({ card, still }: { card: WelcomeCard; still: boolean }) {
       <p className="text-sm sm:text-[15px] leading-relaxed" style={{ color: ROYAL.dim }}>
         {card.body}
       </p>
+
+      {/* A slide that is a control, not a caption. Choosing here applies the
+          menu straight away, so the next thing they open is the one they
+          picked — which is the only way to actually judge one of these. */}
+      {card.action === "menu" && (
+        <div className="mt-5 text-left">
+          <MenuPicker compact />
+        </div>
+      )}
     </div>
   );
 }

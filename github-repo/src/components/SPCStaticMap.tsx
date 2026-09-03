@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Download, Share2 } from "lucide-react";
 import { BASE_API } from "../config";
 import {
-  PALETTES, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
+  levelsFor, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
   type Kind, type Hazard,
 } from "../lib/spcPalette";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { MAP_W, MAP_H, project } from "../lib/usAlbers";
 import { UsStatesBackdrop, UsStateLabels } from "./UsStatesBackdrop";
 import type { SPCProduct, DisplayMode } from "./SPCMap";
@@ -28,7 +29,13 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
   const kind: Kind = hazard === "cat" ? "cat"
     : mode === "intensity" ? (hazard === "torn" ? "tornadoIntensity" : hazard === "hail" ? "hailIntensity" : "windIntensity")
     : (hazard === "torn" ? "tornadoLikelihood" : hazard === "hail" ? "hailLikelihood" : "windLikelihood");
-  const palette = PALETTES[kind];
+  // Subscribing keeps the map honest while somebody is editing the palette in
+  // the admin panel: `levelsFor` reads the override synchronously, but without
+  // a subscription nothing would tell React to run it again.
+  const paletteState = useSyncExternalStore(
+    subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
+  void paletteState;
+  const palette = levelsFor(kind);
 
   useEffect(() => {
     let cancelled = false;

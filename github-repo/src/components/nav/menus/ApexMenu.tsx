@@ -275,18 +275,30 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
                         </span>
                       )}
                     </span>
-                    {/* Only the focused node is named. Seven labels on a
-                        314px arc collide into an unreadable band, and the
-                        readout above the arc is already saying which one the
-                        thumb is on — that is what it is there for. */}
+                    {/* Every node is named, always.
+                        This used to name only the hovered one, on the grounds
+                        that seven labels on a 314px arc collide — which is true
+                        with all of them on the same radius, and which is why
+                        they are not. Alternating nodes drop their label a row
+                        further out, the way a dial staggers its numerals, and
+                        the band resolves.
+                        The reason it had to change is simpler than the layout:
+                        there is no hover on a phone. Nothing was ever focused,
+                        so nothing was ever named, and the menu was seven
+                        unlabelled buttons. */}
                     <motion.span
-                      className="text-[8.5px] font-semibold tracking-wider uppercase whitespace-nowrap"
-                      style={{ color: ROYAL.text, textShadow: "0 1px 6px #000" }}
+                      className="text-[8px] font-semibold tracking-wider uppercase whitespace-nowrap px-1 rounded"
+                      style={{
+                        color: on ? ROYAL.gold : ROYAL.text,
+                        textShadow: "0 1px 6px #000, 0 0 10px #000",
+                        marginTop: i % 2 === 1 ? 11 : 0,
+                        background: "rgba(7,7,19,0.55)",
+                      }}
                       initial={false}
-                      animate={{ opacity: on ? 1 : 0 }}
+                      animate={{ opacity: on ? 1 : 0.85 }}
                       transition={calm ? { duration: 0 } : { duration: 0.16 }}
                     >
-                      {e.label.length > 15 ? `${e.label.slice(0, 14)}…` : e.label}
+                      {e.label.length > 13 ? `${e.label.slice(0, 12)}…` : e.label}
                     </motion.span>
                   </motion.button>
                 );

@@ -11,7 +11,11 @@
  * severe threshold) rather than inventing 4 tiers with no data behind them.
  * The 4-tier version you spec'd is possible, but only via the full
  * experimental CAPE/SRH/STP composite model -- a separate, much bigger build.
+ *
+ * The hex codes below are DEFAULTS. `levelsFor` applies any admin override on
+ * top, so a colour can be corrected from the panel without a deploy.
  */
+import { paletteColor } from "./mapPalette";
 
 export type Kind =
   | "cat"
@@ -87,6 +91,24 @@ export const PALETTES: Record<Kind, LevelDef[]> = {
   windLikelihood: WIND_LIKELIHOOD,
   windIntensity: WIND_INTENSITY,
 };
+
+/**
+ * A palette with any admin overrides applied.
+ *
+ * The exported constants stay the design defaults so a corrected default still
+ * reaches everybody who has not deliberately changed that swatch. Callers that
+ * paint a map read through here instead of indexing `PALETTES` directly.
+ */
+export function levelsFor(kind: Kind): LevelDef[] {
+  const base = PALETTES[kind];
+  let touched = false;
+  const out = base.map((d, i) => {
+    const c = paletteColor(`spc:${kind}:${i}`, d.color);
+    if (c !== d.color) touched = true;
+    return c === d.color ? d : { ...d, color: c };
+  });
+  return touched ? out : base;
+}
 
 export const KIND_TITLE: Record<Kind, string> = {
   cat: "Threat Level",

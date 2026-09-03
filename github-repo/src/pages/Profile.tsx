@@ -13,6 +13,7 @@ import { AlertSettings } from "../components/alerts/AlertSettings";
 import { PhoneSettingsCard } from "../components/PhoneSettingsCard";
 import { RaffleTicketsCard } from "../components/RaffleTicketsCard";
 import { PrizeVault } from "../components/PrizeVault";
+import { MenuPicker } from "../components/MenuPicker";
 import { ReplayIntroCard } from "../components/intro/ReplayIntroCard";
 import { User as UserIcon, Trophy, Shield, Mail, Calendar, MapPin, Star, Award, Sparkles, Gamepad2 } from "lucide-react";
 
@@ -140,6 +141,18 @@ export default function Profile() {
       </div>
 
       {/* Replay the intro guide */}
+      <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-semibold">How you get around</h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Fifteen menus. Pick the one you like — it changes straight away.
+          </p>
+        </div>
+        <div className="p-4">
+          <MenuPicker />
+        </div>
+      </div>
+
       <ReplayIntroCard />
 
       {/* Install to home screen (PWA) */}

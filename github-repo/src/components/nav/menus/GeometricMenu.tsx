@@ -37,11 +37,19 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
  */
 function ngon(n: number, rotDeg = 0, samples = SAMPLES, R = 50): string {
   const step = (2 * Math.PI) / n;
+  const rot = (rotDeg * Math.PI) / 180;
   const pts: string[] = [];
   for (let i = 0; i < samples; i++) {
-    const th = (i / samples) * 2 * Math.PI + (rotDeg * Math.PI) / 180 - Math.PI / 2;
+    // Where this sample sits, and — separately — which part of the polygon that
+    // ray hits. `rotDeg` used to be folded into a single angle used for both,
+    // which meant it slid the sample points along a shape that never actually
+    // turned: every polygon stayed pinned vertex-up however it was called, and
+    // the square was always a diamond. Rotating the FRAME the radius is
+    // measured in is what turns the shape.
+    const th = (i / samples) * 2 * Math.PI - Math.PI / 2;
+    const inShape = th - rot;
     // Angle within the current edge's wedge, measured from the wedge's middle.
-    const local = ((th % step) + step) % step - step / 2;
+    const local = ((inShape % step) + step) % step - step / 2;
     const r = (R * Math.cos(Math.PI / n)) / Math.cos(local);
     pts.push(`${(50 + r * Math.cos(th)).toFixed(2)}% ${(50 + r * Math.sin(th)).toFixed(2)}%`);
   }
@@ -62,16 +70,56 @@ function ngon(n: number, rotDeg = 0, samples = SAMPLES, R = 50): string {
  *
  * The pentagon was the casualty; exact corners on the shapes people actually
  * recognise is worth more than a fifth side that arrives blunted.
+ *
+ * THE CYCLE IS BOXY ON PURPOSE. It used to run the whole range, triangle to
+ * circle. The two ends were the problem. A triangle at tile size is mostly
+ * empty corner — the icon and the count have to sit in the middle third of it,
+ * so the shape reads as a wedge with something lost in it. And a 24-gon is a
+ * circle, which is the one shape that is not geometric at all: arriving there
+ * every cycle drained the character out of the whole menu.
+ *
+ * Square, hexagon, octagon, dodecagon. Every one holds its content, every one
+ * still reads as a distinct shape mid-morph, and all four divide 24 so the
+ * corners stay sharp.
  */
 const SAMPLES = 24;
-const CYCLE = [3, 4, 6, 8, 12, 24];
+const CYCLE = [4, 8, 6, 12];
 /** One sample step, in degrees. Every rotation must be a multiple of it. */
 const STEP_DEG = 360 / SAMPLES;
+
+/**
+ * The rotation that stands each shape on an edge rather than on a point.
+ *
+ * Unrotated, `ngon` puts a VERTEX at the top, so a four-sided shape arrives as
+ * a diamond — and a diamond is the one member of this set that cannot hold a
+ * label: full width across the middle, pinched to nothing two lines up, so
+ * "Everything Else" hung out over both edges.
+ *
+ * These are measured, not derived. A rotation has to do two things at once:
+ * put an edge at the top, and still land every corner exactly on a sample (24
+ * samples, so only multiples of 15° qualify — see below). Searching the legal
+ * rotations for the flattest top gives 45° for the square and 15° for the
+ * dodecagon; the hexagon is already flattest at 0°, and the octagon has no
+ * legal flat rotation at all, which it wears perfectly well point-up.
+ */
+const FLAT_ROT: Record<number, number> = { 4: 45, 6: 0, 8: 0, 12: 15 };
+const flatRot = (n: number): number => FLAT_ROT[n] ?? 0;
 
 function shapeCycle(startAt: number): string[] {
   const order = [...CYCLE.slice(startAt % CYCLE.length), ...CYCLE.slice(0, startAt % CYCLE.length)];
   // Close the loop so the animation has no seam.
-  return [...order, order[0]].map((n, i) => ngon(n, i * STEP_DEG));
+  //
+  // Every shape sits flat — no rotation. A steady 15° per step turned the
+  // square into a diamond a third of the way round the cycle, and a diamond is
+  // the one member of this set that cannot hold its own label: the usable width
+  // at the vertical centre is the full width, but two lines up it has narrowed
+  // to nothing, so "Everything Else" hung out over both edges. Flat squares and
+  // flat hexagons also read as boxier, which is the point of this cycle.
+  //
+  // The morph between four, six, eight and twelve sides is the animation; it
+  // does not need a spin on top, and a rotation that is a multiple of a
+  // polygon's own symmetry is invisible anyway.
+  return [...order, order[0]].map((n) => ngon(n, flatRot(n)));
 }
 
 /** The ruled grid the shapes were constructed on. */
@@ -270,8 +318,8 @@ export function GeometricMenu({ nav }: { nav: MenuNav }) {
           style={{ width: 56, height: 56, background: `linear-gradient(140deg, ${ROYAL.gold}, #a8823f)` }}
           initial={false}
           animate={calm
-            ? { clipPath: ngon(open ? 4 : 6, 0) }
-            : { clipPath: open ? [ngon(6, 0), ngon(4, STEP_DEG * 3)] : shapeCycle(0), rotate: open ? 45 : 0 }}
+            ? { clipPath: ngon(open ? 4 : 8, flatRot(open ? 4 : 8)) }
+            : { clipPath: open ? [ngon(8, flatRot(8)), ngon(4, flatRot(4))] : shapeCycle(0), rotate: 0 }}
           transition={calm ? { duration: 0 } : open
             ? { duration: 0.4, ease: EASE }
             : { duration: 11, repeat: Infinity, ease: "easeInOut" }}

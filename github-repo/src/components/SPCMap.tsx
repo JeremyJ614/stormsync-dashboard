@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import maplibregl from "maplibre-gl";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 import {
-  PALETTES, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
+  levelsFor, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
   type Kind, type Hazard,
 } from "../lib/spcPalette";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { computeTargetAreas, type TargetArea } from "../lib/spcTargetAreas";
 
 export type SPCProduct =
@@ -50,7 +51,13 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
 
   const hazard: Hazard = hazardFromProduct(product);
   const kind: Kind = kindFor(hazard, mode);
-  const palette = PALETTES[kind];
+  // Subscribing keeps the map honest while somebody is editing the palette in
+  // the admin panel: `levelsFor` reads the override synchronously, but without
+  // a subscription nothing would tell React to run it again.
+  const paletteState = useSyncExternalStore(
+    subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
+  void paletteState;
+  const palette = levelsFor(kind);
 
   async function loadData(map: maplibregl.Map) {
     setLoading(true); setError(null); setLowConf(false);
@@ -146,7 +153,7 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
     if (!ready || !mapRef.current) return;
     loadData(mapRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, product, mode]);
+  }, [ready, product, mode, paletteState]);
 
   // Fly to the requested Target Area (or back to National)
   useEffect(() => {

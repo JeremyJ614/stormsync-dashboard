@@ -37,7 +37,14 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
 const SLAB_H = 62;
 const GAP = 9;
 /** How far apart in z consecutive slabs sit. Sets how strong the parallax is. */
-const Z_STEP = 26;
+/**
+ * How much smaller each slab down the pile is drawn.
+ *
+ * This used to be a translateZ of 26px per layer. See the note by `restScale`:
+ * translating in Z under a perspective ancestor put the painted slab somewhere
+ * other than its layout box, and made the whole menu unclickable.
+ */
+const DEPTH_SCALE = 0.014;
 
 export function StrataMenu({ nav }: { nav: MenuNav }) {
   const { open, section, current, sections, toggle, close, openSection, back, calm, containerRef } = nav;
@@ -67,18 +74,57 @@ export function StrataMenu({ nav }: { nav: MenuNav }) {
   const rotX = useTransform(sy, [-1, 1], [-5.5, 5.5]);
   const stage = useRef<HTMLDivElement>(null);
 
+  /**
+   * The parallax stops dead while a press is in progress, and this is not a
+   * refinement — without it the menu could not be used at all.
+   *
+   * The tilt is a SPRING, so it keeps travelling for a few hundred milliseconds
+   * after the pointer stops moving, rotating the whole stack in 3D as it
+   * settles. A browser only fires `click` when mousedown and mouseup land on
+   * the same element, and a slab that is still rotating is not in the same
+   * place at mouseup as it was at mousedown — so the click resolved to the
+   * container instead and `openSection` never ran. Every section looked dead.
+   *
+   * Freezing on pointerdown makes the geometry stable for exactly as long as it
+   * has to be, and costs nothing: nobody is admiring the parallax while their
+   * finger is down on a slab.
+   */
+  const pressed = useRef(false);
+  /** Which slab a pointer release already navigated, so the click does not repeat it. */
+  const handled = useRef<string | null>(null);
+
   useEffect(() => {
     if (!open || calm) return;
     function onMove(e: PointerEvent) {
+      if (pressed.current) return;
       const el = stage.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
       px.set(Math.max(-1, Math.min(1, ((e.clientX - r.left) / r.width) * 2 - 1)));
       py.set(Math.max(-1, Math.min(1, ((e.clientY - r.top) / r.height) * 2 - 1)));
     }
+    // Freezing the INPUT is not enough. A pointer has to travel to a slab
+    // before it can press one, and that travel has already set the spring a new
+    // target — so at pointerdown the stack is still mid-flight and keeps moving
+    // regardless of whether new positions arrive. The spring itself has to be
+    // brought to a stop, at wherever it currently is, with its velocity killed.
+    const hold = () => {
+      pressed.current = true;
+      sx.jump(sx.get()); sy.jump(sy.get());
+      px.set(sx.get());  py.set(sy.get());
+    };
+    const release = () => { pressed.current = false; };
     window.addEventListener("pointermove", onMove);
-    return () => window.removeEventListener("pointermove", onMove);
-  }, [open, calm, px, py]);
+    window.addEventListener("pointerdown", hold, true);
+    window.addEventListener("pointerup", release, true);
+    window.addEventListener("pointercancel", release, true);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerdown", hold, true);
+      window.removeEventListener("pointerup", release, true);
+      window.removeEventListener("pointercancel", release, true);
+    };
+  }, [open, calm, px, py, sx, sy]);
 
   // Reset the tilt whenever the menu closes, so it never reopens mid-lean.
   useEffect(() => { if (!open) { px.set(0); py.set(0); } }, [open, px, py]);
@@ -267,15 +313,42 @@ export function StrataMenu({ nav }: { nav: MenuNav }) {
                       // Deeper layers start further back and lower in the pile, so
                       // the stack decompresses from the top down; they also *rest*
                       // further back, which is what the parallax reads off.
-                      const restZ = -i * Z_STEP;
+                      // Depth by SCALE, not by translateZ, and that is a
+                      // correctness decision rather than a stylistic one.
+                      //
+                      // Pushing each slab back in Z inside a `perspective`
+                      // ancestor means the browser paints it projected —
+                      // smaller and shifted — while `getBoundingClientRect`
+                      // keeps reporting the flat layout box, because rects do
+                      // not account for an ancestor's perspective. The two
+                      // disagree by a few per cent, which is enough that a
+                      // click at the slab's own centre resolves to the
+                      // container behind it. Every section in this menu was
+                      // unclickable for exactly that reason.
+                      //
+                      // A 2D scale reads the same to the eye — further away is
+                      // smaller — and rects and hit-testing both account for
+                      // it, so what you see is what you press.
+                      const restScale = 1 - i * DEPTH_SCALE;
                       return (
                         <motion.button
                           key={s.label}
-                          onClick={() => openSection(i)}
+                          // Both, latched. `onClick` is what a keyboard fires;
+                          // `onPointerUp` is what survives the stack having
+                          // moved a pixel between press and release, which is
+                          // the failure this menu shipped with.
+                          onPointerUp={(e) => {
+                            if (e.button !== 0 && e.pointerType === "mouse") return;
+                            handled.current = s.label;
+                            openSection(i);
+                          }}
+                          onClick={() => {
+                            if (handled.current === s.label) { handled.current = null; return; }
+                            openSection(i);
+                          }}
                           className="group relative w-full flex items-center gap-3 rounded-2xl px-4 text-left overflow-hidden"
                           style={{
                             height: SLAB_H, marginBottom: GAP,
-                            transformStyle: calm ? undefined : "preserve-3d",
                             background:
                               `linear-gradient(180deg, rgba(255,255,255,0.075), rgba(255,255,255,0.02)),` +
                               // Sediment banding, denser in the deeper layers.
@@ -287,15 +360,14 @@ export function StrataMenu({ nav }: { nav: MenuNav }) {
                           initial={calm ? false : {
                             opacity: 0,
                             y: -(i * (SLAB_H + GAP)) + i * 5,
-                            z: -70 * i,
                             rotateX: 46,
                             scale: 0.9,
                           }}
-                          animate={{ opacity: 1, y: 0, z: restZ, rotateX: 0, scale: 1 }}
+                          animate={{ opacity: 1, y: 0, rotateX: 0, scale: restScale }}
                           transition={calm ? { duration: 0 } : {
                             type: "spring", stiffness: 190, damping: 24, delay: 0.055 * i,
                           }}
-                          whileTap={calm ? undefined : { scale: 0.985 }}
+                          whileTap={calm ? undefined : { scale: restScale * 0.985 }}
                         >
                           {!calm && <Sheen tilt={sx} />}
                           <span

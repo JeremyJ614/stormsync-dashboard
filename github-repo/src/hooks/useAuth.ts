@@ -20,6 +20,8 @@ export interface User {
   customAnswers: Record<string, string>;
   /** When they finished the intro guide. Null means it has not been shown. */
   introSeenAt: string | null;
+  /** The menu they picked. Null means they are following the admin default. */
+  menuStyle: string | null;
 }
 
 export type QuestionType = "text" | "email" | "select" | "textarea" | "number" | "tel" | "date" | "checkbox";
@@ -123,6 +125,7 @@ export interface ProfileRow {
   joined_at: string;
   created_at: string;
   intro_seen_at?: string | null;
+  menu_style?: string | null;
 }
 
 export function rowToUser(r: ProfileRow): User {
@@ -140,6 +143,7 @@ export function rowToUser(r: ProfileRow): User {
     joinedAt: r.joined_at,
     createdAt: r.created_at,
     introSeenAt: r.intro_seen_at ?? null,
+    menuStyle: (r.menu_style as string | null) ?? null,
   };
 }
 

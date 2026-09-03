@@ -169,29 +169,33 @@ export function KineticMenu({ nav }: { nav: MenuNav }) {
 
                   return (
                     <div key={e.key} className="relative">
-                      {/* Trail. Same targets, softer springs — they lag, then
-                          catch up. Pointer-transparent and unreadable, so they
-                          cost nothing but the look. */}
-                      {!calm && [0, 1].map((g) => (
+                      {/* Trail. One ghost on a softer spring: it lags, then
+                          catches up.
+                          It used to be two, each carrying `filter: blur()`
+                          while it moved. An animating blur is re-rasterised on
+                          every frame — it is the single most expensive thing
+                          that can be put on a moving element — and there was
+                          one per row per ghost, so a five-row menu was
+                          re-blurring ten layers a frame on top of the panel's
+                          own `backdrop-filter`. That is the lag.
+                          Offset and opacity read as a trail on their own, cost
+                          a composited layer and nothing else, and `willChange`
+                          keeps it on the compositor rather than bouncing back
+                          to the main thread each time the spring settles. */}
+                      {!calm && (
                         <motion.div
-                          key={g}
                           className={ghostCls}
-                          style={{
-                            ...skin,
-                            filter: `blur(${2 + g * 2.5}px)`,
-                            opacity: 0.3 - g * 0.13,
-                          }}
+                          style={{ ...skin, opacity: 0.26, willChange: "transform, opacity" }}
                           initial={enter}
                           animate={rest}
                           exit={leave}
                           transition={{
-                            type: "spring",
-                            stiffness: 150 - g * 45, damping: 17 - g * 2, mass: 1 + g * 0.35,
+                            type: "spring", stiffness: 105, damping: 15, mass: 1.35,
                             delay: i * 0.055,
                           }}
                           aria-hidden
                         />
-                      ))}
+                      )}
 
                       <motion.div
                         initial={calm ? false : enter}

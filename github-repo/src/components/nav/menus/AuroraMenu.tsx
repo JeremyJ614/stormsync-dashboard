@@ -244,14 +244,29 @@ function constellation(seed: string, n: number) {
     // which is also how a real asterism reads.
     const a = (i / n) * Math.PI * 2 + r() * 0.7 - 0.35;
     const rad = 0.30 + r() * 0.20;
+    // A star is a point but its NAME is about a quarter of the screen wide, and
+    // the name is the part that has to be readable. Spreading the figure to the
+    // full width put stars at 94% and hung their labels off the edge — "SPC
+    // Outlook" arrived as "SPC Outloo". The figure is drawn inside a band that
+    // leaves room for the label on either side, and clamped so a jittered
+    // angle cannot push a star back out of it.
+    const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
     pts.push({
-      x: 50 + Math.cos(a) * rad * 88,
-      y: 50 + Math.sin(a) * rad * 74,
+      x: clamp(50 + Math.cos(a) * rad * 62, 18, 82),
+      y: clamp(50 + Math.sin(a) * rad * 74, 8, 92),
       mag: 0.55 + r() * 0.45,
     });
   }
   return pts;
 }
+
+/**
+ * Room kept clear at the foot of the panel for the floating toggle.
+ *
+ * 56px of button, a 22px inset, and a little air — plus whatever the phone's
+ * home indicator claims, which is why it is a `calc` and not a number.
+ */
+const TOGGLE_LANE = "calc(88px + env(safe-area-inset-bottom, 0px))";
 
 export function AuroraMenu({ nav }: { nav: MenuNav }) {
   const { open, section, current, toggle, close, openSection, back, calm, containerRef } = nav;
@@ -289,7 +304,11 @@ export function AuroraMenu({ nav }: { nav: MenuNav }) {
         {open && (
           <motion.nav
             className="absolute inset-0 flex flex-col"
-            style={{ pointerEvents: "auto" }}
+            // The toggle floats bottom-right at 56px plus a 22px inset, and the
+            // content ran underneath it: the last curtain's label and the
+            // bottom row of a section both disappeared behind the button. The
+            // column keeps that lane clear instead of drawing into it.
+            style={{ pointerEvents: "auto", paddingBottom: TOGGLE_LANE }}
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0, transition: { duration: calm ? 0 : 0.2 } }}
@@ -377,7 +396,7 @@ export function AuroraMenu({ nav }: { nav: MenuNav }) {
             ) : (
               /* ── the curtains ──────────────────────────────────────────── */
               <div className="flex-1 flex items-end min-h-0">
-                <div className="w-full flex" style={{ paddingBottom: "15%" }}>
+                <div className="w-full flex" style={{ paddingBottom: "9%" }}>
                   {entries.map((e, i) => {
                     const Icon = e.icon;
                     return (

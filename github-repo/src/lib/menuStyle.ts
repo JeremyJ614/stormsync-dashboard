@@ -161,7 +161,28 @@ export function subscribeMenuStyles(fn: () => void): () => void {
 export function getMenuStylesSnapshot(): MenuStyleConfig { return current; }
 export function getMenuStylesServerSnapshot(): MenuStyleConfig { return FALLBACK; }
 
-/** The style that applies to a given viewer. */
-export function styleFor(cfg: MenuStyleConfig, isAdmin: boolean): MenuStyle {
-  return isAdmin ? cfg.admin : cfg.customer;
+/**
+ * The style that applies to a given viewer.
+ *
+ * A member's own pick wins. The admin setting is the DEFAULT — what somebody
+ * gets before they have an opinion, and what they keep following if they never
+ * form one. That distinction is the whole point of storing `null` rather than
+ * copying the default into every profile: change the default and everyone who
+ * has not chosen moves with it, while everyone who has chosen is left alone.
+ */
+export function styleFor(
+  cfg: MenuStyleConfig, isAdmin: boolean, own?: string | null,
+): MenuStyle {
+  return coerce(own) ?? (isAdmin ? cfg.admin : cfg.customer);
+}
+
+/** Record a member's choice. `null` puts them back on the default. */
+export async function saveMyMenuStyle(
+  userId: string, style: MenuStyle | null,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+  const { error } = await supabase
+    .from("profiles").update({ menu_style: style }).eq("id", userId);
+  if (error) { logger.error("saveMyMenuStyle failed", { scope: "menu", error }); return { ok: false, error: error.message }; }
+  return { ok: true };
 }

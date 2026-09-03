@@ -29,7 +29,21 @@ import { ROYAL, EASE } from "../../../lib/royal";
  * The centre is the control, not a hole: it reads back the level you are on and
  * takes you up one when tapped.
  */
-const PERIOD = 1.15;         // seconds for one full rotation
+/**
+ * Two clocks, not one.
+ *
+ * The reveal used to be timed off the sweep — an entry's angle WAS its delay,
+ * so a blip lit exactly as the beam crossed it. That is a lovely idea and it
+ * couples the wrong two things: the only way to make the beam turn at the speed
+ * of a real scope is to make the menu take that long to fill in, and the only
+ * way to fill the menu quickly is to spin the beam like a fairground ride.
+ *
+ * So `SWEEP` is how fast the beam turns, and `PAINT` is how fast the contacts
+ * come up. The beam is slow because a radar sweep is slow; the menu is quick
+ * because a menu has to be.
+ */
+const SWEEP = 3.6;           // seconds for one full rotation of the beam
+const PAINT = 0.85;          // seconds for the last contact to appear
 /** Blip diameter. Shrinks once the ring gets crowded so captions stop touching. */
 function blipSize(n: number): number {
   return n <= 8 ? 46 : n <= 11 ? 42 : 38;
@@ -182,7 +196,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
                 WebkitMaskImage: "radial-gradient(circle, #000 62%, transparent 100%)",
               }}
               animate={calm ? { rotate: 0, opacity: 0 } : { rotate: 360 }}
-              transition={calm ? { duration: 0 } : { duration: PERIOD, repeat: Infinity, ease: "linear" }}
+              transition={calm ? { duration: 0 } : { duration: SWEEP, repeat: Infinity, ease: "linear" }}
             />
           )}
           {open && !calm && (
@@ -190,7 +204,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
               className="absolute pointer-events-none"
               style={{ left: box / 2, top: box / 2, width: 0, height: 0 }}
               animate={{ rotate: 360 }}
-              transition={{ duration: PERIOD, repeat: Infinity, ease: "linear" }}
+              transition={{ duration: SWEEP, repeat: Infinity, ease: "linear" }}
             >
               <div
                 style={{
@@ -202,8 +216,10 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
             </motion.div>
           )}
 
-          {/* Contacts. The angle sets the position and the delay alike, so a
-              blip lights exactly as the beam reaches it. */}
+          {/* Contacts. The angle still sets the order they come up in — the list
+              paints round the scope the way a sweep would — but against `PAINT`
+              rather than against the beam, so the menu is filled long before the
+              beam has finished its first slow turn. */}
           {entries.map((e, i) => {
             const frac = i / n;                       // 0 at 12 o'clock, clockwise
             const deg = frac * 360 - 90;
@@ -211,7 +227,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
             const x = box / 2 + R * Math.cos(rad);
             const y = box / 2 + R * Math.sin(rad);
             const Icon = e.icon;
-            const delay = calm ? 0 : 0.1 + frac * PERIOD;
+            const delay = calm ? 0 : 0.08 + frac * PAINT;
 
             // Labels sit on the far side of the blip from the hub: above it in
             // the top arc, below it in the bottom. Keeping them all below made
@@ -375,7 +391,7 @@ export function SweepMenu({ nav }: { nav: MenuNav }) {
               background: `conic-gradient(from 0deg, transparent 0deg, transparent 288deg, rgba(217,183,117,0.42) 360deg)`,
             }}
             animate={{ rotate: 360 }}
-            transition={{ duration: PERIOD, repeat: Infinity, ease: "linear" }}
+            transition={{ duration: SWEEP, repeat: Infinity, ease: "linear" }}
           />
         )}
         {open ? <X className="w-5 h-5 relative" /> : <Radar className="w-5 h-5 relative" />}

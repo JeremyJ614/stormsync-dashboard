@@ -167,9 +167,25 @@ export function OrigamiMenu({ nav }: { nav: MenuNav }) {
                         style={{ transformStyle: "preserve-3d" }}
                         initial={calm ? false : { rotateX: down ? -96 : 96, opacity: 0 }}
                         animate={{ rotateX: 0, opacity: 1 }}
-                        exit={calm ? { opacity: 0 } : { rotateX: down ? -96 : 96, opacity: 0 }}
+                        // The exit needs its own, much shorter transition, and
+                        // this is the whole reason drilling in felt sluggish.
+                        // `AnimatePresence mode="wait"` holds the incoming level
+                        // until every outgoing panel has finished, and the
+                        // outgoing panels were folding away on the SAME spring
+                        // they arrive on, each with its own stagger — so the
+                        // last one started 0.18s in and then took a spring's
+                        // worth of settling to reach 96 degrees. Most of a
+                        // second passed before the new modules began to appear.
+                        //
+                        // Folding shut is not a moment anyone is admiring, so it
+                        // is a flat, undelayed tween and the next level starts
+                        // almost at once.
+                        exit={calm ? { opacity: 0 } : {
+                          rotateX: down ? -96 : 96, opacity: 0,
+                          transition: { duration: 0.13, ease: "easeIn" },
+                        }}
                         transition={calm ? { duration: 0 } : {
-                          type: "spring", stiffness: 210, damping: 21, delay: i * 0.045,
+                          type: "spring", stiffness: 240, damping: 22, delay: i * 0.035,
                         }}
                       >
                         {e.to ? (

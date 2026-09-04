@@ -41,6 +41,15 @@ export interface Chase {
   media: ChaseMedia[];
   published: boolean;
   sortOrder: number;
+  /**
+   * When the chase was POSTED, which is not `chaseDate`.
+   *
+   * A chaser writing up last May's intercept in December has a chase date
+   * seven months old and a post that is new to everybody. "New since your last
+   * visit" has to key off this or the mark never appears for exactly the
+   * write-ups people most want to be told about.
+   */
+  createdAt: string;
 }
 
 export interface ChaseInput {
@@ -80,6 +89,7 @@ function toChase(r: Record<string, unknown>): Chase {
     media: (r.media as ChaseMedia[]) ?? [],
     published: r.published === true,
     sortOrder: Number(r.sort_order ?? 0),
+    createdAt: String(r.created_at ?? ""),
   };
 }
 

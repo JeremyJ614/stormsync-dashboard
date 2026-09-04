@@ -1,331 +1,216 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useSyncExternalStore, type CSSProperties } from "react";
 import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { listWall, type WallName } from "../lib/wall";
-import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
+import { listWall } from "../lib/wall";
+import {
+  subscribeWallStyle, getWallStyleSnapshot, getWallStyleServerSnapshot,
+  carve, carveCore, tint, type WallStyle,
+} from "../lib/wallStyle";
+import { HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 
 /**
  * The wall.
  *
- * A sheet of burnished gold in a dark stone frame, with names cut into the
- * metal, and one inlaid slot at the top that holds a single name at a time.
+ * A slate board with names cut into it. One gold name at the top, a line
+ * scratched underneath it by hand, and everyone else in white below that.
+ * Names and nothing else — no captions saying what anybody won, no headings
+ * explaining what the board is. A wall of names explains itself, and labelling
+ * each one with its prize turns a monument into a receipt.
  *
- * WHY GOLD UNDER THE NAMES RATHER THAN GOLD LETTERS. Gold text on a dark panel
- * is the obvious reading of "golden plaque" and it is the wrong one: at the
- * size a name has to be legible on a phone, gold-on-black is a thin bright
- * stroke that smears on an OLED and disappears at a glance. Real engraved
- * plaques work the other way round — the metal is the field, and the letters
- * are dark recesses in it. So the plaque is the gold, and the names are cut
- * into it in deep bronze. That is both the more authentic object and, at
- * roughly 6.5:1, far more readable than any arrangement of gold type.
+ * WHY IT IS BARELY THERE. The previous version was a sheet of gold, and it
+ * shouted: on a near-black page it stopped being part of the app and became a
+ * banner sitting on top of it. This one is the page's own darkness with a
+ * surface — you notice the names before you notice the board, which is the
+ * right way round.
  *
- * HOW A CUT LETTER IS DRAWN. A recess in a top-lit surface is dark in the
- * letter itself, has a hard bright lip along its LOWER edge where the far wall
- * of the cut catches the light, and a soft shadow above it. Three shadows,
- * scaled together so a heading and a name in the roll look struck by the same
- * chisel.
+ * HYPER-REAL SLATE, HONESTLY CHEAP. Real chalkboard is not a flat fill. It has
+ * a grain, it has the ghosts of a hundred erasings smeared in arcs across it,
+ * it is darker at the edges than in the middle, and it has a faint sheen where
+ * the light crosses it. All four are here as stacked gradients plus one static
+ * SVG turbulence tile — no images to load, nothing animated, so the texture
+ * costs a paint and never a frame.
  *
- * THE ONE NAME sits in an obsidian inlay set into the gold — a different
- * material, which is what makes it read as a different rank rather than as a
- * bigger version of the same thing. It gets the only bright thing on the
- * component: a band of light that travels THROUGH the letters, masked to the
- * glyphs, so the stone looks lit from within. The brief asked for godly and
- * explicitly not bright, so it is pale gold at a third opacity taking nine
- * seconds to cross.
- *
- * EVERYTHING THAT MOVES IS transform OR opacity. The sheen is a skewed bar
- * translated across the plaque, not an animated background-position, and
- * nothing here carries a blur filter — an animated `filter: blur()`
- * re-rasterises every frame and was measurably the thing making another menu
- * in this app stutter. Under reduced motion none of it runs and the plaque is
- * simply a lit object.
+ * CARVED, NOT PRINTED. A cut letter is a groove: dark hard edge below where the
+ * near wall is in shadow, softer dark above, and light living inside it. The
+ * glow is what makes it read as cut rather than drawn, and it is also the thing
+ * that turns the whole board into a neon sign the moment it is overdone — so it
+ * is a dial the owner can turn, defaulting low.
  */
-export function NameWall() {
+export function NameWall({ compact = false }: { compact?: boolean }) {
   const still = prefersReducedMotion();
   const q = useQuery({ queryKey: ["wall"], queryFn: () => listWall(), staleTime: 5 * 60_000 });
+  const { style } = useSyncExternalStore(
+    subscribeWallStyle, getWallStyleSnapshot, getWallStyleServerSnapshot);
 
   const rows = q.data ?? [];
   const blessed = useMemo(() => rows.find((r) => r.slot === "blessed") ?? null, [rows]);
   const roll = useMemo(() => rows.filter((r) => r.slot !== "blessed"), [rows]);
 
-  // An empty wall still goes up. It was tempting to render nothing until the
-  // first name arrives, but the plaque is how most members will find out the
-  // prize exists at all — an empty one that says the slot is unclaimed sells
-  // the draw, and a homepage that silently omits the feature until somebody
-  // wins it sells nothing. The only thing hidden while it loads is the flicker.
+  // Only the flicker is hidden while it loads. An empty board still goes up:
+  // it is how most members find out the prize exists at all.
   if (q.isLoading) return null;
 
   return (
-    <section className="relative rounded-3xl p-[3px]" aria-label="The wall of names"
-             style={{
-               // The frame: dark stone with a gold bezel, so the plaque inside
-               // reads as mounted rather than as a coloured div.
-               background:
-                 `linear-gradient(160deg, rgba(233,206,152,0.75), rgba(122,93,44,0.35) 40%,` +
-                 ` rgba(233,206,152,0.55) 70%, rgba(90,68,30,0.4))`,
-               boxShadow: "0 30px 70px -46px #000, 0 0 0 1px rgba(0,0,0,0.6)",
-             }}>
-      <div className="relative overflow-hidden rounded-[21px]" style={{ background: "#0a0812" }}>
-        {/* ── the metal ────────────────────────────────────────────────── */}
-        <div className="absolute inset-0" aria-hidden style={GOLD} />
-        {/* Brushed grain, kept as its own layer so it sits at a fixed strength
-            over every band of the gradient beneath it. */}
-        <div className="absolute inset-0" aria-hidden style={GRAIN} />
-        {/* The plaque is lit from above; the bottom third falls away. */}
-        <div className="absolute inset-0" aria-hidden
-             style={{ background: "linear-gradient(180deg, rgba(255,250,235,0.16), transparent 26%, rgba(40,24,4,0.22) 82%, rgba(24,14,2,0.38))" }} />
-        <Sheen still={still} />
+    <section className="relative h-full rounded-2xl overflow-hidden" aria-label="The wall of names"
+             style={boardStyle(style)}>
+      <Slate style={style} />
 
-        <Corners />
+      <div className={`relative flex flex-col items-center justify-center text-center h-full ${
+        compact ? "px-4 py-5" : "px-5 py-7 md:px-7"}`}>
+        {/* ── the one name ─────────────────────────────────────────────── */}
+        {blessed ? (
+          <motion.span
+            className={`block break-words ${compact ? "text-[19px] md:text-[22px]" : "text-[22px] md:text-[27px]"}`}
+            style={{
+              // Lighter weight and wider tracking on purpose: a thick letter
+              // with a halo is a neon sign, and a thin one with the same halo
+              // is a chisel mark. The reference is all thin strokes.
+              fontFamily: HEADING, fontWeight: 500, letterSpacing: "0.16em",
+              color: carveCore(style.blessed, style.glow),
+              textShadow: carve(style.blessed, style.glow, compact ? 1 : 1.25),
+            }}
+            initial={still ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.7, ease: EASE }}
+          >
+            {blessed.display}
+          </motion.span>
+        ) : (
+          <span className={`block ${compact ? "text-[13px]" : "text-[15px]"}`}
+                style={{
+                  fontFamily: HEADING, fontWeight: 600, letterSpacing: "0.06em",
+                  color: tint(style.blessed, 0.34),
+                }}>
+            Unclaimed
+          </span>
+        )}
 
-        <div className="relative px-5 py-7 md:px-10 md:py-9">
-          <header className="text-center">
-            <Crown />
-            <h2 className="text-[21px] md:text-[27px] mt-2"
-                style={{ fontFamily: HEADING, fontWeight: 800, letterSpacing: "0.14em", ...cut(1.15) }}>
-              THE WALL
-            </h2>
-            <p className="text-[11px] mt-1.5 tracking-[0.14em] uppercase"
-               style={{ color: "rgba(58,42,16,0.62)", fontWeight: 600 }}>
-              Names won, and kept
-            </p>
-          </header>
+        {/* ── the line somebody scratched under it ─────────────────────── */}
+        <Squiggle style={style} compact={compact} />
 
-          {/* ── the one name ───────────────────────────────────────────── */}
-          <div className="mt-6 flex justify-center">
-            <Inlay name={blessed} still={still} />
-          </div>
-
-          {/* The rule that separates the one from the many, struck into the
-              metal the same way the letters are. */}
-          <div className="mt-7 flex items-center gap-3" aria-hidden>
-            <Rule flip />
-            <span className="w-1.5 h-1.5 rotate-45 shrink-0"
-                  style={{ background: "rgba(58,42,16,0.5)", boxShadow: "0 1px 0 rgba(255,246,222,0.5)" }} />
-            <Rule />
-          </div>
-
-          {/* ── the roll ───────────────────────────────────────────────── */}
-          {roll.length === 0 ? (
-            <p className="mt-6 text-center text-[11.5px]" style={{ color: "rgba(58,42,16,0.6)" }}>
-              The roll is empty. The first name goes up the moment somebody wins one.
-            </p>
-          ) : (
-            <ul className="mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-x-6 gap-y-4">
-              {roll.map((n, i) => (
-                <motion.li
-                  key={n.id}
-                  className="text-center"
-                  initial={still ? false : { opacity: 0, y: 8 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true, margin: "-40px" }}
-                  transition={still ? { duration: 0 } : { duration: 0.5, delay: Math.min(i, 12) * 0.04, ease: EASE }}
-                >
-                  <span className="block text-[13.5px] md:text-[15px] leading-tight break-words"
-                        style={{ fontFamily: HEADING, fontWeight: 700, letterSpacing: "0.035em", ...cut(0.85) }}>
-                    {n.display}
-                  </span>
-                  {n.note && (
-                    <span className="block text-[8.5px] mt-1 uppercase tracking-[0.18em]"
-                          style={{ color: "rgba(58,42,16,0.52)", fontWeight: 600 }}>
-                      {n.note}
-                    </span>
-                  )}
-                </motion.li>
-              ))}
-            </ul>
-          )}
-        </div>
+        {/* ── everybody else ───────────────────────────────────────────── */}
+        {roll.length === 0 ? (
+          <span className={compact ? "text-[11px]" : "text-[12px]"}
+                style={{ color: tint(style.roll, 0.3), fontFamily: HEADING, letterSpacing: "0.05em" }}>
+            No names yet
+          </span>
+        ) : (
+          <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+            {roll.map((n, i) => (
+              <motion.li
+                key={n.id}
+                initial={still ? false : { opacity: 0, y: 4 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: "-30px" }}
+                transition={still ? { duration: 0 } : { duration: 0.45, delay: Math.min(i, 10) * 0.05, ease: EASE }}
+                className={`break-words ${compact ? "text-[12.5px]" : "text-[14px] md:text-[15px]"}`}
+                style={{
+                  fontFamily: HEADING, fontWeight: 500, letterSpacing: "0.11em",
+                  color: carveCore(style.roll, style.glow),
+                  textShadow: carve(style.roll, style.glow, compact ? 0.75 : 0.9),
+                }}
+              >
+                {n.display}
+              </motion.li>
+            ))}
+          </ul>
+        )}
       </div>
     </section>
   );
 }
 
-/* ── the material ─────────────────────────────────────────────────────────── */
+/* ── the board ────────────────────────────────────────────────────────────── */
 
 /**
- * Gold leaf. Broad soft bands rather than a two-stop ramp: a flat gradient
- * reads as yellow plastic, and it is the alternation of warm highlight and
- * cooler shadow across the sheet that makes metal look like metal.
- */
-const GOLD: CSSProperties = {
-  background:
-    "radial-gradient(130% 90% at 50% -25%, rgba(255,251,236,0.55), transparent 58%)," +
-    "linear-gradient(163deg," +
-    " #b8934f 0%, #e4c98f 12%, #cfa961 26%, #f0dcae 40%," +
-    " #bc9552 55%, #ddbe83 70%, #a87f42 86%, #cfab6b 100%)",
-};
-
-const GRAIN: CSSProperties = {
-  background:
-    "repeating-linear-gradient(97deg, rgba(255,255,255,0.055) 0 1px, rgba(90,64,22,0.05) 1px 2px, transparent 2px 5px)",
-  opacity: 0.6,
-};
-
-/** A slow bar of light crossing the sheet. Transform-only. */
-function Sheen({ still }: { still: boolean }) {
-  if (still) return null;
-  return (
-    <motion.span
-      aria-hidden
-      className="pointer-events-none absolute top-[-20%] bottom-[-20%] w-[34%]"
-      style={{
-        left: 0,
-        background: "linear-gradient(90deg, transparent, rgba(255,252,240,0.34), transparent)",
-        transform: "skewX(-14deg)",
-        willChange: "transform",
-      }}
-      initial={{ x: "-140%" }}
-      animate={{ x: "520%" }}
-      transition={{ duration: 5.5, repeat: Infinity, repeatDelay: 8, ease: "easeInOut" }}
-    />
-  );
-}
-
-/**
- * Letters cut into the metal.
+ * The slate itself.
  *
- * Dark in the recess; a hard bright lip along the lower edge where the far
- * wall of the cut faces the light; a soft shadow above it. `scale` keeps the
- * three offsets proportional at any size.
+ * `brightness` decides how far it lifts off the page rather than how light the
+ * board is — a chalkboard that is actually bright stops being a chalkboard. So
+ * the dial moves the edge light, the surface sheen and the border, and leaves
+ * the slate colour alone.
  */
-function cut(scale: number): CSSProperties {
-  const d = Math.max(1, Math.round(scale));
+function boardStyle(s: WallStyle): CSSProperties {
+  const b = s.brightness / 100;
   return {
-    color: "#372611",
-    textShadow:
-      `0 ${d}px 0 rgba(255,248,226,0.62), ` +
-      `0 -${d}px ${d}px rgba(52,34,8,0.45), ` +
-      `0 ${d * 2}px ${d * 2}px rgba(72,48,12,0.22)`,
+    background: s.board,
+    border: `1px solid ${tint(s.rule, 0.1 + b * 0.22)}`,
+    boxShadow: `inset 0 1px 0 rgba(255,255,255,${(0.02 + b * 0.05).toFixed(3)}),`
+             + ` inset 0 0 60px rgba(0,0,0,0.75),`
+             + ` 0 18px 40px -30px #000`,
   };
 }
 
-/** An engraved hairline. */
-function Rule({ flip = false }: { flip?: boolean }) {
+/** Grain, erasing ghosts, vignette and sheen. Four layers, none of them moving. */
+function Slate({ style }: { style: WallStyle }) {
+  const b = style.brightness / 100;
   return (
-    <span className="h-[2px] flex-1 rounded-full"
-          style={{
-            background: `linear-gradient(${flip ? 270 : 90}deg, transparent, rgba(58,42,16,0.42))`,
-            boxShadow: "0 1px 0 rgba(255,246,222,0.45)",
-          }} />
+    <>
+      {/* Grain. One tile of fractal noise, drawn by the browser, no request. */}
+      <span aria-hidden className="absolute inset-0 pointer-events-none" style={{
+        backgroundImage: `url("data:image/svg+xml;utf8,${encodeURIComponent(
+          `<svg xmlns='http://www.w3.org/2000/svg' width='140' height='140'>` +
+          `<filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3'/>` +
+          `<feColorMatrix type='saturate' values='0'/></filter>` +
+          `<rect width='140' height='140' filter='url(%23n)' opacity='0.5'/></svg>`)}")`,
+        opacity: 0.06 + b * 0.04,
+        mixBlendMode: "overlay",
+      }} />
+      {/* The ghosts of erasing: broad, faint, off-axis arcs. */}
+      <span aria-hidden className="absolute inset-0 pointer-events-none" style={{
+        background:
+          `radial-gradient(60% 22% at 22% 34%, rgba(226,232,240,${(0.030 + b * 0.030).toFixed(3)}), transparent 70%),` +
+          `radial-gradient(48% 18% at 74% 26%, rgba(226,232,240,${(0.022 + b * 0.024).toFixed(3)}), transparent 72%),` +
+          `radial-gradient(70% 20% at 56% 76%, rgba(226,232,240,${(0.026 + b * 0.026).toFixed(3)}), transparent 74%),` +
+          `radial-gradient(38% 26% at 12% 82%, rgba(226,232,240,${(0.018 + b * 0.020).toFixed(3)}), transparent 76%)`,
+        transform: "rotate(-1.4deg) scale(1.06)",
+      }} />
+      {/* Sheen along the top, vignette into the corners. */}
+      <span aria-hidden className="absolute inset-0 pointer-events-none" style={{
+        background:
+          `linear-gradient(178deg, rgba(255,255,255,${(0.020 + b * 0.030).toFixed(3)}), transparent 34%),` +
+          `radial-gradient(120% 90% at 50% 45%, transparent 42%, rgba(0,0,0,0.55))`,
+      }} />
+    </>
   );
 }
 
-/** Struck corner ornaments — the "ancient kings" read, at almost no cost. */
-function Corners() {
-  const arm = (extra: CSSProperties): CSSProperties => ({
-    position: "absolute", width: 26, height: 26,
-    borderColor: "rgba(58,42,16,0.34)",
-    filter: "drop-shadow(0 1px 0 rgba(255,246,222,0.45))",
-    ...extra,
-  });
+/**
+ * The line under the blessed name.
+ *
+ * Drawn as one hand-wobbled path rather than a rule, because the brief was a
+ * scratch somebody made with a blade and "it's not perfect" is the whole
+ * point — a centred 1px border reads as furniture. The wobble is fixed rather
+ * than random so it does not change shape on every render, which would be its
+ * own kind of wrong: a scratch in slate stays where it was cut.
+ */
+function Squiggle({ style, compact }: { style: WallStyle; compact: boolean }) {
+  const g = style.glow / 100;
   return (
-    <div aria-hidden className="pointer-events-none absolute inset-3 md:inset-4">
-      <span style={arm({ top: 0, left: 0, borderTopWidth: 2, borderLeftWidth: 2, borderTopLeftRadius: 10 })} />
-      <span style={arm({ top: 0, right: 0, borderTopWidth: 2, borderRightWidth: 2, borderTopRightRadius: 10 })} />
-      <span style={arm({ bottom: 0, left: 0, borderBottomWidth: 2, borderLeftWidth: 2, borderBottomLeftRadius: 10 })} />
-      <span style={arm({ bottom: 0, right: 0, borderBottomWidth: 2, borderRightWidth: 2, borderBottomRightRadius: 10 })} />
-    </div>
-  );
-}
-
-/** A small struck crown above the title. */
-function Crown() {
-  return (
-    <svg width="34" height="20" viewBox="0 0 34 20" className="mx-auto block" aria-hidden
-         style={{ filter: "drop-shadow(0 1px 0 rgba(255,248,226,0.6))" }}>
-      <path d="M2 17 L5 5 L11 11 L17 2 L23 11 L29 5 L32 17 Z"
-            fill="rgba(55,38,13,0.72)" stroke="rgba(40,27,8,0.5)" strokeWidth="1" strokeLinejoin="round" />
-      <rect x="2" y="17" width="30" height="2.4" rx="1.2" fill="rgba(55,38,13,0.72)" />
+    <svg
+      aria-hidden
+      viewBox="0 0 220 12"
+      className={compact ? "my-3" : "my-4"}
+      style={{ width: compact ? 150 : 190, height: compact ? 9 : 12, overflow: "visible" }}
+      preserveAspectRatio="none"
+    >
+      {/* The shadow in the groove, offset a hair down, as with the letters. */}
+      {/* The dark the broken edge throws, then the lit groove over it — the
+          same two parts as a letter, so the scratch belongs to the same hand. */}
+      <path d={SQUIGGLE} fill="none" stroke="rgba(0,0,0,0.92)" strokeWidth={2.4}
+            strokeLinecap="round" transform="translate(0,1.3)" />
+      <path d={SQUIGGLE} fill="none" stroke={carveCore(style.rule, style.glow)} strokeWidth={1.15}
+            strokeLinecap="round"
+            style={{ filter: `drop-shadow(0 0 ${(1 + g * 3).toFixed(1)}px ${tint(style.rule, 0.55 + g * 0.35)})`
+                           + ` drop-shadow(0 0 ${(4 + g * 12).toFixed(1)}px ${tint(style.rule, 0.18 + g * 0.3)})` }} />
     </svg>
   );
 }
 
-/* ── the single slot ──────────────────────────────────────────────────────── */
-
 /**
- * Obsidian set into the gold. Empty is a real state and says so rather than
- * collapsing, because an unclaimed slot is part of what makes the prize worth
- * winning.
+ * One scratch, with the pressure and direction changes of a real one: it digs
+ * in at the start, wanders off the centreline, and lifts before the end.
  */
-function Inlay({ name, still }: { name: WallName | null; still: boolean }) {
-  return (
-    <div className="relative rounded-2xl p-[2px] w-full max-w-md"
-         style={{
-           // The bezel: the lip of metal around the recess, bright on top where
-           // it faces the light and dark underneath.
-           background: "linear-gradient(180deg, rgba(74,52,18,0.9), rgba(240,222,180,0.85))",
-           boxShadow: "0 2px 5px rgba(60,40,10,0.45)",
-         }}>
-      <div className="relative overflow-hidden rounded-[15px] px-6 py-4 md:px-10 md:py-5 text-center"
-           style={{
-             background:
-               "radial-gradient(110% 130% at 50% 0%, rgba(217,183,117,0.14), transparent 68%)," +
-               "linear-gradient(178deg, #171528, #0a0912 62%, #08070f)",
-             boxShadow: "inset 0 3px 10px rgba(0,0,0,0.85), inset 0 -1px 0 rgba(217,183,117,0.14)",
-           }}>
-        {/* A warm breath behind the name — opacity only. */}
-        {name && !still && (
-          <motion.span aria-hidden className="pointer-events-none absolute inset-0"
-                       style={{ background: "radial-gradient(80% 120% at 50% 110%, rgba(217,183,117,0.5), transparent 62%)" }}
-                       initial={{ opacity: 0.16 }} animate={{ opacity: [0.16, 0.34, 0.16] }}
-                       transition={{ duration: 7, repeat: Infinity, ease: "easeInOut" }} />
-        )}
-
-        <div className="relative">
-          <div className="text-[8.5px] uppercase tracking-[0.4em]"
-               style={{ color: name ? ROYAL.gold : ROYAL.dim }}>
-            The Blessed Name
-          </div>
-
-          {name ? (
-            <div className="relative mt-1.5">
-              <span className="block text-[22px] md:text-[28px] leading-tight break-words"
-                    style={{
-                      fontFamily: HEADING, fontWeight: 800, letterSpacing: "0.05em",
-                      color: "#f4e6c4",
-                      textShadow: "0 0 22px rgba(217,183,117,0.4), 0 1px 0 rgba(0,0,0,0.7)",
-                    }}>
-                {name.display}
-              </span>
-
-              {/* The light inside the stone: masked to the glyphs, so it travels
-                  through the letters rather than across a rectangle over them. */}
-              {!still && (
-                <motion.span
-                  aria-hidden
-                  className="pointer-events-none absolute inset-0 block text-[22px] md:text-[28px] leading-tight break-words"
-                  style={{
-                    fontFamily: HEADING, fontWeight: 800, letterSpacing: "0.05em",
-                    backgroundImage:
-                      "linear-gradient(105deg, transparent 38%, rgba(255,248,228,0.9) 50%, transparent 62%)",
-                    backgroundSize: "260% 100%",
-                    WebkitBackgroundClip: "text", backgroundClip: "text",
-                    color: "transparent",
-                    opacity: 0.34,
-                  }}
-                  initial={{ backgroundPosition: "180% 0%" }}
-                  animate={{ backgroundPosition: "-80% 0%" }}
-                  transition={{ duration: 9, repeat: Infinity, repeatDelay: 3.5, ease: "linear" }}
-                >
-                  {name.display}
-                </motion.span>
-              )}
-
-              {name.note && (
-                <span className="block text-[9px] mt-1.5 uppercase tracking-[0.2em]"
-                      style={{ color: "rgba(217,183,117,0.6)" }}>
-                  {name.note}
-                </span>
-              )}
-            </div>
-          ) : (
-            <p className="text-[12px] mt-2" style={{ color: ROYAL.dim }}>
-              Unclaimed. One name at a time, and only from the Blessed draw.
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+const SQUIGGLE =
+  "M4,7.4 C22,5.2 30,8.4 48,6.1 C64,4.1 72,7.9 92,5.6 " +
+  "C106,4.0 116,8.1 132,6.0 C150,3.7 158,7.6 176,5.4 C192,3.5 202,6.4 216,4.9";

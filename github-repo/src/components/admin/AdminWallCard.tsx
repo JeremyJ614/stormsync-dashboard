@@ -5,7 +5,7 @@ import {
 } from "../../lib/wall";
 import {
   getWallStyleSnapshot, previewWallStyle, saveWallStyle, loadWallStyle,
-  WALL_DEFAULTS, type WallStyle,
+  WALL_DEFAULTS, WALL_FONTS, type WallStyle,
 } from "../../lib/wallStyle";
 import { NameWall } from "../NameWall";
 import { audit } from "../../lib/adminAudit";
@@ -143,8 +143,45 @@ export function AdminWallCard() {
       <div className="grid sm:grid-cols-2 gap-x-5 gap-y-3">
         <Dial label="Glow" hint="How far light spills out of a cut. Low reads as carved; high reads as neon."
               value={style.glow} onChange={(v) => edit({ glow: v })} />
+        <Dial label="Depth of cut" hint="The light gradient across each letter — shadowed lip, hot centre, bright rim. This is what makes it carved rather than coloured."
+              value={style.bevel} onChange={(v) => edit({ bevel: v })} />
         <Dial label="Brightness" hint="How far the board lifts off the page behind it."
               value={style.brightness} onChange={(v) => edit({ brightness: v })} />
+        <Dial label="Letter spacing" hint="Inscriptions are cut wide. Tight spacing reads as a logo."
+              value={style.tracking} max={60}
+              onChange={(v) => edit({ tracking: v })} />
+      </div>
+
+      {/* ── the letterforms ────────────────────────────────────────────── */}
+      <div className="grid sm:grid-cols-2 gap-x-5 gap-y-3">
+        <div>
+          <span className="text-xs font-semibold">Face</span>
+          <select value={style.font}
+                  onChange={(e) => edit({ font: e.target.value as WallStyle["font"] })}
+                  className="w-full mt-1 bg-muted/30 border border-border rounded-lg px-2.5 py-2 text-xs outline-none focus:border-primary/40">
+            {WALL_FONTS.map((f) => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+          <p className="text-[10.5px] leading-snug mt-1" style={{ color: ROYAL.dim }}>
+            Cinzel is drawn from Roman letters cut into stone, which is why it is the default.
+          </p>
+        </div>
+        <div>
+          <div className="flex items-baseline justify-between">
+            <span className="text-xs font-semibold">Stroke weight</span>
+            <span className="text-[11px] tabular-nums" style={{ color: ROYAL.dim }}>{style.weight}</span>
+          </div>
+          <input type="range" min={300} max={900} step={100} value={style.weight}
+                 onChange={(e) => edit({ weight: +e.target.value })}
+                 className="w-full accent-primary mt-1" aria-label="Stroke weight" />
+          <p className="text-[10.5px] leading-snug" style={{ color: ROYAL.dim }}>
+            Thin cuts like a chisel. Heavy cuts like a sign.
+          </p>
+          <label className="flex items-center gap-2 text-xs cursor-pointer select-none mt-2">
+            <input type="checkbox" checked={style.caps}
+                   onChange={(e) => edit({ caps: e.target.checked })} className="accent-primary" />
+            Capitals
+          </label>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-x-5 gap-y-2">
@@ -250,15 +287,15 @@ export function AdminWallCard() {
 }
 
 function Dial({
-  label, hint, value, onChange,
-}: { label: string; hint: string; value: number; onChange: (v: number) => void }) {
+  label, hint, value, onChange, max = 100,
+}: { label: string; hint: string; value: number; onChange: (v: number) => void; max?: number }) {
   return (
     <div>
       <div className="flex items-baseline justify-between">
         <span className="text-xs font-semibold">{label}</span>
         <span className="text-[11px] tabular-nums" style={{ color: ROYAL.dim }}>{value}</span>
       </div>
-      <input type="range" min={0} max={100} value={value}
+      <input type="range" min={0} max={max} value={value}
              onChange={(e) => onChange(+e.target.value)}
              className="w-full accent-primary mt-1" aria-label={label} />
       <p className="text-[10.5px] leading-snug" style={{ color: ROYAL.dim }}>{hint}</p>

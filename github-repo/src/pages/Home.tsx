@@ -205,16 +205,23 @@ export default function Home() {
 
       {/* Underneath and outside, as asked. Height and type are derived from the
           logo rather than fixed, so shrinking the mark shrinks these with it. */}
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-nowrap sm:flex-wrap gap-1.5 sm:gap-2">
         <HomeButton href="/dashboard" tone="primary">
-          Open Dashboard <ArrowRight className="w-3.5 h-3.5" />
+          <span className="sm:hidden">Dashboard</span>
+          <span className="hidden sm:inline">Open Dashboard</span>
+          <ArrowRight className="w-3.5 h-3.5" />
         </HomeButton>
         <HomeButton href="/warnings" tone="alert">
-          <AlertCircle className="w-3.5 h-3.5" /> Live Warnings
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span className="sm:hidden">Warnings</span>
+          <span className="hidden sm:inline">Live Warnings</span>
         </HomeButton>
         <InstallApp variant="compact" />
         {!user && (
-          <HomeButton href="/login" tone="muted">Create Account</HomeButton>
+          <HomeButton href="/login" tone="muted">
+            <span className="sm:hidden">Sign up</span>
+            <span className="hidden sm:inline">Create Account</span>
+          </HomeButton>
         )}
       </div>
 
@@ -223,9 +230,14 @@ export default function Home() {
           stacked below that — a chalkboard squeezed into half a phone screen
           is neither a wall nor a briefing. `items-stretch` is what makes the
           board match the briefing's height rather than guessing at it. */}
-      <div className="grid lg:grid-cols-2 gap-4 items-stretch">
+      <div className="grid grid-cols-2 gap-2 sm:gap-3 lg:gap-4 items-stretch">
         <DailyBriefing compact />
-        <div className="min-h-[190px]"><NameWall /></div>
+        {/* `compact` below sm is what lets the board hold a name legibly in
+            half a phone screen; above that it is the roomier variant. */}
+        <div className="min-h-[168px] sm:min-h-[190px]">
+          <span className="contents sm:hidden"><NameWall compact /></span>
+          <span className="hidden sm:contents"><NameWall /></span>
+        </div>
       </div>
 
       {/* ── news ────────────────────────────────────────────────────────── */}

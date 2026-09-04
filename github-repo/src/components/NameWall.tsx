@@ -4,37 +4,37 @@ import { useQuery } from "@tanstack/react-query";
 import { listWall } from "../lib/wall";
 import {
   subscribeWallStyle, getWallStyleSnapshot, getWallStyleServerSnapshot,
-  carve, carveCore, tint, type WallStyle,
+  carve, carveCore, grooveFill, carvedType, tint, type WallStyle,
 } from "../lib/wallStyle";
-import { HEADING, EASE, prefersReducedMotion } from "../lib/royal";
+import { EASE, prefersReducedMotion } from "../lib/royal";
 
 /**
  * The wall.
  *
- * A slate board with names cut into it. One gold name at the top, a line
- * scratched underneath it by hand, and everyone else in white below that.
- * Names and nothing else — no captions saying what anybody won, no headings
- * explaining what the board is. A wall of names explains itself, and labelling
- * each one with its prize turns a monument into a receipt.
+ * A slate board with names cut into it. One name at the top in gold, a line
+ * scratched under it by hand, and everyone else in white below. Names and
+ * nothing else — no captions saying what anybody won, no heading explaining
+ * what the board is. A wall of names explains itself, and labelling each one
+ * with its prize turns a monument into a receipt.
  *
- * WHY IT IS BARELY THERE. The previous version was a sheet of gold, and it
- * shouted: on a near-black page it stopped being part of the app and became a
- * banner sitting on top of it. This one is the page's own darkness with a
- * surface — you notice the names before you notice the board, which is the
- * right way round.
+ * HOW A LETTER IS ACTUALLY CARVED HERE — two layers, and it needs both.
  *
- * HYPER-REAL SLATE, HONESTLY CHEAP. Real chalkboard is not a flat fill. It has
- * a grain, it has the ghosts of a hundred erasings smeared in arcs across it,
- * it is darker at the edges than in the middle, and it has a faint sheen where
- * the light crosses it. All four are here as stacked gradients plus one static
- * SVG turbulence tile — no images to load, nothing animated, so the texture
- * costs a paint and never a frame.
+ * The first attempt was one layer: a flat-coloured glyph with a glow hung off
+ * it. That is a font with an effect on it, and it looked like one, because
+ * every pixel of every stroke was the same colour and real carving never is.
  *
- * CARVED, NOT PRINTED. A cut letter is a groove: dark hard edge below where the
- * near wall is in shadow, softer dark above, and light living inside it. The
- * glow is what makes it read as cut rather than drawn, and it is also the thing
- * that turns the whole board into a neon sign the moment it is overdone — so it
- * is a dial the owner can turn, defaulting low.
+ * So: the BACK layer is the light escaping the groove onto the surface — the
+ * bloom, and only the bloom. The FRONT layer is the cut itself, drawn by
+ * painting a vertical gradient through the glyphs: shadowed along the top edge
+ * where the near wall turns away from the light, brightest through the middle
+ * where the light pools at the bottom of the V, a hard bright rim along the
+ * lower lip, then back into shadow. Stack them and the bloom spills past the
+ * edges of a letter that is itself shaded like a trench.
+ *
+ * The face is Cinzel by default — Roman inscriptional capitals, letterforms
+ * drawn to be cut into stone with a chisel. Everything about the type is the
+ * owner's to change in the admin panel, because "carved" is a look somebody
+ * has to be able to judge on their own screen.
  */
 export function NameWall({ compact = false }: { compact?: boolean }) {
   const still = prefersReducedMotion();
@@ -55,32 +55,27 @@ export function NameWall({ compact = false }: { compact?: boolean }) {
              style={boardStyle(style)}>
       <Slate style={style} />
 
-      <div className={`relative flex flex-col items-center justify-center text-center h-full ${
-        compact ? "px-4 py-5" : "px-5 py-7 md:px-7"}`}>
+      <div className={`relative flex flex-col items-center justify-center text-center h-full
+                       ${compact ? "px-2.5 py-4" : "px-3 py-5 sm:px-5 sm:py-6"}`}>
         {/* ── the one name ─────────────────────────────────────────────── */}
         {blessed ? (
-          <motion.span
-            className={`block break-words ${compact ? "text-[19px] md:text-[22px]" : "text-[22px] md:text-[27px]"}`}
-            style={{
-              // Lighter weight and wider tracking on purpose: a thick letter
-              // with a halo is a neon sign, and a thin one with the same halo
-              // is a chisel mark. The reference is all thin strokes.
-              fontFamily: HEADING, fontWeight: 500, letterSpacing: "0.16em",
-              color: carveCore(style.blessed, style.glow),
-              textShadow: carve(style.blessed, style.glow, compact ? 1 : 1.25),
-            }}
-            initial={still ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.7, ease: EASE }}
-          >
-            {blessed.display}
-          </motion.span>
+          <Carved
+            text={blessed.display}
+            colour={style.blessed}
+            style={style}
+            /* Fluid rather than stepped: this sits in half a phone screen at
+               one end and half a desktop row at the other, and a name has to
+               be cut at the right size for the space it is in at every width
+               in between — not at three chosen ones. */
+            size={compact ? "clamp(13px, 4.4vw, 21px)" : "clamp(15px, 2.4vw, 27px)"}
+            still={still}
+          />
         ) : (
-          <span className={`block ${compact ? "text-[13px]" : "text-[15px]"}`}
-                style={{
-                  fontFamily: HEADING, fontWeight: 600, letterSpacing: "0.06em",
-                  color: tint(style.blessed, 0.34),
-                }}>
+          <span style={{
+            ...carvedType(style),
+            fontSize: compact ? "clamp(10px, 3vw, 13px)" : "13px",
+            color: tint(style.blessed, 0.32),
+          }}>
             Unclaimed
           </span>
         )}
@@ -90,12 +85,15 @@ export function NameWall({ compact = false }: { compact?: boolean }) {
 
         {/* ── everybody else ───────────────────────────────────────────── */}
         {roll.length === 0 ? (
-          <span className={compact ? "text-[11px]" : "text-[12px]"}
-                style={{ color: tint(style.roll, 0.3), fontFamily: HEADING, letterSpacing: "0.05em" }}>
+          <span style={{
+            ...carvedType(style),
+            fontSize: compact ? "clamp(9px, 2.6vw, 11px)" : "11.5px",
+            color: tint(style.roll, 0.28),
+          }}>
             No names yet
           </span>
         ) : (
-          <ul className="flex flex-wrap justify-center gap-x-4 gap-y-1.5">
+          <ul className={`flex flex-wrap justify-center ${compact ? "gap-x-2.5 gap-y-1" : "gap-x-4 gap-y-1.5"}`}>
             {roll.map((n, i) => (
               <motion.li
                 key={n.id}
@@ -103,20 +101,78 @@ export function NameWall({ compact = false }: { compact?: boolean }) {
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true, margin: "-30px" }}
                 transition={still ? { duration: 0 } : { duration: 0.45, delay: Math.min(i, 10) * 0.05, ease: EASE }}
-                className={`break-words ${compact ? "text-[12.5px]" : "text-[14px] md:text-[15px]"}`}
-                style={{
-                  fontFamily: HEADING, fontWeight: 500, letterSpacing: "0.11em",
-                  color: carveCore(style.roll, style.glow),
-                  textShadow: carve(style.roll, style.glow, compact ? 0.75 : 0.9),
-                }}
               >
-                {n.display}
+                <Carved
+                  text={n.display}
+                  colour={style.roll}
+                  style={style}
+                  size={compact ? "clamp(9px, 2.7vw, 13px)" : "clamp(11px, 1.2vw, 15px)"}
+                  scale={compact ? 0.7 : 0.85}
+                  still={still}
+                />
               </motion.li>
             ))}
           </ul>
         )}
       </div>
     </section>
+  );
+}
+
+/* ── a carved name ────────────────────────────────────────────────────────── */
+
+/**
+ * One name, cut into the board.
+ *
+ * The back copy carries the bloom and is `aria-hidden`; the front copy carries
+ * the groove gradient and is the one a screen reader sees, so the name is
+ * announced once rather than twice.
+ *
+ * `paintOrder`/`WebkitTextStroke` are deliberately absent: an outline is the
+ * thing that made the first version look pasted on. The only darkness is the
+ * shadow in `carve`, seating it into the surface.
+ */
+function Carved({
+  text, colour, style, size, scale = 1, still,
+}: {
+  text: string; colour: string; style: WallStyle;
+  size: string; scale?: number; still: boolean;
+}) {
+  const type = carvedType(style);
+  const shared: CSSProperties = {
+    ...type,
+    fontSize: size,
+    lineHeight: 1.16,
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+  };
+  return (
+    <motion.span
+      className="relative inline-block"
+      initial={still ? false : { opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.7, ease: EASE }}
+      style={shared}
+    >
+      {/* the light coming out of the cut */}
+      <span aria-hidden className="absolute inset-0 pointer-events-none" style={{
+        ...shared,
+        color: carveCore(colour, style.glow),
+        textShadow: carve(colour, style.glow, scale),
+      }}>
+        {text}
+      </span>
+      {/* the cut */}
+      <span className="relative" style={{
+        ...shared,
+        backgroundImage: grooveFill(colour, style.glow, style.bevel),
+        WebkitBackgroundClip: "text",
+        backgroundClip: "text",
+        color: "transparent",
+      }}>
+        {text}
+      </span>
+    </motion.span>
   );
 }
 
@@ -178,11 +234,11 @@ function Slate({ style }: { style: WallStyle }) {
 /**
  * The line under the blessed name.
  *
- * Drawn as one hand-wobbled path rather than a rule, because the brief was a
- * scratch somebody made with a blade and "it's not perfect" is the whole
- * point — a centred 1px border reads as furniture. The wobble is fixed rather
- * than random so it does not change shape on every render, which would be its
- * own kind of wrong: a scratch in slate stays where it was cut.
+ * One hand-wobbled path rather than a rule, because the brief was a scratch
+ * somebody made with a blade and "it's not perfect" is the point — a centred
+ * 1px border reads as furniture. The wobble is fixed rather than random so it
+ * does not change shape on every render: a scratch in slate stays where it was
+ * cut.
  */
 function Squiggle({ style, compact }: { style: WallStyle; compact: boolean }) {
   const g = style.glow / 100;
@@ -190,11 +246,10 @@ function Squiggle({ style, compact }: { style: WallStyle; compact: boolean }) {
     <svg
       aria-hidden
       viewBox="0 0 220 12"
-      className={compact ? "my-3" : "my-4"}
-      style={{ width: compact ? 150 : 190, height: compact ? 9 : 12, overflow: "visible" }}
+      className={compact ? "my-2" : "my-3.5"}
+      style={{ width: compact ? "62%" : "56%", maxWidth: 190, height: compact ? 8 : 11, overflow: "visible" }}
       preserveAspectRatio="none"
     >
-      {/* The shadow in the groove, offset a hair down, as with the letters. */}
       {/* The dark the broken edge throws, then the lit groove over it — the
           same two parts as a letter, so the scratch belongs to the same hand. */}
       <path d={SQUIGGLE} fill="none" stroke="rgba(0,0,0,0.92)" strokeWidth={2.4}

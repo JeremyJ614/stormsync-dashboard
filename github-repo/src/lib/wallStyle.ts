@@ -36,7 +36,38 @@ export interface WallStyle {
   glow: number;
   /** How far the board lifts off the page behind it, 0–100. */
   brightness: number;
+
+  // ── the letterforms ──────────────────────────────────────────────────────
+  /** Which face the names are cut in. */
+  font: WallFont;
+  /** Stroke weight. Thin reads as chiselled; heavy reads as a sign. */
+  weight: number;
+  /** Letter-spacing, in hundredths of an em. Inscriptions are spaced wide. */
+  tracking: number;
+  /** Roman inscriptions are capitals. Off gives sentence case. */
+  caps: boolean;
+  /**
+   * How deep the cut looks, 0–100.
+   *
+   * This is the vertical light gradient across each glyph — shadowed at the
+   * top edge where the near wall of the groove turns away, hot through the
+   * middle where the light lives, a bright rim along the bottom lip. At 0 the
+   * letter is flat colour and only the bloom suggests a cut; at 100 it is a
+   * deep V with a hard rim.
+   */
+  bevel: number;
 }
+
+/** The faces on offer. Cinzel is the carved one; Raleway is the app's own. */
+export type WallFont = "cinzel" | "raleway";
+
+export const WALL_FONTS: { id: WallFont; label: string; stack: string }[] = [
+  { id: "cinzel", label: "Cinzel — Roman inscriptional", stack: "'Cinzel', 'Times New Roman', serif" },
+  { id: "raleway", label: "Raleway — the app's heading", stack: "'Raleway', 'DM Sans', sans-serif" },
+];
+
+export const fontStack = (f: WallFont): string =>
+  (WALL_FONTS.find((x) => x.id === f) ?? WALL_FONTS[0]).stack;
 
 export const WALL_DEFAULTS: WallStyle = {
   board: "#0b1210",
@@ -45,6 +76,11 @@ export const WALL_DEFAULTS: WallStyle = {
   rule: "#c8a86a",
   glow: 34,
   brightness: 26,
+  font: "cinzel",
+  weight: 600,
+  tracking: 16,
+  caps: true,
+  bevel: 62,
 };
 
 export interface WallStyleState { style: WallStyle; loaded: boolean }
@@ -97,10 +133,16 @@ function merge(stored: Partial<WallStyle> | null | undefined): WallStyle {
     const v = stored[k];
     if (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) out[k] = v;
   }
-  for (const k of ["glow", "brightness"] as const) {
+  for (const k of ["glow", "brightness", "bevel"] as const) {
     const v = Number(stored[k]);
     if (Number.isFinite(v)) out[k] = Math.min(100, Math.max(0, Math.round(v)));
   }
+  if (WALL_FONTS.some((f) => f.id === stored.font)) out.font = stored.font as WallFont;
+  const w = Number(stored.weight);
+  if (Number.isFinite(w)) out.weight = Math.min(900, Math.max(300, Math.round(w / 100) * 100));
+  const t = Number(stored.tracking);
+  if (Number.isFinite(t)) out.tracking = Math.min(60, Math.max(0, Math.round(t)));
+  if (typeof stored.caps === "boolean") out.caps = stored.caps;
   return out;
 }
 
@@ -158,36 +200,74 @@ export function carveCore(colour: string, glow: number): string {
 }
 
 /**
- * A letter cut into slate, with light living in the cut.
+ * The bloom — light escaping the groove onto the surface around it.
  *
- * Built from the reference rather than from a formula: an incised stroke on a
- * dark wall is a thin bright line, a tight halo where the light hits the walls
- * of the groove, a wider bloom washing the surface either side, and one dark
- * seat underneath where the surface is broken. Four glow radii rather than two
- * because a single blur reads as a sticker with a shadow — it is the falloff
- * across several distances that makes it look like light escaping a recess.
+ * This is only half of a carved letter and it was the half I had before: on
+ * its own it is a font with a glow filter, which is exactly what it looked
+ * like. It has to sit BEHIND a glyph that is itself shaded like a cut, or
+ * there is no cut. See `grooveFill`.
  *
- * There is deliberately NO dark outline around the glyph. That was the previous
- * version's mistake: ringing a bright letter in black pushes the bloom off the
- * surface and turns a lit groove back into text sitting on top of the board.
- * The only darkness is below, seating it.
- *
- * `scale` keeps a big name and a small one cut by the same blade; `glow` is the
- * owner's dial, and at 0 it is still a legible incision rather than nothing.
+ * Four falloff distances rather than one, because a single blur reads as a
+ * sticker with a shadow — it is the way light drops off across several
+ * distances that makes it look like it is coming out of something.
  */
 export function carve(colour: string, glow: number, scale = 1): string {
   const g = Math.max(0, Math.min(100, glow)) / 100;
   const s = Math.max(0.6, scale);
   const r = (base: number) => (base * s * (0.45 + g * 0.9)).toFixed(1);
   return [
-    // Seated in the surface: the shadow the broken edge throws.
     `0 ${(1.4 * s).toFixed(1)}px ${(2.2 * s).toFixed(1)}px rgba(0,0,0,0.95)`,
-    // The stroke's own hard edge, then the light on the walls of the cut.
     `0 0 ${(1.1 * s).toFixed(1)}px ${tint(colour, 0.9)}`,
     `0 0 ${r(5)}px ${tint(colour, 0.5 + g * 0.4)}`,
-    // The bloom washing the board on either side.
     `0 0 ${r(13)}px ${tint(colour, 0.24 + g * 0.34)}`,
     `0 0 ${r(30)}px ${tint(colour, 0.08 + g * 0.26)}`,
     `0 0 ${r(60)}px ${tint(colour, g * 0.18)}`,
   ].join(", ");
+}
+
+/**
+ * The groove itself: a vertical gradient painted THROUGH the glyphs.
+ *
+ * This is the part that makes it carved rather than glowing. Look at a letter
+ * chiselled into stone lit from above and it is not one colour — it is dark
+ * along the top edge where the near wall of the cut turns away from the light,
+ * brightest through the middle where the light reaches the bottom of the V,
+ * and it carries a hard bright rim along the lower lip where the far wall
+ * comes back up to the surface. Four bands, clipped to the text.
+ *
+ * A flat fill cannot do this at any glow setting, which is why the previous
+ * version always looked like type with an effect on it: every pixel of every
+ * stroke was the same colour, and real carving never is.
+ *
+ * `bevel` moves the bands apart and deepens the darks. At 0 it collapses to
+ * near-flat so somebody who wants plain glowing text can have it.
+ */
+export function grooveFill(colour: string, glow: number, bevel: number): string {
+  const b = Math.max(0, Math.min(100, bevel)) / 100;
+  const core = carveCore(colour, glow);
+  // Shadowed lip, the body of the cut, the hot line where light pools, the
+  // catch along the bottom edge, then back into shadow.
+  const topDark = `rgba(0,0,0,${(0.20 + b * 0.62).toFixed(2)})`;
+  const body = tint(colour, 0.75 + b * 0.2);
+  const botDark = `rgba(0,0,0,${(0.12 + b * 0.45).toFixed(2)})`;
+  const rim = `rgba(255,255,255,${(0.10 + b * 0.55).toFixed(2)})`;
+  return `linear-gradient(180deg,`
+    + ` ${topDark} 0%,`
+    + ` ${body} ${(26 - b * 8).toFixed(0)}%,`
+    + ` ${core} ${(50 - b * 4).toFixed(0)}%,`
+    + ` ${body} ${(68 + b * 2).toFixed(0)}%,`
+    + ` ${rim} ${(84 + b * 4).toFixed(0)}%,`
+    + ` ${botDark} 100%)`;
+}
+
+/** Typography for a carved name, from the owner's settings. */
+export function carvedType(s: WallStyle): {
+  fontFamily: string; fontWeight: number; letterSpacing: string; textTransform: "uppercase" | "none";
+} {
+  return {
+    fontFamily: fontStack(s.font),
+    fontWeight: s.weight,
+    letterSpacing: `${(s.tracking / 100).toFixed(3)}em`,
+    textTransform: s.caps ? "uppercase" : "none",
+  };
 }

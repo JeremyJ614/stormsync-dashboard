@@ -8,10 +8,12 @@ const CAT_COLOR: Record<string, string> = {
 
 function ProbStat({ icon: Icon, label, value, color, compact }: { icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; label: string; value: number; color: string; compact?: boolean }) {
   return (
-    <div className={`flex-1 bg-muted/20 rounded-lg text-center ${compact ? "min-w-[60px] p-1.5" : "min-w-[88px] p-2.5"}`}>
+    <div className={`flex-1 bg-muted/20 rounded-lg text-center ${compact ? "min-w-0 p-1" : "min-w-[88px] p-2.5"}`}>
       <Icon className={`mx-auto mb-1 ${compact ? "w-3 h-3" : "w-4 h-4"}`} style={{ color }} />
-      <div className={`font-bold tabular-nums ${compact ? "text-sm" : "text-lg"}`} style={{ color }}>{value}%</div>
-      <div className={`uppercase tracking-widest text-muted-foreground ${compact ? "text-[8px]" : "text-[9px]"}`}>{label}</div>
+      <div className="font-bold tabular-nums" style={{ color, fontSize: compact ? "clamp(11px, 3.2vw, 15px)" : undefined }}>
+        {value}%
+      </div>
+      <div className={`uppercase tracking-widest text-muted-foreground truncate ${compact ? "text-[7.5px]" : "text-[9px]"}`}>{label}</div>
     </div>
   );
 }
@@ -59,8 +61,13 @@ export default function DailyBriefing({ compact = false }: { compact?: boolean }
         <div className="flex items-center gap-2">
           <Zap className={compact ? "w-4 h-4" : "w-5 h-5"} style={{ color: catColor }} />
           <div>
-            <div className={`uppercase tracking-[0.3em] text-muted-foreground ${compact ? "text-[8.5px]" : "text-[10px]"}`}>SSWX Storm Engine · Daily Briefing</div>
-            <h2 className={`font-bold leading-tight ${compact ? "text-[15px]" : "text-lg md:text-xl"}`}>{brief.headline ?? "Today's severe weather outlook"}</h2>
+            <div className={`uppercase text-muted-foreground ${compact ? "text-[7.5px] tracking-[0.16em] truncate" : "text-[10px] tracking-[0.3em]"}`}>
+              {compact ? "SSWX Storm Engine" : "SSWX Storm Engine · Daily Briefing"}
+            </div>
+            <h2 className={`font-bold leading-tight ${compact ? "line-clamp-3" : "text-lg md:text-xl"}`}
+                style={compact ? { fontSize: "clamp(11.5px, 3.4vw, 15px)" } : undefined}>
+              {brief.headline ?? "Today's severe weather outlook"}
+            </h2>
           </div>
         </div>
         {ov && (
@@ -71,8 +78,13 @@ export default function DailyBriefing({ compact = false }: { compact?: boolean }
         )}
       </div>
 
+      {/* The summary is the first thing to go when the column is half a phone
+          wide: at ~190px it is four words a line and reads as noise. The
+          headline, the risk category and the three numbers survive at any
+          width, and those are what a glance is actually for. */}
       {brief.summary && (
-        <p className={`leading-relaxed text-foreground/90 ${compact ? "text-[12px] line-clamp-4" : "text-sm"}`}>
+        <p className={`leading-relaxed text-foreground/90 ${
+          compact ? "text-[12px] line-clamp-4 hidden sm:block" : "text-sm"}`}>
           {brief.summary}
         </p>
       )}
@@ -86,7 +98,7 @@ export default function DailyBriefing({ compact = false }: { compact?: boolean }
       )}
 
       {isAI && brief.content.chase_targets && brief.content.chase_targets.length > 0 && (
-        <div className="space-y-1.5">
+        <div className={`space-y-1.5 ${compact ? "hidden lg:block" : ""}`}>
           <div className="text-[10px] uppercase tracking-widest text-muted-foreground flex items-center gap-1.5"><Target className="w-3 h-3" /> Chase Targets</div>
           {brief.content.chase_targets.map((t, i) => (
             <div key={i} className={`bg-muted/20 rounded-lg ${compact ? "p-2 text-[11px]" : "p-2.5 text-xs"}`}>
@@ -97,7 +109,8 @@ export default function DailyBriefing({ compact = false }: { compact?: boolean }
         </div>
       )}
 
-      <div className="flex items-center justify-between gap-2 text-[10px] text-muted-foreground/70 pt-1 border-t border-border/50">
+      <div className={`flex items-center justify-between gap-2 text-[10px] text-muted-foreground/70 pt-1 border-t border-border/50 ${
+        compact ? "hidden sm:flex" : ""}`}>
         <span>
           {isAI
             ? `AI brief · ${brief.model ?? "Storm Engine"}${brief.content.confidence ? ` · ${brief.content.confidence} confidence` : ""}`

@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { ModuleShell } from "../components/ModuleShell";
 import { useQuery } from "@tanstack/react-query";
 import { History, Tornado, ShieldAlert, Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { WeatherHistoryMap } from "../components/WeatherHistoryMap";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { StaticHistoryMap, type LegendRow, type StatBox } from "../components/StaticHistoryMap";
 import {
   fetchWarnings, fetchTornadoTracks, daysBackRange,
-  WARN_TIERS, EF_COLORS, EF_ORDER,
+  WARN_TIERS, EF_COLORS, EF_ORDER, efHistoryColor,
 } from "../lib/severeHistoryData";
 
 /**
@@ -87,17 +88,27 @@ export default function SevereWeatherHistory() {
     return out;
   }, [warnings.data]);
 
+  // Track colour is admin-overridable, and an override has to reach the map
+  // the moment it is saved — the editor's whole point is seeing the change.
+  // Subscribing here re-runs the memos below, which is what recolours both the
+  // legend and the lines.
+  const palette = useSyncExternalStore(subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
+
   const torLines = useMemo(() => {
     const feats = tornadoes.data?.features ?? [];
     const ordered = [...feats].sort((a, b) => EF_ORDER.indexOf(a.properties.ef) - EF_ORDER.indexOf(b.properties.ef));
     const out: { coords: number[][]; color: string }[] = [];
     for (const f of ordered) {
       const g = f.geometry;
-      if (g.type === "LineString") out.push({ coords: g.coordinates as number[][], color: f.properties.color });
-      else if (g.type === "MultiLineString") for (const l of g.coordinates) out.push({ coords: l as number[][], color: f.properties.color });
+      // Recoloured from the rating rather than read off `properties.color`:
+      // that was resolved when the survey was parsed, which is before any
+      // override exists and never again afterwards.
+      const colour = efHistoryColor(f.properties.ef);
+      if (g.type === "LineString") out.push({ coords: g.coordinates as number[][], color: colour });
+      else if (g.type === "MultiLineString") for (const l of g.coordinates) out.push({ coords: l as number[][], color: colour });
     }
     return out;
-  }, [tornadoes.data]);
+  }, [tornadoes.data, palette]);
 
   const warnLegend: LegendRow[] = WARN_TIERS
     .filter(t => t.id !== "other")
@@ -106,14 +117,14 @@ export default function SevereWeatherHistory() {
       WARN_TIERS.find(t => t.label === r.label)!.id));
 
   const torLegend: LegendRow[] = EF_ORDER
-    .map(ef => ({ label: ef, color: EF_COLORS[ef], count: tornadoes.data?.counts[ef] ?? 0 }))
+    .map(ef => ({ label: ef, color: efHistoryColor(ef), count: tornadoes.data?.counts[ef] ?? 0 }))
     .filter(r => r.count > 0);
 
   const torStats: StatBox[] = tornadoes.data ? [
     { label: "Fatalities", value: String(tornadoes.data.fatalities), color: "#ef4444" },
     { label: "Injuries", value: String(tornadoes.data.injuries), color: "#eab308" },
     // Colour this by the rating it is actually showing, not a fixed red.
-    { label: "Highest EF", value: tornadoes.data.highestEf, color: EF_COLORS[tornadoes.data.highestEf] ?? "#8fa3bf" },
+    { label: "Highest EF", value: tornadoes.data.highestEf, color: efHistoryColor(tornadoes.data.highestEf) },
   ] : [];
 
   const warnStats: StatBox[] = warnings.data ? [

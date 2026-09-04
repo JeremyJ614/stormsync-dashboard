@@ -11,6 +11,7 @@
  *   Tornado Emergency > PDS Tornado > Tornado > Destructive > Considerable > Severe
  * (Previously the page advertised seven categories and painted two.)
  */
+import { paletteColor } from "./mapPalette";
 
 export type WarnTier =
   | "tornado-emergency" | "pds-tornado" | "tornado"
@@ -126,6 +127,18 @@ export const EF_COLORS: Record<string, string> = {
   EF5: "#8b46d9", // royal purple
 };
 export const EF_ORDER = ["EFU", "EF0", "EF1", "EF2", "EF3", "EF4", "EF5"];
+
+/**
+ * The EF colour actually in force, honouring any admin override.
+ *
+ * On a track map the rating IS the colour — a viewer reads severity off the
+ * hue and nothing else — so this belongs in the same override layer as the
+ * probability and SPC ramps rather than being a constant only a deploy can
+ * change. `EF_COLORS` stays the default; nothing is stored unless it has been
+ * deliberately changed.
+ */
+export const efHistoryColor = (ef: string): string =>
+  paletteColor(`ef:${ef}`, EF_COLORS[ef] ?? "#8fa3bf");
 
 export interface TornadoFeature {
   type: "Feature";

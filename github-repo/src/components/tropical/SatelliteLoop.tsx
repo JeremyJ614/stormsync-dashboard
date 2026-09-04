@@ -233,7 +233,23 @@ export default function SatelliteLoop({
   }, [data]);
 
   // ── paint ─────────────────────────────────────────────────────────────────
-  const paint = useCallback((i: number) => {
+  /**
+   * Draw frame `i`, optionally dissolving `frac` of the way into `next`.
+   *
+   * WHY A DISSOLVE. Ten-minute imagery at a frame every 700 ms is a slideshow:
+   * fifteen hard cuts, each one a jump the eye reads as a stutter rather than
+   * as weather moving. Nothing is wrong with the frames — there is simply
+   * nothing between them. Cross-fading the changeover gives the eye a
+   * continuous path from one to the next, which is what makes a loop look like
+   * motion instead of a stack of photographs, and it costs one extra
+   * `drawImage` of an already-decoded canvas.
+   *
+   * The frame is held first and dissolved late (see HOLD below) so each picture
+   * is legible in its own right before it starts turning into the next one. A
+   * constant dissolve across the whole interval would mean never seeing any
+   * single frame cleanly.
+   */
+  const paintAt = useCallback((i: number, next: number, frac: number) => {
     const cv = canvasRef.current;
     if (!cv || !data?.available) return;
     const box = cv.getBoundingClientRect();
@@ -243,6 +259,7 @@ export default function SatelliteLoop({
     if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
     const ctx = cv.getContext("2d");
     if (!ctx) return;
+    ctx.globalAlpha = 1;
     ctx.fillStyle = "#000";
     ctx.fillRect(0, 0, w, h);
 
@@ -251,7 +268,21 @@ export default function SatelliteLoop({
     // on every repaint.
     const shot = shots.current.get(i);
     if (shot) ctx.drawImage(shot, 0, 0, w, h);
+
+    // The frame coming in, laid over the one going out. Skipped entirely when
+    // it has not decoded yet, so a gap in the loop holds on the last good
+    // picture rather than fading to black and back.
+    if (frac > 0 && next !== i) {
+      const up = shots.current.get(next);
+      if (up) {
+        ctx.globalAlpha = frac;
+        ctx.drawImage(up, 0, 0, w, h);
+        ctx.globalAlpha = 1;
+      }
+    }
   }, [data]);
+
+  const paint = useCallback((i: number) => paintAt(i, i, 0), [paintAt]);
 
   useEffect(() => { paint(idx); }, [paint, idx, loaded]);
   useEffect(() => {
@@ -265,23 +296,55 @@ export default function SatelliteLoop({
   // ── advance ───────────────────────────────────────────────────────────────
   const settled = useRef<Set<number>>(new Set());
   settled.current = loaded;
+  // The animation loop reads the current frame from a ref, so changing frames
+  // does not tear down and rebuild the loop sixty times a second.
+  const idxRef = useRef(idx);
+  idxRef.current = idx;
+  /**
+   * Playback.
+   *
+   * The loop paints on every animation frame rather than only when the frame
+   * index changes. That is the difference between "advance, then wait 700 ms
+   * doing nothing" and a picture that is always mid-move. React state still
+   * holds which frame is current — the timestamp, the scrubber and the counter
+   * all read it — but it is updated once per frame rather than being the thing
+   * that drives the drawing, so the canvas is never waiting on a re-render.
+   */
   useEffect(() => {
     if (!playing || count < 2) return;
-    let raf = 0, last = performance.now();
     const step = 700 / speed;
+    /** Fraction of each step the frame sits still before dissolving. */
+    const HOLD = 0.55;
+    /** The newest frame is the one people came to look at; let it linger. */
+    const LAST_FRAME_HOLD = 900 / speed;
+
+    let raf = 0;
+    let started = performance.now();
+    let current = -1;
+
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (now - last < step) return;
-      last = now;
-      // Hold rather than blink through a frame whose tiles have not arrived.
-      setIdx((i) => {
-        const n = (i + 1) % count;
-        return settled.current.has(n) ? n : i;
-      });
+      const i = idxRef.current;
+      if (i !== current) { current = i; started = now; }
+
+      const dwell = step + (i === count - 1 ? LAST_FRAME_HOLD : 0);
+      const elapsed = now - started;
+      const n = (i + 1) % count;
+      // Only dissolve toward a frame that has actually arrived; otherwise hold.
+      const ready = settled.current.has(n);
+      const frac = !ready ? 0
+        : Math.min(1, Math.max(0, (elapsed - dwell * HOLD) / (dwell * (1 - HOLD))));
+      paintAt(i, n, frac);
+
+      if (elapsed >= dwell) {
+        started = now;
+        // Hold rather than blink through a frame whose tiles have not arrived.
+        if (ready) { idxRef.current = n; setIdx(n); }
+      }
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, count]);
+  }, [playing, speed, count, paintAt]);
 
   const active = data?.frames?.[idx];
   const buffered = loaded.size;

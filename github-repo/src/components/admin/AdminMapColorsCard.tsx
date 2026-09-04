@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useState } from "react";
 import { Loader2, Palette, RotateCcw, Save } from "lucide-react";
 import { PROB_STEPS } from "../ProbabilityMap";
 import { PALETTES, KIND_TITLE, type Kind } from "../../lib/spcPalette";
+import { EF_COLORS, EF_ORDER } from "../../lib/severeHistoryData";
 import {
   getPaletteSnapshot, previewMapPalette, saveMapPalette, loadMapPalette,
 } from "../../lib/mapPalette";
@@ -14,10 +15,10 @@ const SPCStaticMap = lazy(() =>
   import("../SPCStaticMap").then((m) => ({ default: m.SPCStaticMap })));
 
 /**
- * The colour of the two maps where colour is the data.
+ * The colour of the maps where colour is the data.
  *
- * On the Thunderstorm Probability scale and the SPC Outlook palettes, the shade
- * IS the reading — "how bad is that patch" has no other answer on the map. That
+ * On the Thunderstorm Probability scale, the SPC Outlook palettes and the EF
+ * ramp on Severe Weather History, the shade IS the reading — "how bad is that patch" has no other answer on the map. That
  * makes a wrong colour a forecaster misreading a forecast, and it makes judging
  * a colour from a swatch impossible: a hex that looks distinct in a row of
  * squares can vanish into a near-black basemap or collide with the level two
@@ -43,7 +44,18 @@ const SPC_GROUPS: Group[] = (Object.keys(PALETTES) as Kind[]).map((k) => ({
   swatches: PALETTES[k].map((d, i) => ({ key: `spc:${k}:${i}`, label: d.label, def: d.color })),
 }));
 
-const ALL_GROUPS = [PROB_GROUP, ...SPC_GROUPS];
+const EF_GROUP: Group = {
+  id: "ef",
+  title: "Tornado tracks (EF scale)",
+  note: "Severe Weather History draws every surveyed track in its rating's colour, so the ramp has to stay readable as thin lines on a dark map — which is a harder test than a filled polygon.",
+  swatches: EF_ORDER.map((ef) => ({
+    key: `ef:${ef}`,
+    label: ef === "EFU" ? "EFU · unrated" : ef,
+    def: EF_COLORS[ef],
+  })),
+};
+
+const ALL_GROUPS = [PROB_GROUP, EF_GROUP, ...SPC_GROUPS];
 
 export function AdminMapColorsCard() {
   const [draft, setDraft] = useState<Record<string, string>>(() => ({ ...getPaletteSnapshot().colors }));
@@ -105,9 +117,11 @@ export function AdminMapColorsCard() {
           <Palette className="w-4 h-4" style={{ color: ROYAL.gold }} /> Map colours
         </h3>
         <p className="text-xs text-muted-foreground">
-          The preview below is the real module on today's real outlook, repainting as you type. Only
-          swatches you actually change are stored, so a colour you leave alone keeps following the
-          app's default if that default is ever improved.
+          The preview below repaints as you type — the real module on today's real outlook for the
+          probability and SPC ramps, and sample tracks at true stroke width for the EF scale, whose
+          module needs a date range to draw anything. Only swatches you actually change are stored,
+          so a colour you leave alone keeps following the app's default if that default is ever
+          improved.
         </p>
 
         <div className="flex flex-wrap gap-1.5">
@@ -180,11 +194,15 @@ export function AdminMapColorsCard() {
       {/* ── the preview ─────────────────────────────────────────────────── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-border text-[11px]" style={{ color: ROYAL.dim }}>
-          Live preview — today's real outlook
+          {group.id === "ef"
+            ? "Live preview — sample tracks at map stroke width"
+            : "Live preview — today's real outlook"}
         </div>
         <Suspense fallback={<div className="h-[360px] grid place-items-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
           {group.id === "prob"
             ? <ProbabilityMap day={1} />
+            : group.id === "ef"
+            ? <EfTrackPreview draft={draft} />
             : <SPCStaticMap
                 product={spcProductFor(group.id)}
                 mode={group.id.includes("Intensity") ? "intensity" : "likelihood"}
@@ -192,6 +210,64 @@ export function AdminMapColorsCard() {
                 subtitle="Preview" />}
         </Suspense>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Sample tracks, at the width the map actually draws them.
+ *
+ * Not the Severe Weather History module itself, unlike the other two previews.
+ * That one is driven by a date range and a survey fetch, and an empty range
+ * paints nothing — a preview that is blank most of the year is worse than no
+ * preview. What actually needs testing here is narrower anyway: a tornado
+ * track is a two-pixel line, and a hue that reads perfectly as a filled outlook
+ * polygon can disappear entirely at that width against the basemap. So this
+ * draws real track shapes, at the real stroke width, on the map's own ground.
+ */
+function EfTrackPreview({ draft }: { draft: Record<string, string> }) {
+  // Rough but real: paths traced from the shape of long-track tornadoes, so
+  // the preview has the kinks and direction changes a straight line would hide.
+  // Each entry is the path and the y its stroke ends at, so the label sits on
+  // the track it names instead of near it.
+  const TRACKS: { d: string; endY: number }[] = [
+    { d: "M14,150 C60,138 96,120 150,104", endY: 104 },
+    { d: "M18,124 C70,110 120,100 176,78",  endY: 78 },
+    { d: "M26,98 C88,86 140,68 200,54",     endY: 54 },
+    { d: "M12,178 C74,168 128,152 190,136", endY: 136 },
+    { d: "M34,68 C96,58 152,46 212,32",     endY: 32 },
+    { d: "M20,202 C90,194 150,180 222,164", endY: 164 },
+    { d: "M40,44 C104,36 160,26 226,14",    endY: 14 },
+  ];
+  return (
+    <div className="relative" style={{ background: "#0a0a14" }}>
+      <svg viewBox="0 0 260 220" className="w-full block" style={{ height: 360 }}
+           preserveAspectRatio="xMidYMid meet" role="img"
+           aria-label="Sample tornado tracks in the current EF colours">
+        {/* The basemap's own grid tone, so contrast is judged against what is
+            really behind these lines rather than against flat black. */}
+        {Array.from({ length: 12 }, (_, i) => (
+          <line key={`h${i}`} x1={0} y1={i * 20} x2={260} y2={i * 20}
+                stroke="rgba(204,204,255,0.055)" strokeWidth={0.5} />
+        ))}
+        {Array.from({ length: 14 }, (_, i) => (
+          <line key={`v${i}`} x1={i * 20} y1={0} x2={i * 20} y2={220}
+                stroke="rgba(204,204,255,0.055)" strokeWidth={0.5} />
+        ))}
+        {EF_ORDER.map((ef, i) => {
+          const colour = draft[`ef:${ef}`] || EF_COLORS[ef];
+          const t = TRACKS[i];
+          return (
+            <g key={ef}>
+              <path d={t.d} fill="none" stroke={colour} strokeWidth={2} strokeLinecap="round" />
+              <text x={232} y={t.endY + 3} fontSize={7} fill={colour}
+                    style={{ letterSpacing: "0.08em" }}>
+                {ef}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
     </div>
   );
 }

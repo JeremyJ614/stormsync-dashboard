@@ -13,6 +13,8 @@ import {
 } from "../../lib/chases";
 import { STORMSYNC_DARK, applyRoyalBasemap } from "../../lib/basemap";
 import { audit } from "../../lib/adminAudit";
+import { useDraft } from "../../lib/draft";
+import { markUnsaved, releaseUnsaved } from "../../lib/unsavedWork";
 import { ROYAL, HEADING } from "../../lib/royal";
 
 /**
@@ -61,6 +63,21 @@ interface Waypoint { label: string; lon: number; lat: number }
 /** A stored route this short is a list of waypoints; longer is snapped road. */
 const LOOKS_LIKE_WAYPOINTS = 30;
 
+/**
+ * A chase in progress, as one storable value.
+ *
+ * `waypoints` rides along with the form rather than being rebuilt from
+ * `form.route`: the route is bare coordinates, and the waypoint labels are
+ * geocoded one at a time. Restoring only the coordinates would give back a
+ * route whose stops had all forgotten their names.
+ */
+interface ChaseDraft { editingId: string | null; form: ChaseInput; waypoints: Waypoint[] }
+
+const isBlankChase = (d: ChaseDraft): boolean =>
+  !d.form.title.trim() && !(d.form.summary ?? "").trim() &&
+  d.form.route.length === 0 && d.form.tornadoPaths.length === 0 &&
+  (d.form.stats ?? []).length === 0;
+
 export function AdminChasesTab() {
   const [chases, setChases] = useState<Chase[] | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -82,9 +99,33 @@ export function AdminChasesTab() {
   const load = useCallback(() => { void listChases().then(setChases).catch(() => setChases([])); }, []);
   useEffect(() => { load(); }, [load]);
 
+  // ── surviving the app going away ─────────────────────────────────────────
+  // A chase is the most expensive thing anybody fills in here: a title, a
+  // write-up, a hand-placed route and tornado paths that took real work to
+  // draw. Losing it to a backgrounded phone being evicted is the difference
+  // between an annoyance and never using the feature again.
+  const draftValue = useMemo<ChaseDraft>(
+    () => ({ editingId, form, waypoints }), [editingId, form, waypoints]);
+  const applyDraft = useCallback((d: ChaseDraft) => {
+    setEditingId(d.editingId ?? null);
+    setForm(d.form ?? BLANK);
+    setWaypoints(d.waypoints ?? []);
+    setMode(null); setTornadoIdx(0);
+  }, []);
+  const draft = useDraft<ChaseDraft>("admin-chase", draftValue, applyDraft, isBlankChase);
+
+  // Anything other than an untouched blank form counts as work in progress, and
+  // holds back a service-worker hand-over for as long as it is on screen.
+  const dirty = !isBlankChase(draftValue);
+  useEffect(() => {
+    markUnsaved("admin-chase", dirty);
+    return () => releaseUnsaved("admin-chase");
+  }, [dirty]);
+
   function reset() {
     setEditingId(null); setForm(BLANK); setMode(null); setTornadoIdx(0); setNote(null);
     setWaypoints([]); setPlaceQuery(""); setPlaceHits(null);
+    draft.clear();
   }
 
   /** The waypoint list is the route, until it is snapped. */
@@ -267,6 +308,24 @@ export function AdminChasesTab() {
             </button>
           )}
         </div>
+
+        {draft.recovered && (
+          <div className="rounded-lg px-3 py-2 text-[11.5px] flex flex-wrap items-center gap-2"
+               style={{ border: `1px solid ${ROYAL.goldSoft}`, background: "rgba(217,183,117,0.07)" }}>
+            <span style={{ color: ROYAL.text }}>
+              You were writing up{" "}
+              <strong>{draft.recovered.form?.title?.trim() || "an untitled chase"}</strong>.
+            </span>
+            <button onClick={draft.restore}
+                    className="px-2 py-1 rounded-md text-[11px] font-semibold"
+                    style={{ background: "rgba(217,183,117,0.16)", color: ROYAL.gold }}>
+              Pick it back up
+            </button>
+            <button onClick={draft.discard} className="px-2 py-1 text-[11px] text-muted-foreground">
+              Start fresh
+            </button>
+          </div>
+        )}
 
         <div className="grid sm:grid-cols-[1fr_auto] gap-2">
           <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })}

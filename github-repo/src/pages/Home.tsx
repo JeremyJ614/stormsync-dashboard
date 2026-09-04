@@ -33,16 +33,32 @@ export default function Home() {
   const { data: posts = [] } = useQuery({ queryKey: ["sswx-news", user?.tier ?? 1], queryFn: () => listNews(user?.tier ?? 1), staleTime: 5 * 60 * 1000 });
 
   useEffect(() => {
+    let cancelled = false;
+    /**
+     * Headlines, with a deadline.
+     *
+     * This used to be a bare fetch with no time limit, and `newsLoading` only
+     * ever cleared in `then` or `catch`. A request that neither resolves nor
+     * rejects — which is exactly what a service worker sitting on a dead
+     * network produces — left "Pulling the latest weather headlines…" on screen
+     * for as long as the tab stayed open. A spinner that never stops is a
+     * worse answer than "nothing right now", because it tells you to keep
+     * waiting for something that is not coming.
+     */
     const loadNews = () => {
       setNewsLoading(true);
-      fetch(`${BASE_API}/news/weather?topic=severe+weather+OR+tornado+OR+hurricane+OR+storm`)
+      const ctl = new AbortController();
+      const bail = setTimeout(() => ctl.abort(), 12_000);
+      fetch(`${BASE_API}/news/weather?topic=severe+weather+OR+tornado+OR+hurricane+OR+storm`,
+            { signal: ctl.signal })
         .then(r => r.ok ? r.json() : { items: [] })
-        .then(d => { setNews(d.items ?? []); setNewsLoading(false); })
-        .catch(() => setNewsLoading(false));
+        .then(d => { if (!cancelled) setNews(d.items ?? []); })
+        .catch(() => { /* aborted, offline, or a bad payload — all "no headlines" */ })
+        .finally(() => { clearTimeout(bail); if (!cancelled) setNewsLoading(false); });
     };
     loadNews();
     const t = setInterval(loadNews, 10 * 60_000);
-    return () => clearInterval(t);
+    return () => { cancelled = true; clearInterval(t); };
   }, []);
 
   function timeAgo(iso: string): string {

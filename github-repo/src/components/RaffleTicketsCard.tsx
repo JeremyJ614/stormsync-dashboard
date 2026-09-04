@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import { Ticket, Trophy } from "lucide-react";
+import { Ticket } from "lucide-react";
 import {
-  myTickets, listDraws, DRAWS, drawMeta, periodLabel,
-  type TicketBalance, type RaffleDraw,
+  myTickets, DRAWS, drawMeta, periodLabel,
+  type TicketBalance,
 } from "../lib/raffles";
 import { ROYAL, HEADING, prefersReducedMotion } from "../lib/royal";
 
@@ -16,15 +16,20 @@ import { ROYAL, HEADING, prefersReducedMotion } from "../lib/royal";
  *
  * The stack fans slightly and lifts on hover; more than three in a pool are
  * shown as a count on the top stub rather than as twenty overlapping cards.
+ *
+ * NO RECENT-WINNERS LIST HERE, DELIBERATELY. This card used to end with the
+ * last five draws and who took them. Who won what is the owner's to share, on
+ * the owner's terms — the App Updates feed and the wall are where a win becomes
+ * public — and a member's own profile is a poor place to be told, unprompted,
+ * that somebody else keeps winning. `listDraws` still exists for the admin
+ * panel; it simply is not called from a member surface any more.
  */
 export function RaffleTicketsCard() {
   const [balances, setBalances] = useState<TicketBalance[] | null>(null);
-  const [draws, setDraws] = useState<RaffleDraw[]>([]);
   const still = prefersReducedMotion();
 
   useEffect(() => {
     void myTickets().then(setBalances).catch(() => setBalances([]));
-    void listDraws(5).then(setDraws).catch(() => setDraws([]));
   }, []);
 
   const held = useMemo(() => (balances ?? []).filter((b) => b.tickets > 0), [balances]);
@@ -95,22 +100,6 @@ export function RaffleTicketsCard() {
         </p>
       )}
 
-      {draws.length > 0 && (
-        <div className="mt-4 pt-3 border-t" style={{ borderColor: ROYAL.hairline }}>
-          <div className="text-[9.5px] uppercase tracking-[0.18em] mb-1.5 flex items-center gap-1.5" style={{ color: ROYAL.dim }}>
-            <Trophy className="w-3 h-3" /> Recent winners
-          </div>
-          <div className="space-y-1">
-            {draws.map((d) => (
-              <div key={d.id} className="flex items-baseline gap-2 text-[11.5px]">
-                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: drawMeta(d.drawType).tint }} />
-                <span className="truncate" style={{ color: ROYAL.text }}>{d.winnerName}</span>
-                <span className="truncate flex-1" style={{ color: ROYAL.dim }}>{d.prizeLabel}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

@@ -144,11 +144,44 @@ export function initPwa(): void {
         });
       }).catch(() => {});
 
+      /**
+       * The hand-over reload — the last thing standing between a member and a
+       * blank form, so it is guarded twice.
+       *
+       * FIRST: a page that had no controller when it loaded is not having the
+       * build changed underneath it. That is the first worker ever installing
+       * and calling `clients.claim()`, which fires this event on somebody's
+       * very first visit. Reloading there is a blink for no reason — the page
+       * is already running exactly the code the new worker would serve.
+       *
+       * SECOND: never reload over someone's work. A controller change means
+       * the NEXT navigation gets new assets; it does not mean this page has to
+       * stop existing this second. If they are mid-something, hold the reload
+       * and take it when they are idle or when they leave. The page keeps
+       * working in the meantime — it is the same JavaScript it was a moment
+       * ago.
+       */
+      const hadController = !!navigator.serviceWorker.controller;
       let reloaded = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => {
+      const reloadNow = () => {
         if (reloaded) return;
         reloaded = true;
         window.location.reload();
+      };
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (reloaded || !hadController) return;
+        if (!pageIsBusy()) { reloadNow(); return; }
+        // Wait them out. Checked on a slow timer and whenever they leave,
+        // because "idle" and "gone" are the two moments this is free.
+        const timer = setInterval(() => {
+          if (reloaded) { clearInterval(timer); return; }
+          if (!pageIsBusy()) { clearInterval(timer); reloadNow(); }
+        }, 5_000);
+        document.addEventListener("visibilitychange", () => {
+          if (document.visibilityState === "hidden" && !pageIsBusy()) {
+            clearInterval(timer); reloadNow();
+          }
+        });
       });
     });
   }

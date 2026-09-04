@@ -18,10 +18,27 @@ const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/img/logo.webp
 
 self.addEventListener("install", (event) => {
   // Cache shell URLs individually so one failure can't block the worker installing.
+  //
+  // NO self.skipWaiting() HERE. It used to be on the end of this chain, and it
+  // is why the app reloaded out from under people who had switched away and
+  // come back. Calling it at install means a newly downloaded worker activates
+  // the instant it is ready; `clients.claim()` below then takes over the open
+  // page, which fires `controllerchange`, which reloads it. Whatever was on
+  // screen — a half-written chase, a menu mid-reorder — went with it, and the
+  // route reset to the section root.
+  //
+  // The page already decides this properly. `pwa.ts` watches for a waiting
+  // worker and either hands over immediately (nobody is typing) or holds it
+  // and offers a refresh chip, then takes it when the member leaves with no
+  // unsaved work. All of that was dead code while this line existed, because
+  // the worker never waited long enough to be asked. The handover now happens
+  // on the "SKIP_WAITING" message at the bottom of this file, and only then.
+  //
+  // A first-ever install is unaffected: with no worker already in control there
+  // is nothing to wait behind, so it activates on its own.
   event.waitUntil(
     caches.open(SHELL_CACHE)
-      .then((c) => Promise.all(SHELL_URLS.map((u) => c.add(u).catch(() => {}))))
-      .then(() => self.skipWaiting()),
+      .then((c) => Promise.all(SHELL_URLS.map((u) => c.add(u).catch(() => {})))),
   );
 });
 
@@ -58,12 +75,28 @@ self.addEventListener("fetch", (event) => {
   if (isSupabaseApi(url)) return;
 
   // Weather data (our proxy + public weather APIs): network-first, cache fallback.
+  //
+  // The cache fallback used to be `.catch(() => caches.match(req))` on its own,
+  // and `caches.match` resolves to UNDEFINED when nothing has been stored yet.
+  // Handing undefined to respondWith is not "fall through to the network" — it
+  // is a network error, delivered to the page as a rejected fetch with no
+  // status and no body. On the Home page that is the Weather News tab dying on
+  // a first visit, or on any visit where the request fails before a single good
+  // response has ever been cached, with nothing to say why.
+  //
+  // So: cache if we have it, and otherwise answer in the shape the caller
+  // already knows how to read. `/news/weather` is consumed as `{ items: [] }`,
+  // and a 503 with an empty list lets the page render "no headlines right now"
+  // instead of showing a spinner for ever.
   if (isWeatherFn(url) || DATA_HOSTS.includes(url.hostname)) {
     event.respondWith(
       fetch(req).then((res) => {
         if (res.ok) { const copy = res.clone(); caches.open(DATA_CACHE).then((c) => c.put(req, copy)).catch(() => {}); }
         return res;
-      }).catch(() => caches.match(req)),
+      }).catch(() => caches.match(req).then((hit) => hit || new Response(
+        JSON.stringify({ items: [], error: "offline" }),
+        { status: 503, headers: { "Content-Type": "application/json" } },
+      ))),
     );
     return;
   }

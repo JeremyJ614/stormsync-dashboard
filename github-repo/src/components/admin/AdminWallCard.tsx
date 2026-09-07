@@ -8,6 +8,7 @@ import {
   WALL_DEFAULTS, WALL_FONTS, type WallStyle,
 } from "../../lib/wallStyle";
 import { NameWall } from "../NameWall";
+import { HexField } from "./HexField";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING } from "../../lib/royal";
 
@@ -312,11 +313,9 @@ function Swatch({
              className="w-9 h-9 rounded-lg bg-transparent border border-border cursor-pointer shrink-0"
              aria-label={`${label} colour`} />
       <span className="text-xs flex-1 min-w-0 truncate">{label}</span>
-      <input value={value.toUpperCase()}
-             onChange={(e) => { const v = e.target.value.trim();
-                                if (/^#[0-9a-fA-F]{6}$/.test(v)) onChange(v); }}
-             className="w-[92px] bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-[11px] font-mono outline-none focus:border-primary/40"
-             aria-label={`${label} hex`} />
+      {/* Same component the map colours use — a controlled box that only
+          accepted complete hex could not be typed into at all. */}
+      <HexField value={value} onCommit={onChange} ariaLabel={`${label} hex`} />
     </div>
   );
 }

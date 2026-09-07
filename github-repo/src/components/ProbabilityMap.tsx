@@ -376,14 +376,22 @@ export function ProbabilityMap({ day }: { day: number }) {
             style={{ zIndex: 10 }}
           >
             <div className="text-[9px] uppercase tracking-[0.2em] text-white/50 mb-1">Severe Chance</div>
-            {[...PROB_STEPS].reverse().map(s => (
+            {/* Through `stepAt`, not straight off PROB_STEPS. Reading the
+                constant here meant the legend kept painting the shipped colour
+                after an admin changed the map's — the two disagreeing about
+                what a level looks like, on the same screen, which is worse
+                than either being wrong on its own. */}
+            {[...PROB_STEPS].reverse().map(base => {
+              const s = stepAt(base.level);
+              return (
               <div key={s.level} className="flex items-center gap-2">
                 <div className="w-3 h-3 rounded-sm flex-shrink-0"
                      style={{ background: s.color, border: s.outline ? `1px solid ${s.outline}` : "none" }} />
                 <span className="text-[10px] text-white font-medium leading-none tabular-nums opacity-60">{s.level}</span>
                 <span className="text-[10px] text-white font-medium leading-none">{s.label}</span>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
 

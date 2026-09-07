@@ -6,6 +6,7 @@ import { EF_COLORS, EF_ORDER } from "../../lib/severeHistoryData";
 import {
   getPaletteSnapshot, previewMapPalette, saveMapPalette, loadMapPalette,
 } from "../../lib/mapPalette";
+import { HexField, parseHex } from "./HexField";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING } from "../../lib/royal";
 
@@ -68,12 +69,20 @@ export function AdminMapColorsCard() {
     [draft],
   );
 
-  /** Typing repaints every map on screen at once; nothing is stored yet. */
+  /**
+   * Set one override and repaint every map on screen; nothing is stored yet.
+   *
+   * This used to DELETE the key when handed anything that was not already a
+   * complete hex, which is what every intermediate keystroke looks like. The
+   * result was that typing a colour cleared it and Save wrote the empty set.
+   * Callers now hand this a colour or nothing at all — `HexField` does the
+   * parsing and only commits whole values.
+   */
   const set = useCallback((key: string, hex: string) => {
+    const clean = parseHex(hex);
+    if (!clean) return;
     setDraft((d) => {
-      const next = { ...d };
-      if (/^#[0-9a-fA-F]{6}$/.test(hex)) next[key] = hex.toUpperCase();
-      else delete next[key];
+      const next = { ...d, [key]: clean };
       previewMapPalette(next);
       return next;
     });
@@ -158,9 +167,8 @@ export function AdminMapColorsCard() {
                 <span className="flex-1 min-w-0 text-[12px] truncate" style={{ color: ROYAL.text }}>
                   {sw.label}
                 </span>
-                <input value={value} onChange={(e) => set(sw.key, e.target.value)}
-                       spellCheck={false}
-                       className="w-[92px] bg-muted/30 border border-border rounded-lg px-2 py-1.5 text-[11px] font-mono uppercase outline-none focus:border-primary/40" />
+                <HexField value={value} onCommit={(hex) => set(sw.key, hex)}
+                          ariaLabel={`${sw.label} hex`} />
                 <button onClick={() => reset(sw.key)} disabled={!changed}
                         className="w-7 h-7 grid place-items-center rounded-lg border border-border disabled:opacity-25"
                         title="Back to the default" aria-label={`Reset ${sw.label}`}>

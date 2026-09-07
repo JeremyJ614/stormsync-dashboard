@@ -1,13 +1,18 @@
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { ModuleShell } from "../components/ModuleShell";
 import { CloudRain, ExternalLink, RefreshCw } from "lucide-react";
-import { ProbabilityMap, PROB_STEPS } from "../components/ProbabilityMap";
+import { ProbabilityMap, PROB_STEPS, stepAt } from "../components/ProbabilityMap";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 
 const DAYS = [1, 2, 3, 4, 5, 6, 7, 8];
 
 export default function ThunderstormOutlook() {
   const [day, setDay] = useState(1);
   const [key, setKey] = useState(0);
+  // The scale below is the map's own colours. Subscribing is what makes an
+  // admin's change reach it — without this the page would go on showing the
+  // shipped ramp beside a map painted in the new one.
+  useSyncExternalStore(subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
 
   return (
     <ModuleShell
@@ -50,7 +55,9 @@ export default function ThunderstormOutlook() {
       <div className="bg-card border border-border rounded-xl p-4">
         <h3 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Likelihood Scale</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[...PROB_STEPS].reverse().map(s => (
+          {[...PROB_STEPS].reverse().map(base => {
+            const s = stepAt(base.level);
+            return (
             <div key={s.level} className="bg-background/50 rounded-lg p-2.5 flex items-start gap-2.5">
               <div
                 className="w-7 h-7 rounded-md shrink-0 grid place-items-center text-[11px] font-black"
@@ -70,7 +77,8 @@ export default function ThunderstormOutlook() {
                 <div className="text-[11px] text-muted-foreground">{s.note}</div>
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
         <p className="text-[11px] text-muted-foreground mt-3 leading-relaxed">
           This is the probability of <strong>any</strong> severe weather (tornado, damaging wind, or large hail) within about 25 miles of a point —

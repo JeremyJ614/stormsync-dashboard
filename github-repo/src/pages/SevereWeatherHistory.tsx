@@ -7,7 +7,7 @@ import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "
 import { StaticHistoryMap, type LegendRow, type StatBox } from "../components/StaticHistoryMap";
 import {
   fetchWarnings, fetchTornadoTracks, daysBackRange,
-  WARN_TIERS, EF_COLORS, EF_ORDER, efHistoryColor,
+  WARN_TIERS, EF_ORDER, efHistoryColor,
 } from "../lib/severeHistoryData";
 
 /**

@@ -14,6 +14,13 @@ export function computeComponents(alerts: AlertItem[], cape: number, srh: number
   const svrThunderstorm = events.filter(e => e.includes("severe thunderstorm warning")).length;
   const floodFlash = events.filter(e => e.includes("flash flood warning")).length;
   const floodRiver = events.filter(e => e.includes("flood warning") && !e.includes("flash")).length;
+  // NWS PRODUCTS, not storms. Every count in this function is a number of
+  // active alerts, and this one is no different: a single hurricane puts a
+  // Hurricane Warning on every coastal zone in its path, so two storms can
+  // easily be twenty products. It is labelled accordingly below — calling it
+  // "tropical systems" made it read as a storm count and set it against the
+  // Hurricane Tracker, which counts actual cyclones from the NHC and will
+  // almost always say a smaller number. Both were right; only the label lied.
   const tropical = events.filter(e => e.includes("tropical") || e.includes("hurricane")).length;
   const winterBlizzard = events.filter(e => e.includes("blizzard")).length;
   const winterStorm = events.filter(e => e.includes("winter storm") || e.includes("ice storm")).length;
@@ -48,7 +55,7 @@ export function computeComponents(alerts: AlertItem[], cape: number, srh: number
       { label: "TORNADO WARNINGS", short: "Tornado", cap: 120, score: tornadoScore, multiplier: "×4", desc: `${tornadoWarnings} active nationwide` },
       { label: "SEVERE THUNDERSTORM", short: "Severe", cap: 70, score: svrScore, multiplier: "×1", desc: `${svrThunderstorm} active nationwide` },
       { label: "FLOOD THREAT", short: "Flood", cap: 40, score: floodScore, multiplier: "flash×1", desc: `${floodFlash} flash · ${floodRiver} river` },
-      { label: "TROPICAL SYSTEMS", short: "Tropical", cap: 90, score: tropicalScore, multiplier: "×6", desc: `${tropical} tropical/hurricane` },
+      { label: "TROPICAL WARNINGS", short: "Tropical", cap: 90, score: tropicalScore, multiplier: "×6", desc: `${tropical} active nationwide` },
       { label: "WINTER WEATHER", short: "Winter", cap: 40, score: winterScore, multiplier: "blz×4", desc: `${winterBlizzard} blizzard · ${winterStorm} storm` },
       { label: "FIRE WEATHER", short: "Fire", cap: 15, score: fireScore, multiplier: "×0.5", desc: `${fireredflag} red flag warnings` },
       { label: "LOCAL INSTABILITY", short: "Local", cap: 12, score: atmoScore, multiplier: "max 12", desc: "Your area: CAPE / SRH / Shear / LI" },

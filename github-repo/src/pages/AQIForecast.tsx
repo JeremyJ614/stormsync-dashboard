@@ -5,6 +5,7 @@ import { ModuleShell } from "../components/ModuleShell";
 import { PollenTab } from "../components/aqi/PollenTab";
 import { ROYAL, prefersReducedMotion } from "../lib/royal";
 import { useRef, useEffect, useState } from "react";
+import { hourIndexNow } from "../lib/currentHour";
 import type { Location } from "../hooks/useLocation";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LineChart, Line, CartesianGrid } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -408,22 +409,25 @@ export default function AQIForecast({ location }: Props) {
   });
 
   const hourly = data?.hourly;
+  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
+  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
+  const nowHr = hourIndexNow(data);
 
   // ── Accurate AQI calculation ────────────────────────────────────────────
   // Use EPA breakpoints computed from raw PM2.5/PM10/Ozone concentrations
   // to avoid the underestimation seen in wildfire smoke events.
-  const rawPM25   = hourly?.pm2_5?.[0]             ?? 0;
-  const rawPM10   = hourly?.pm10?.[0]              ?? 0;
-  const rawOzone  = hourly?.ozone?.[0]             ?? 0;
-  const openMeteoAQI = hourly?.us_aqi?.[0]         ?? 0;
+  const rawPM25   = hourly?.pm2_5?.[nowHr]             ?? 0;
+  const rawPM10   = hourly?.pm10?.[nowHr]              ?? 0;
+  const rawOzone  = hourly?.ozone?.[nowHr]             ?? 0;
+  const openMeteoAQI = hourly?.us_aqi?.[nowHr]         ?? 0;
 
   const currentAQI = isLoading ? 0 : computeAccurateAQI(rawPM25, rawPM10, rawOzone, openMeteoAQI);
   const { label: aqiLabel, color: aqiColor, bg: aqiBg, desc: aqiDesc, emoji: aqiEmoji, healthMsg } = aqiCategory(currentAQI);
 
-  const no2  = hourly?.nitrogen_dioxide?.[0] ?? 0;
-  const co   = hourly?.carbon_monoxide?.[0]  ?? 0;
-  const uv   = hourly?.uv_index?.[0]         ?? 0;
-  const dust = hourly?.dust?.[0]             ?? 0;
+  const no2  = hourly?.nitrogen_dioxide?.[nowHr] ?? 0;
+  const co   = hourly?.carbon_monoxide?.[nowHr]  ?? 0;
+  const uv   = hourly?.uv_index?.[nowHr]         ?? 0;
+  const dust = hourly?.dust?.[nowHr]             ?? 0;
 
   // Chart data — use accurate AQI for each hour
   interface AqiChartRow { time: string; aqi: number; pm25: number; pm10: number; ozone: number }

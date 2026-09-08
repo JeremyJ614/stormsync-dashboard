@@ -19,8 +19,19 @@ import { ROYAL, EASE } from "../../lib/royal";
 export interface Band { from: number; to: number; label: string; color: string }
 
 export function ScaleLadder({
-  bands, score, threshold, max, calm,
-}: { bands: Band[]; score: number; threshold: number; max: number; calm: boolean }) {
+  bands, score, threshold, max, calm, thresholdLabel = "activation",
+}: {
+  bands: Band[]; score: number; threshold: number; max: number; calm: boolean;
+  /**
+   * What the marked line MEANS on this scale.
+   *
+   * SSWXCon has an activation threshold; the Threat Index does not, and reusing
+   * the ladder without saying so printed "ACTIVATION 60" on a module where no
+   * such thing exists. A shared component may not carry one module's vocabulary
+   * into another's.
+   */
+  thresholdLabel?: string;
+}) {
   const pos = (v: number) => Math.max(0, Math.min(100, (v / max) * 100));
   const here = bands.find((b) => score >= b.from && score < b.to) ?? bands[bands.length - 1];
 
@@ -97,7 +108,7 @@ export function ScaleLadder({
              style={{ bottom: `calc(${pos(threshold)}% - 7px)` }}>
           <span className="text-[9.5px] uppercase tracking-[0.18em] px-1.5 py-0.5 rounded"
                 style={{ color: "rgba(255,255,255,0.7)", background: "rgba(255,255,255,0.07)" }}>
-            activation {threshold}
+            {thresholdLabel} {threshold}
           </span>
         </div>
       </div>

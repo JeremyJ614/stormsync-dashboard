@@ -75,6 +75,16 @@ export interface OpenMeteoCurrentData {
 }
 
 export interface OpenMeteoResponse {
+  /**
+   * Seconds to add to UTC for the forecast point's own wall clock.
+   *
+   * Open-Meteo returns it whenever `timezone=auto` is set, and `hourly.time`
+   * is expressed in it. Without it there is no way to tell which entry in the
+   * hourly array is "now" — which is how every current reading in the app came
+   * to be showing midnight.
+   */
+  utc_offset_seconds?: number;
+  timezone?: string;
   current?: OpenMeteoCurrentData;
   hourly?: Record<string, number[]> & { time: string[] };
   daily?: Record<string, (number | string)[]>;

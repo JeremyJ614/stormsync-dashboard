@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { hourIndexNow } from "../lib/currentHour";
 import { useQuery } from "@tanstack/react-query";
 import type { Location } from "../hooks/useLocation";
 import { Sparkles, ExternalLink, RefreshCw, Info, Star, Moon } from "lucide-react";
@@ -121,8 +122,11 @@ export default function AuroraForecast({ location }: Props) {
 
   // Sky conditions
   const hourly = weather?.hourly;
-  const cc     = hourly?.cloud_cover?.[0] ?? 80;
-  const hum    = hourly?.relative_humidity_2m?.[0] ?? 60;
+  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
+  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
+  const nowHr = hourIndexNow(weather);
+  const cc     = hourly?.cloud_cover?.[nowHr] ?? 80;
+  const hum    = hourly?.relative_humidity_2m?.[nowHr] ?? 60;
   const precip = hourly?.precipitation?.[0] ?? 0;
   const currentScore = skygazingScore(cc, hum, precip);
   const { text: condText, color: condColor } = skygazingLabel(currentScore);

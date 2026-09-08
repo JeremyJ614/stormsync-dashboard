@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { hourIndexNow } from "../lib/currentHour";
 import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
 import { useOpenMeteo, useNWSAlerts, useNWSPoints } from "../hooks/useWeatherQuery";
 import type { Location } from "../hooks/useLocation";
@@ -161,6 +162,9 @@ export default function Dashboard({ location }: Props) {
 
   const cur = weather?.current;
   const hourly = weather?.hourly;
+  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
+  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
+  const nowHr = hourIndexNow(weather);
   const tempF = cur ? Math.round(cToF(cur.temperature_2m)) : null;
   const feelsF = cur ? Math.round(cToF(cur.apparent_temperature)) : null;
   const windMph = cur ? Math.round(msToMph(cur.wind_speed_10m)) : null;
@@ -179,16 +183,16 @@ export default function Dashboard({ location }: Props) {
 
   const srh = hourly && hourly.wind_speed_10m && hourly.wind_speed_925hPa
     ? computeSRHFromProfile(
-        hourly.wind_speed_10m[0], hourly.wind_direction_10m[0],
-        hourly.wind_speed_925hPa[0], hourly.wind_direction_925hPa[0],
-        hourly.wind_speed_850hPa[0], hourly.wind_direction_850hPa[0],
-        hourly.wind_speed_700hPa[0], hourly.wind_direction_700hPa[0],
-        hourly.wind_speed_500hPa[0], hourly.wind_direction_500hPa[0],
+        hourly.wind_speed_10m[nowHr], hourly.wind_direction_10m[nowHr],
+        hourly.wind_speed_925hPa[nowHr], hourly.wind_direction_925hPa[nowHr],
+        hourly.wind_speed_850hPa[nowHr], hourly.wind_direction_850hPa[nowHr],
+        hourly.wind_speed_700hPa[nowHr], hourly.wind_direction_700hPa[nowHr],
+        hourly.wind_speed_500hPa[nowHr], hourly.wind_direction_500hPa[nowHr],
       ) : null;
   const shear06 = hourly && hourly.wind_speed_10m && hourly.wind_speed_500hPa
-    ? compute06kmShear(hourly.wind_speed_10m[0], hourly.wind_direction_10m[0], hourly.wind_speed_500hPa[0], hourly.wind_direction_500hPa[0]) : null;
+    ? compute06kmShear(hourly.wind_speed_10m[nowHr], hourly.wind_direction_10m[nowHr], hourly.wind_speed_500hPa[nowHr], hourly.wind_direction_500hPa[nowHr]) : null;
   const swti = srh !== null && shear06 !== null && hourly?.cape
-    ? computeSWTI({ cape: hourly.cape[0] ?? 0, srh, shear06km: shear06, liftedIndex: hourly.lifted_index?.[0] ?? 0, dewPointC: hourly.dew_point_2m?.[0] ?? 10 }) : null;
+    ? computeSWTI({ cape: hourly.cape[nowHr] ?? 0, srh, shear06km: shear06, liftedIndex: hourly.lifted_index?.[0] ?? 0, dewPointC: hourly.dew_point_2m?.[0] ?? 10 }) : null;
 
   const daily = weather?.daily;
   const dCode = (i: number) => (daily?.weather_code?.[i] as number) ?? 0;
@@ -314,7 +318,7 @@ export default function Dashboard({ location }: Props) {
           <div className="text-center"><div className="text-sm font-semibold capitalize">{swti.windRisk}</div><div className="text-xs text-muted-foreground">Wind Risk</div></div>
         </div>
         <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-          <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">CAPE</div><div className="font-medium">{Math.round(hourly?.cape?.[0] ?? 0)} J/kg</div></div>
+          <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">CAPE</div><div className="font-medium">{Math.round(hourly?.cape?.[nowHr] ?? 0)} J/kg</div></div>
           <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">0-3km SRH</div><div className="font-medium">{srh !== null ? Math.round(srh) : "—"} m²/s²</div></div>
           <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">0-6km Shear</div><div className="font-medium">{shear06 !== null ? Math.round(shear06) : "—"} kts</div></div>
         </div>

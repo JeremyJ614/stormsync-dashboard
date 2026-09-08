@@ -13,6 +13,7 @@ import DataUnavailable from "../components/DataUnavailable";
 import { ROYAL, HEADING, EASE } from "../lib/royal";
 import { useCalm } from "../lib/calm";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
+import { hourIndexNow } from "../lib/currentHour";
 import { fetchAllUSAlerts } from "../utils/weatherApi";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
@@ -58,18 +59,21 @@ export default function SSWXCon({ location }: Props) {
   const isLoading = wxLoading || alertsLoading;
 
   const hourly = weather?.hourly;
-  const cape = hourly?.cape?.[0] ?? 0;
-  const li = hourly?.lifted_index?.[0] ?? 0;
-  const ws10 = hourly?.wind_speed_10m?.[0] ?? 0;
-  const wd10 = hourly?.wind_direction_10m?.[0] ?? 0;
-  const ws925 = hourly?.wind_speed_925hPa?.[0] ?? 0;
-  const wd925 = hourly?.wind_direction_925hPa?.[0] ?? 0;
-  const ws850 = hourly?.wind_speed_850hPa?.[0] ?? 0;
-  const wd850 = hourly?.wind_direction_850hPa?.[0] ?? 0;
-  const ws700 = hourly?.wind_speed_700hPa?.[0] ?? 0;
-  const wd700 = hourly?.wind_direction_700hPa?.[0] ?? 0;
-  const ws500 = hourly?.wind_speed_500hPa?.[0] ?? 0;
-  const wd500 = hourly?.wind_direction_500hPa?.[0] ?? 0;
+  // `hourly[0]` is midnight local, not now — the series starts at 00:00 on the
+  // current day, so the local term was scoring the overnight atmosphere.
+  const now = hourIndexNow(weather);
+  const cape = hourly?.cape?.[now] ?? 0;
+  const li = hourly?.lifted_index?.[now] ?? 0;
+  const ws10 = hourly?.wind_speed_10m?.[now] ?? 0;
+  const wd10 = hourly?.wind_direction_10m?.[now] ?? 0;
+  const ws925 = hourly?.wind_speed_925hPa?.[now] ?? 0;
+  const wd925 = hourly?.wind_direction_925hPa?.[now] ?? 0;
+  const ws850 = hourly?.wind_speed_850hPa?.[now] ?? 0;
+  const wd850 = hourly?.wind_direction_850hPa?.[now] ?? 0;
+  const ws700 = hourly?.wind_speed_700hPa?.[now] ?? 0;
+  const wd700 = hourly?.wind_direction_700hPa?.[now] ?? 0;
+  const ws500 = hourly?.wind_speed_500hPa?.[now] ?? 0;
+  const wd500 = hourly?.wind_direction_500hPa?.[now] ?? 0;
   const srh = !isLoading && hourly ? computeSRHFromProfile(ws10, wd10, ws925, wd925, ws850, wd850, ws700, wd700, ws500, wd500) : 0;
   const shear = !isLoading && hourly ? compute06kmShear(ws10, wd10, ws500, wd500) : 0;
 
@@ -80,7 +84,7 @@ export default function SSWXCon({ location }: Props) {
   } = computeComponents(alerts as AlertItem[], cape, srh, shear, li);
   const { text: levelText, color: levelColor } = scoreLabel(total);
   const saturation = Math.round((total / ACTIVATION_THRESHOLD) * 100);
-  const swti = computeSWTI({ cape, srh, shear06km: shear, liftedIndex: li, dewPointC: hourly?.dew_point_2m?.[0] ?? 10 });
+  const swti = computeSWTI({ cape, srh, shear06km: shear, liftedIndex: li, dewPointC: hourly?.dew_point_2m?.[now] ?? 10 });
 
   // This score has two independent halves. The national one is NWS warning
   // counts; the LOCAL INSTABILITY term (capped at 12 of ~377) is Open-Meteo. So

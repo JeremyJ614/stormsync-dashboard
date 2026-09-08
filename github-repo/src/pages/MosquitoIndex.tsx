@@ -1,4 +1,5 @@
 import { useRef, useEffect } from "react";
+import { hourIndexNow } from "../lib/currentHour";
 import { useOpenMeteo } from "../hooks/useWeatherQuery";
 import type { Location } from "../hooks/useLocation";
 import { Bug, ExternalLink, Info } from "lucide-react";
@@ -149,10 +150,13 @@ export default function MosquitoIndex({ location }: Props) {
   const { data: weather, isLoading, refetch } = useOpenMeteo(location);
 
   const hourly = weather?.hourly;
-  const tempC = hourly?.temperature_2m?.[0] ?? 20;
-  const humidity = hourly?.relative_humidity_2m?.[0] ?? 60;
-  const precip = hourly?.precipitation?.[0] ?? 0;
-  const windMs = hourly?.wind_speed_10m?.[0] ?? 0;
+  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
+  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
+  const nowHr = hourIndexNow(weather);
+  const tempC = hourly?.temperature_2m?.[nowHr] ?? 20;
+  const humidity = hourly?.relative_humidity_2m?.[nowHr] ?? 60;
+  const precip = hourly?.precipitation?.[nowHr] ?? 0;
+  const windMs = hourly?.wind_speed_10m?.[nowHr] ?? 0;
   const windMph = msToMph(windMs);
 
   const score = mosquitoScore(tempC, humidity, precip, windMph);

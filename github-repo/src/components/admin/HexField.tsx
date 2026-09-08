@@ -40,10 +40,24 @@ export function HexField({
     if (!focused.current) setText(value.toUpperCase());
   }, [value]);
 
+  /**
+   * Committed on every keystroke, but only from a whole six-digit value.
+   *
+   * Shorthand is deliberately NOT accepted mid-word. `#4FFFB0` passes through
+   * `#4FF` on its way in, which is a valid three-digit colour — so accepting
+   * shorthand as you type makes the map flash cyan halfway through somebody
+   * typing mint green. Pasting `#4fb` still works: blur and Enter take it.
+   */
   function handle(raw: string) {
     setText(raw);
-    const hex = parseHex(raw);
+    const hex = parseHex(raw, { shorthand: false });
     if (hex) onCommit(hex);
+  }
+
+  function commitFinal() {
+    const hex = parseHex(text);
+    if (hex) onCommit(hex);
+    return hex;
   }
 
   return (
@@ -55,8 +69,11 @@ export function HexField({
       onFocus={(e) => { focused.current = true; e.currentTarget.select(); }}
       onBlur={() => {
         focused.current = false;
-        // Whatever is in the box now, show the colour that is actually set.
-        setText(value.toUpperCase());
+        // Last chance for a shorthand value, then show the colour that is
+        // actually set — the box can never be left displaying something the
+        // map is not painting.
+        const hex = commitFinal();
+        setText((hex ?? value).toUpperCase());
       }}
       onKeyDown={(e) => { if (e.key === "Enter") e.currentTarget.blur(); }}
       onChange={(e) => handle(e.target.value)}
@@ -69,13 +86,15 @@ export function HexField({
 /**
  * `#4FFFB0`, `4fffb0`, `#4FB` and `4fb` all mean a colour; anything else means
  * the person is still typing. Shorthand is expanded because a three-digit hex
- * is a real thing people paste, and rejecting it would look like another
- * field that refuses input.
+ * is a real thing people paste, and rejecting it would look like another field
+ * that refuses input — but `shorthand: false` turns it off for the
+ * keystroke-by-keystroke path, where a three-digit read of a half-typed
+ * six-digit colour is always wrong.
  */
-export function parseHex(raw: string): string | null {
+export function parseHex(raw: string, opts?: { shorthand?: boolean }): string | null {
   const s = raw.trim().replace(/^#/, "");
   if (/^[0-9a-fA-F]{6}$/.test(s)) return `#${s.toUpperCase()}`;
-  if (/^[0-9a-fA-F]{3}$/.test(s)) {
+  if (opts?.shorthand !== false && /^[0-9a-fA-F]{3}$/.test(s)) {
     return `#${s.split("").map((c) => c + c).join("").toUpperCase()}`;
   }
   return null;

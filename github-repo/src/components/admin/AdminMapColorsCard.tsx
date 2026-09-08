@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Loader2, Palette, RotateCcw, Save } from "lucide-react";
 import { PROB_STEPS } from "../ProbabilityMap";
 import { PALETTES, KIND_TITLE, type Kind } from "../../lib/spcPalette";
@@ -7,13 +7,9 @@ import {
   getPaletteSnapshot, previewMapPalette, saveMapPalette, loadMapPalette,
 } from "../../lib/mapPalette";
 import { HexField, parseHex } from "./HexField";
+import { ExampleOutlook, ExampleTracks, type OutlookLevel } from "./ExampleOutlook";
 import { audit } from "../../lib/adminAudit";
 import { ROYAL, HEADING } from "../../lib/royal";
-
-const ProbabilityMap = lazy(() =>
-  import("../ProbabilityMap").then((m) => ({ default: m.ProbabilityMap })));
-const SPCStaticMap = lazy(() =>
-  import("../SPCStaticMap").then((m) => ({ default: m.SPCStaticMap })));
 
 /**
  * The colour of the maps where colour is the data.
@@ -26,17 +22,31 @@ const SPCStaticMap = lazy(() =>
  * rungs above it. The only honest way to pick one is to look at it on a real
  * outlook.
  *
- * So the preview is the actual module, fed by the actual feed, repainting as
- * the hex is typed. Edits are held locally until Save, so an experiment is not
- * something every member is looking at.
+ * The preview used to be the live module on today's real feed, which sounds
+ * better than it is. A real day carries one or two levels; the top of every
+ * ramp — the levels that matter most and are hardest to get right — almost
+ * never appears, so most of the scale could not be seen at all. So each ramp
+ * now previews on an EXAMPLE outlook that carries every one of its levels at
+ * once, drawn on the real country, at the opacity the real module paints, and
+ * labelled on the map as an example so it can never be mistaken for a forecast.
+ *
+ * Edits repaint it as the hex is typed and are held locally until Save, so an
+ * experiment is not something every member is looking at.
  */
-type Group = { id: string; title: string; note?: string; swatches: { key: string; label: string; def: string }[] };
+type Swatch = { key: string; label: string; def: string; opacity?: number };
+type Group = { id: string; title: string; note?: string; swatches: Swatch[] };
 
 const PROB_GROUP: Group = {
   id: "prob",
   title: "Thunderstorm Probability",
   note: "Five levels, benign to destructive. Level 1 covers half the country on a quiet day, so it paints faint on purpose.",
-  swatches: PROB_STEPS.map((s) => ({ key: `prob:${s.level}`, label: `${s.level} · ${s.label}`, def: s.color })),
+  swatches: PROB_STEPS.map((s) => ({
+    key: `prob:${s.level}`, label: `${s.level} · ${s.label}`, def: s.color,
+    // The real map fades level 1 almost out because it covers half the country
+    // on a quiet day; the preview has to do the same or the colour is judged at
+    // an opacity nobody ever sees it at.
+    opacity: s.opacity,
+  })),
 };
 
 const SPC_GROUPS: Group[] = (Object.keys(PALETTES) as Kind[]).map((k) => ({
@@ -64,9 +74,33 @@ export function AdminMapColorsCard() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 
+  /**
+   * What is live, captured rather than read back.
+   *
+   * `dirty` used to compare the draft against `getPaletteSnapshot()`. That is
+   * the store `previewMapPalette` writes to on every keystroke, so editing a
+   * colour moved the baseline to match it: draft and snapshot were equal again
+   * the instant they diverged, `dirty` was never true, and "Save for everyone"
+   * sat disabled for ever. The maps repainted, so it looked like the app was
+   * working and only the button was broken — in fact nothing was ever stored.
+   *
+   * The baseline is now taken when the card loads and again after each save,
+   * and never from the preview store.
+   */
+  const [savedColors, setSavedColors] = useState<Record<string, string>>(
+    () => ({ ...getPaletteSnapshot().colors }));
+
+  useEffect(() => {
+    void loadMapPalette().then(() => {
+      const live = { ...getPaletteSnapshot().colors };
+      setSavedColors(live);
+      setDraft(live);
+    });
+  }, []);
+
   const dirty = useMemo(
-    () => JSON.stringify(draft) !== JSON.stringify(getPaletteSnapshot().colors),
-    [draft],
+    () => JSON.stringify(draft) !== JSON.stringify(savedColors),
+    [draft, savedColors],
   );
 
   /**
@@ -104,6 +138,7 @@ export function AdminMapColorsCard() {
     if (!r.ok) { setNote(r.error ?? "Could not save."); return; }
     await audit("settings.change", { type: "settings", id: "map_palettes", label: "Map colours" },
       { overrides: Object.keys(draft).length });
+    setSavedColors({ ...draft });
     setNote("Saved. Every member sees this now.");
   }
 
@@ -112,12 +147,28 @@ export function AdminMapColorsCard() {
     await loadMapPalette(true);
     const live = { ...getPaletteSnapshot().colors };
     setDraft(live);
+    setSavedColors(live);
     previewMapPalette(live);
     setBusy(false);
     setNote("Back to what is live.");
   }
 
   const group = ALL_GROUPS.find((g) => g.id === open) ?? PROB_GROUP;
+
+  /**
+   * What the example map paints: the draft colour where one has been typed,
+   * the shipped default everywhere else. Read from `draft` rather than from
+   * the palette store so the preview follows the box being typed into even
+   * before anything is saved.
+   */
+  const levels: OutlookLevel[] = useMemo(
+    () => group.swatches.map((sw) => ({
+      label: sw.label,
+      color: draft[sw.key] ?? sw.def,
+      opacity: sw.opacity,
+    })),
+    [group, draft],
+  );
 
   return (
     <div className="space-y-3">
@@ -126,11 +177,11 @@ export function AdminMapColorsCard() {
           <Palette className="w-4 h-4" style={{ color: ROYAL.gold }} /> Map colours
         </h3>
         <p className="text-xs text-muted-foreground">
-          The preview below repaints as you type — the real module on today's real outlook for the
-          probability and SPC ramps, and sample tracks at true stroke width for the EF scale, whose
-          module needs a date range to draw anything. Only swatches you actually change are stored,
-          so a colour you leave alone keeps following the app's default if that default is ever
-          improved.
+          The preview below repaints as you type. It is an example day carrying every level of the
+          chosen ramp at once — a real outlook almost never shows more than two, so the top of a
+          scale could never be judged against a live one. Only swatches you actually change are
+          stored, so a colour you leave alone keeps following the app's default if that default is
+          ever improved.
         </p>
 
         <div className="flex flex-wrap gap-1.5">
@@ -203,92 +254,13 @@ export function AdminMapColorsCard() {
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-2.5 border-b border-border text-[11px]" style={{ color: ROYAL.dim }}>
           {group.id === "ef"
-            ? "Live preview — sample tracks at map stroke width"
-            : "Live preview — today's real outlook"}
+            ? "Example tracks — every rating, at the width the map really draws them"
+            : `Example outlook — all ${group.swatches.length} levels at once, at map opacity`}
         </div>
-        <Suspense fallback={<div className="h-[360px] grid place-items-center"><Loader2 className="w-5 h-5 animate-spin" /></div>}>
-          {group.id === "prob"
-            ? <ProbabilityMap day={1} />
-            : group.id === "ef"
-            ? <EfTrackPreview draft={draft} />
-            : <SPCStaticMap
-                product={spcProductFor(group.id)}
-                mode={group.id.includes("Intensity") ? "intensity" : "likelihood"}
-                title={group.title}
-                subtitle="Preview" />}
-        </Suspense>
+        {group.id === "ef"
+          ? <ExampleTracks levels={levels} />
+          : <ExampleOutlook levels={levels} caption={group.title} />}
       </div>
     </div>
   );
-}
-
-/**
- * Sample tracks, at the width the map actually draws them.
- *
- * Not the Severe Weather History module itself, unlike the other two previews.
- * That one is driven by a date range and a survey fetch, and an empty range
- * paints nothing — a preview that is blank most of the year is worse than no
- * preview. What actually needs testing here is narrower anyway: a tornado
- * track is a two-pixel line, and a hue that reads perfectly as a filled outlook
- * polygon can disappear entirely at that width against the basemap. So this
- * draws real track shapes, at the real stroke width, on the map's own ground.
- */
-function EfTrackPreview({ draft }: { draft: Record<string, string> }) {
-  // Rough but real: paths traced from the shape of long-track tornadoes, so
-  // the preview has the kinks and direction changes a straight line would hide.
-  // Each entry is the path and the y its stroke ends at, so the label sits on
-  // the track it names instead of near it.
-  const TRACKS: { d: string; endY: number }[] = [
-    { d: "M14,150 C60,138 96,120 150,104", endY: 104 },
-    { d: "M18,124 C70,110 120,100 176,78",  endY: 78 },
-    { d: "M26,98 C88,86 140,68 200,54",     endY: 54 },
-    { d: "M12,178 C74,168 128,152 190,136", endY: 136 },
-    { d: "M34,68 C96,58 152,46 212,32",     endY: 32 },
-    { d: "M20,202 C90,194 150,180 222,164", endY: 164 },
-    { d: "M40,44 C104,36 160,26 226,14",    endY: 14 },
-  ];
-  return (
-    <div className="relative" style={{ background: "#0a0a14" }}>
-      <svg viewBox="0 0 260 220" className="w-full block" style={{ height: 360 }}
-           preserveAspectRatio="xMidYMid meet" role="img"
-           aria-label="Sample tornado tracks in the current EF colours">
-        {/* The basemap's own grid tone, so contrast is judged against what is
-            really behind these lines rather than against flat black. */}
-        {Array.from({ length: 12 }, (_, i) => (
-          <line key={`h${i}`} x1={0} y1={i * 20} x2={260} y2={i * 20}
-                stroke="rgba(204,204,255,0.055)" strokeWidth={0.5} />
-        ))}
-        {Array.from({ length: 14 }, (_, i) => (
-          <line key={`v${i}`} x1={i * 20} y1={0} x2={i * 20} y2={220}
-                stroke="rgba(204,204,255,0.055)" strokeWidth={0.5} />
-        ))}
-        {EF_ORDER.map((ef, i) => {
-          const colour = draft[`ef:${ef}`] || EF_COLORS[ef];
-          const t = TRACKS[i];
-          return (
-            <g key={ef}>
-              <path d={t.d} fill="none" stroke={colour} strokeWidth={2} strokeLinecap="round" />
-              <text x={232} y={t.endY + 3} fontSize={7} fill={colour}
-                    style={{ letterSpacing: "0.08em" }}>
-                {ef}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
-
-/**
- * The SPC product whose map exercises a given palette.
- *
- * Each palette only ever paints one product, so previewing the wrong one would
- * show colours that cannot change no matter what is typed.
- */
-function spcProductFor(groupId: string): "day1otlk_cat" | "day1otlk_torn" | "day1otlk_hail" | "day1otlk_wind" {
-  if (groupId.includes("tornado")) return "day1otlk_torn";
-  if (groupId.includes("hail")) return "day1otlk_hail";
-  if (groupId.includes("wind")) return "day1otlk_wind";
-  return "day1otlk_cat";
 }

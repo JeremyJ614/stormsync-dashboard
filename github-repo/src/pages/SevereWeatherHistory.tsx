@@ -110,6 +110,30 @@ export default function SevereWeatherHistory() {
     return out;
   }, [tornadoes.data, palette]);
 
+  /**
+   * The same recolour, for the interactive map.
+   *
+   * That map paints from each feature's `color` property, which the survey
+   * parser stamps once from the shipped EF ramp when the fetch lands and never
+   * touches again. So an admin's EF colour reached the poster, the legend and
+   * the stat boxes while the interactive map sitting above all three kept
+   * painting the shipped ramp — which is what "the tornado tracks don't ever
+   * change" was: not the override failing to arrive, but the one map that
+   * ignored it being the one you look at.
+   */
+  const torFeatures = useMemo(() => {
+    const feats = tornadoes.data?.features ?? [];
+    return feats.map((f) => {
+      const colour = efHistoryColor(f.properties.ef);
+      return colour === f.properties.color
+        ? f
+        : { ...f, properties: { ...f.properties, color: colour } };
+    });
+    // `palette` is the dependency that matters: it is what changes when a
+    // colour is edited, and the features themselves have not moved.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tornadoes.data, palette]);
+
   const warnLegend: LegendRow[] = WARN_TIERS
     .filter(t => t.id !== "other")
     .map(t => ({ label: t.label, color: t.color, count: warnings.data?.counts[t.id] ?? 0 }))
@@ -188,7 +212,7 @@ export default function SevereWeatherHistory() {
         <WeatherHistoryMap
           mode={mode}
           warnings={warnings.data?.features ?? []}
-          tornadoes={tornadoes.data?.features ?? []}
+          tornadoes={torFeatures}
           height={430}
         />
         {/* legend that finally matches what the map paints */}

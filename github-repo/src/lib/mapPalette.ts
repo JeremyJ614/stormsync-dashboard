@@ -76,8 +76,10 @@ export function paletteColor(key: PaletteKey, fallback: string): string {
 export async function saveMapPalette(
   colors: Record<PaletteKey, string>,
 ): Promise<{ ok: boolean; error?: string }> {
-  // Only genuine overrides are stored. An entry equal to its default is noise
-  // that would later stop a corrected default from reaching anybody.
+  // Anything that is not a whole six-digit hex is dropped rather than written:
+  // a half-typed value in the stored set would paint as `undefined` on every
+  // member's map. Resetting a swatch deletes its key upstream, so a colour left
+  // alone is simply absent here and keeps following the app's default.
   const clean: Record<string, string> = {};
   for (const [k, v] of Object.entries(colors)) {
     if (typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v)) clean[k] = v.toUpperCase();

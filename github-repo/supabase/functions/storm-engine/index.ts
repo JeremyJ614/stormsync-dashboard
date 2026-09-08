@@ -134,6 +134,24 @@ async function fetchLabels(product: string): Promise<string[]> {
   }
   return [];
 }
+/**
+ * SPC's convective day, which is NOT the calendar day.
+ *
+ * `today_*.csv` covers 12Z to 12Z. Before 12Z the file still holds the day
+ * that STARTED at noon UTC yesterday — so a job running at 11:00 UTC reads
+ * yesterday's reports. Filing them under the calendar date wrote yesterday's
+ * numbers into today's row: on 8 September the ledger held 3 tornado, 3 hail
+ * and 37 wind for both the 7th and the 8th, which are the 7th's figures twice,
+ * and every "Season So Far" total on the Weather Patterns page was carrying an
+ * extra day. The archive backfill quietly corrected it the following night, so
+ * the error was only ever visible on the day anybody was actually looking at.
+ */
+function convectiveDay(at: Date = new Date()): string {
+  const d = new Date(at);
+  if (d.getUTCHours() < 12) d.setUTCDate(d.getUTCDate() - 1);
+  return isoDate(d);
+}
+
 async function countCsv(url: string): Promise<number> {
   try {
     const r = await fetch(url, { headers: { "User-Agent": UA } });
@@ -336,6 +354,7 @@ async function geminiOnce(
 
 // schemaGemini uses UPPERCASE OpenAPI-subset types; schemaAnthropic uses JSON-Schema.
 async function aiJSON(system: string, user: string, schemaGemini: unknown, schemaAnthropic: unknown): Promise<AIRun> {
+  let geminiError = "";
   if (GEMINI_API_KEY) {
     // Actually walk the chain. Pinning one model is what silently reduced every
     // nightly brief to the deterministic SPC template when gemini-2.5-flash was
@@ -360,7 +379,15 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
       }
       if (!transient) break;
     }
-    return { ok: false, error: `gemini failed (${tried.length} attempts) — ${tried.join(" | ")}` };
+    // Exhausted, but not necessarily finished: when a second provider is
+    // configured it should be TRIED, not skipped. Returning here meant that a
+    // Gemini capacity 503 — which is what took the brief down on the 8th, six
+    // attempts in a row across all three models — dropped straight to the
+    // deterministic template with a perfectly good Anthropic key sitting
+    // unused. The Gemini errors are carried along so a failure of both still
+    // says what happened to each.
+    geminiError = `gemini failed (${tried.length} attempts) — ${tried.join(" | ")}`;
+    if (!ANTHROPIC_API_KEY) return { ok: false, error: geminiError };
   }
   if (ANTHROPIC_API_KEY) {
     try {
@@ -373,7 +400,7 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
           system, messages: [{ role: "user", content: user }],
         }),
       });
-      if (!r.ok) return { ok: false, error: `anthropic ${r.status}: ${(await r.text()).slice(0, 300)}` };
+      if (!r.ok) return { ok: false, error: `${geminiError ? geminiError + " | " : ""}anthropic ${r.status}: ${(await r.text()).slice(0, 300)}` };
       const data = await r.json() as { stop_reason?: string; model?: string; content?: { type: string; text?: string }[] };
       if (data.stop_reason === "refusal") return { ok: false, error: "model declined (refusal)" };
       const text = (data.content ?? []).find((b) => b.type === "text")?.text;
@@ -381,10 +408,11 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
       if (!parsed) return { ok: false, error: "model returned invalid JSON" };
       return { ok: true, data: parsed, model: data.model ?? ANTHROPIC_MODEL };
     } catch (e) {
-      return { ok: false, error: String(e instanceof Error ? e.message : e) };
+      const msg = String(e instanceof Error ? e.message : e);
+      return { ok: false, error: geminiError ? `${geminiError} | anthropic ${msg}` : msg };
     }
   }
-  return { ok: false, reason: "no_key" };
+  return geminiError ? { ok: false, error: geminiError } : { ok: false, reason: "no_key" };
 }
 
 // Tiny helpers to build the parallel Gemini/JSON-Schema string-field shapes.
@@ -601,7 +629,8 @@ async function backfillDetails(): Promise<number> {
 
 async function updateHistory(src: SourceData): Promise<{ model: string | null; detailsBackfilled: number }> {
   const today = new Date();
-  const todayStr = isoDate(today);
+  // The day SPC's live report files actually belong to, not the calendar date.
+  const todayStr = convectiveDay(today);
   // 1) Record today's live counts AND superlatives. Today's row is rewritten on
   //    every run because reports keep landing through the day.
   //

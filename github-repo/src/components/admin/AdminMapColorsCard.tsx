@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSticky } from "../../lib/stickyState";
 import { Loader2, Palette, RotateCcw, Save } from "lucide-react";
 import { PROB_STEPS } from "../ProbabilityMap";
 import { PALETTES, KIND_TITLE, type Kind } from "../../lib/spcPalette";
@@ -70,7 +71,10 @@ const ALL_GROUPS = [PROB_GROUP, EF_GROUP, ...SPC_GROUPS];
 
 export function AdminMapColorsCard() {
   const [draft, setDraft] = useState<Record<string, string>>(() => ({ ...getPaletteSnapshot().colors }));
-  const [open, setOpen] = useState<string>("prob");
+  const [open, setOpen] = useSticky<string>(
+    "admin.mapColors.group", "prob",
+    (v): v is string => typeof v === "string" && ALL_GROUPS.some((g) => g.id === v),
+  );
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
 

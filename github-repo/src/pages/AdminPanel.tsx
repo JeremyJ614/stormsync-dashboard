@@ -19,6 +19,8 @@ import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
 import { useDraft } from "../lib/draft";
 import { markUnsaved, releaseUnsaved } from "../lib/unsavedWork";
 import { AdminNavTab } from "../components/AdminNavTab";
+import { useSticky } from "../lib/stickyState";
+import { setScrollVariant } from "../components/ScrollMemory";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
 import { AdminPointsTab } from "../components/AdminPointsTab";
@@ -90,7 +92,32 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
 
 export default function AdminPanel() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>("users");
+  /**
+   * The open section, remembered.
+   *
+   * This was plain state, so opening a member's profile, following a link out,
+   * or closing the browser and coming back all dropped you on Members again —
+   * having scrolled to the top of it. Admin work is long and interrupted by
+   * design: you go and look something up, then come back. The validator
+   * matters as much as the storage: a section stored by an older build and
+   * since renamed would leave the panel showing nothing at all, with no way to
+   * tell why.
+   */
+  const [tab, setTab] = useSticky<Tab>(
+    "admin.tab", "users",
+    (v): v is Tab => typeof v === "string" && TABS.some((t) => t.id === v),
+  );
+
+  /**
+   * Scroll is remembered per SECTION, not per URL.
+   *
+   * Every one of these tabs lives at `/admin`, so one remembered offset for the
+   * path restores you into whichever section you happen to open next, at a
+   * position that belonged to a different one.
+   */
+  useEffect(() => { setScrollVariant(`admin:${tab}`); }, [tab]);
+  useEffect(() => () => setScrollVariant(null), []);
+
   const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
   const [layout, setLayout] = useState<AdminLayout>(DEFAULT_LAYOUT);
   const [showCreate, setShowCreate] = useState(false);

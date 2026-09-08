@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSticky } from "../../lib/stickyState";
 import {
   Check, Dices, Gift, Loader2, RefreshCw, Search, Square, SquareCheck, Ticket, Trophy,
 } from "lucide-react";
@@ -23,7 +24,11 @@ import { ROYAL, HEADING } from "../../lib/royal";
  * transaction, so there is no gap between "you won" and getting it.
  */
 export function AdminRafflesTab() {
-  const [tab, setTab] = useState<"tickets" | "prizes" | "draws" | "test">("tickets");
+  const [tab, setTab] = useSticky<"tickets" | "prizes" | "draws" | "test">(
+    "admin.raffles.tab", "tickets",
+    (v): v is "tickets" | "prizes" | "draws" | "test" =>
+      v === "tickets" || v === "prizes" || v === "draws" || v === "test",
+  );
   const [holders, setHolders] = useState<TicketHolder[] | null>(null);
   const [prizes, setPrizes] = useState<RafflePrize[]>([]);
   const [draws, setDraws] = useState<RaffleDraw[]>([]);

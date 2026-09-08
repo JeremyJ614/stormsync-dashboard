@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSticky } from "../lib/stickyState";
 import {
   ArrowUp, ArrowDown, Plus, Trash2, Eye, EyeOff, Shield, Loader2, GripVertical, Check, RefreshCw,
 } from "lucide-react";
@@ -16,7 +17,10 @@ import { AdminGroupsEditor } from "./AdminGroupsEditor";
  * (desktop) and arrow buttons (reliable on touch).
  */
 export function AdminNavTab({ knownAdminTabs = [] }: { knownAdminTabs?: { id: string; label: string }[] }) {
-  const [sub, setSub] = useState<"sidebar" | "adminGroups">("sidebar");
+  const [sub, setSub] = useSticky<"sidebar" | "adminGroups">(
+    "admin.nav.sub", "sidebar",
+    (v): v is "sidebar" | "adminGroups" => v === "sidebar" || v === "adminGroups",
+  );
   const [, force] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);

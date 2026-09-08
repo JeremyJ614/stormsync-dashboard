@@ -152,23 +152,29 @@ export async function getWinners(): Promise<WinnerRow[]> {
 // Kept here so the page and the Storm Engine describe the SAME numbers; the
 // engine holds the authoritative copy (scoring must never be client-trusted),
 // and these entries exist purely to render the rules card. If you change one,
-// change both — the test at the bottom of the engine's scoreGame comment block
-// explains why they are duplicated rather than shared.
-export const SEVERE_BANDS: { within: number; points: number; label: string }[] = [
-  { within: 25, points: 1000, label: "Bullseye" },
-  { within: 50, points: 750, label: "Direct hit" },
-  { within: 100, points: 500, label: "Close" },
-  { within: 200, points: 250, label: "Near" },
-  { within: 400, points: 100, label: "Distant" },
-];
-export const SEVERE_MISS = 25;
+// change both.
+//
+// Scoring is a CONTEST: the field is ranked by how close each pin landed, so
+// what a call is worth depends on what everybody else called that day.
 
-export const TORNADO_BANDS: { within: number; points: number; label: string }[] = [
-  { within: 25, points: 1500, label: "Bullseye" },
-  { within: 50, points: 1000, label: "Direct hit" },
-  { within: 100, points: 600, label: "Close" },
-  { within: 200, points: 250, label: "Near" },
+/** ⚡ The five closest severe pins of the day, in order. */
+export const SEVERE_PLACES = [1000, 950, 750, 500, 250];
+/** ⚡ Everybody outside the placings, paid on distance alone. */
+export const SEVERE_CONSOLATION: { within: number; points: number }[] = [
+  { within: 75, points: 175 },
+  { within: 100, points: 125 },
+  { within: 250, points: 100 },
 ];
-export const TORNADO_MISS = 0;
-/** Awarded when a member calls "no tornadoes" and the day verifies with zero. */
-export const QUIET_DAY_BONUS = 400;
+
+/** 🌪 The three closest tornado pins of the day, in order, at any distance. */
+export const TORNADO_PLACES = [1000, 750, 500];
+/** 🌪 Landing on one beats winning the day. */
+export const TORNADO_BULLSEYE = { within: 25, points: 1500 };
+/** 🌪 Awarded when a member calls "no tornadoes" and the day verifies with zero. */
+export const QUIET_DAY_BONUS = 750;
+
+/** "1st", "2nd", "3rd"… for the rules card and the result readout. */
+export function ordinal(n: number): string {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}

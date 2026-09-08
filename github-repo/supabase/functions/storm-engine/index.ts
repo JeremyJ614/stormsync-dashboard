@@ -632,18 +632,41 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null; d
 
 // ── U-20 Forecast Game scoring (two-pin, P-5.1) ─────────────────────────────────
 // Each round has TWO calls, scored independently and summed:
-//   ⚡ severe pin  — distance to the nearest storm report of ANY kind
-//   🌪 tornado pin — distance to the nearest TORNADO report only (harder → pays
-//                    more), OR a deliberate "no tornadoes today" call, which
-//                    pays QUIET_DAY_BONUS only if the day verifies with zero.
+//   ⚡ severe pin  — how close you got to the day's storm reports, ANY kind
+//   🌪 tornado pin — how close you got to a TORNADO report, or a deliberate
+//                    "no tornadoes today" call
 //
-// These bands are duplicated in src/lib/gameDb.ts purely so the rules card can
-// render them. THIS copy is authoritative — scoring must never be computed from
-// anything the browser sends. Change one, change both.
-const SEVERE_BANDS: [number, number][] = [[25, 1000], [50, 750], [100, 500], [200, 250], [400, 100]];
-const SEVERE_MISS = 25;
-const TORNADO_BANDS: [number, number][] = [[25, 1500], [50, 1000], [100, 600], [200, 250]];
-const QUIET_DAY_BONUS = 400;
+// THE SCORING IS A CONTEST, NOT A TEST. It used to be neither: each pin was
+// scored alone against fixed distance bands, so on a quiet day nobody could
+// score and on a big day everybody maxed out, and two people 30 miles apart in
+// the same county both banked the same 1000. Now the field is ranked — the
+// closest pin of the day wins the day — and the bands are what everybody else
+// gets for being close. What a good call is worth depends on what everybody
+// else called, which is what makes it a game.
+//
+// These numbers are duplicated in src/lib/gameDb.ts purely so the rules card
+// can render them. THIS copy is authoritative — scoring must never be computed
+// from anything the browser sends. Change one, change both.
+
+/** ⚡ Placement, closest first. */
+const SEVERE_PLACES = [1000, 950, 750, 500, 250];
+/** ⚡ And for everyone outside the placings, paid on distance alone. */
+const SEVERE_CONSOLATION: [number, number][] = [[75, 175], [100, 125], [250, 100]];
+
+/**
+ * 🌪 Placement, closest first — awarded however far away the closest pin was.
+ *
+ * Deliberately unconditional: on a day with tornadoes, somebody was the
+ * closest to one, and being the closest is the thing being rewarded. A
+ * distance floor here would mean nobody wins the tornado call on the days it
+ * is hardest to win.
+ */
+const TORNADO_PLACES = [1000, 750, 500];
+/** 🌪 And actually landing on one pays more than winning the day. */
+const TORNADO_BULLSEYE_MI = 25;
+const TORNADO_BULLSEYE = 1500;
+/** 🌪 Awarded when a member calls "no tornadoes" and the day verifies with zero. */
+const QUIET_DAY_BONUS = 750;
 
 interface ReportPt { lat: number; lon: number; kind: "torn" | "hail" | "wind" }
 function haversineMi(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -681,23 +704,69 @@ function nearestMi(lat: number, lon: number, pts: ReportPt[]): number {
   }
   return best;
 }
-function bandPoints(dist: number, bands: [number, number][], miss: number): number {
+function bandPoints(dist: number, bands: [number, number][]): number {
   for (const [within, pts] of bands) if (dist <= within) return pts;
-  return miss;
+  return 0;
 }
-/** ⚡ pin — nearest report of any kind. A day with no reports at all still pays the floor. */
-function scoreSeverePin(lat: number, lon: number, all: ReportPt[]): number {
-  if (all.length === 0) return SEVERE_MISS;
-  return bandPoints(nearestMi(lat, lon, all), SEVERE_BANDS, SEVERE_MISS);
-}
+
 /**
- * 🌪 pin — nearest TORNADO report. `pin === null` is the explicit quiet-day
- * call: it pays only when the day really did verify with zero tornado reports.
+ * Standard competition ranking over a field of distances.
+ *
+ * `dist[i] === null` means that member is not in the running at all (no pin, or
+ * nothing to be near) and is skipped rather than ranked last — being absent
+ * from a contest is not the same as coming last in it.
+ *
+ * Equal distances share the best award still on the table and consume the
+ * places they tie for, so two pins in the same spot cannot be separated by
+ * whichever row the database happened to return first. Distances are floats
+ * off a haversine, so "equal" is to a thousandth of a mile — about six feet,
+ * far below the precision of an SPC report's own coordinates.
  */
-function scoreTornadoPin(pin: { lat: number; lon: number } | null, torn: ReportPt[]): number {
-  if (!pin) return torn.length === 0 ? QUIET_DAY_BONUS : 0;
-  if (torn.length === 0) return 0;   // called a tornado on a day with none
-  return bandPoints(nearestMi(pin.lat, pin.lon, torn), TORNADO_BANDS, 0);
+function rankedAwards(dist: (number | null)[], places: number[]): number[] {
+  const out: number[] = new Array(dist.length).fill(0);
+  const field = dist
+    .map((d, index) => ({ index, d }))
+    .filter((e): e is { index: number; d: number } => e.d !== null && Number.isFinite(e.d))
+    .sort((a, b) => a.d - b.d);
+  let i = 0;
+  while (i < field.length && i < places.length) {
+    let j = i;
+    while (j + 1 < field.length && Math.abs(field[j + 1].d - field[i].d) < 1e-3) j++;
+    for (let k = i; k <= j; k++) out[field[k].index] = places[i];
+    i = j + 1;
+  }
+  return out;
+}
+
+interface PinSet { lat: number; lon: number; tor: { lat: number; lon: number } | null }
+
+/**
+ * ⚡ pins — the five closest to the day's reports place, everybody else is
+ * paid on distance. A day with no reports anywhere pays nothing: there was
+ * nothing to forecast, and the tornado call is what carries a quiet day.
+ */
+function scoreSevereField(pins: PinSet[], all: ReportPt[]): number[] {
+  const dist = pins.map((p) => (all.length === 0 ? null : nearestMi(p.lat, p.lon, all)));
+  const placed = rankedAwards(dist, SEVERE_PLACES);
+  return dist.map((d, i) => (placed[i] > 0 ? placed[i] : d === null ? 0 : bandPoints(d, SEVERE_CONSOLATION)));
+}
+
+/**
+ * 🌪 pins — the three closest to a tornado place, at any distance, and a pin
+ * that actually lands on one beats all three. No pin at all is the explicit
+ * quiet-day call, which pays only when the day really did verify with zero
+ * tornado reports.
+ */
+function scoreTornadoField(pins: PinSet[], torn: ReportPt[]): number[] {
+  const dist = pins.map((p) =>
+    p.tor === null || torn.length === 0 ? null : nearestMi(p.tor.lat, p.tor.lon, torn));
+  const placed = rankedAwards(dist, TORNADO_PLACES);
+  return pins.map((p, i) => {
+    if (p.tor === null) return torn.length === 0 ? QUIET_DAY_BONUS : 0;
+    if (torn.length === 0) return 0;   // called a tornado on a day with none
+    const bullseye = dist[i] !== null && dist[i]! <= TORNADO_BULLSEYE_MI ? TORNADO_BULLSEYE : 0;
+    return Math.max(placed[i], bullseye);
+  });
 }
 // Loyalty point values for game placements (admin-configurable in app_config).
 async function loyaltyGameAwards(): Promise<number[]> {
@@ -734,29 +803,48 @@ async function rollupMonth(today: Date): Promise<void> {
 interface GuessRow {
   id: string; user_id: string; user_name: string;
   lat: number; lon: number; tor_lat: number | null; tor_lon: number | null;
+  points: number | null;
 }
-async function scoreGame(): Promise<{ scored: number; tornadoReports: number }> {
+async function scoreGame(): Promise<{ scored: number; entrants: number; tornadoReports: number }> {
   const today = new Date();
   await rollupMonth(today); // runs even on a day with no new guesses
   const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
   const dateStr = isoDate(yest);
-  // `points is null` is the idempotency guard: a round is scored exactly once,
-  // so the game_points ledger below can never be double-credited.
+
+  /*
+   * THE WHOLE DAY IS READ, not only the unscored rows.
+   *
+   * Placement is relative, so a member's score depends on where everybody else
+   * pinned. Ranking only the rows still waiting to be scored would mean that if
+   * a run ever half-finished, the survivors would be ranked against a field
+   * missing the people who beat them — and somebody would be handed first place
+   * they did not win. So the field is every entry for the day; `points is null`
+   * stays the guard on WRITING, which is what keeps the ledger from being
+   * credited twice.
+   */
   const { data: guesses } = await admin
-    .from("game_guesses").select("id,user_id,user_name,lat,lon,tor_lat,tor_lon")
-    .eq("guess_date", dateStr).is("points", null);
-  if (!guesses || guesses.length === 0) return { scored: 0, tornadoReports: 0 };
+    .from("game_guesses").select("id,user_id,user_name,lat,lon,tor_lat,tor_lon,points")
+    .eq("guess_date", dateStr);
+  const field = (guesses ?? []) as GuessRow[];
+  const pending = field.filter((g) => g.points === null);
+  if (pending.length === 0) return { scored: 0, entrants: field.length, tornadoReports: 0 };
 
   const all = await fetchReportPoints(dateStr.slice(2).replace(/-/g, ""));
   const torn = all.filter((p) => p.kind === "torn");
   const now = new Date().toISOString();
 
-  for (const g of guesses as GuessRow[]) {
-    const severe = scoreSeverePin(g.lat, g.lon, all);
-    const tornado = scoreTornadoPin(
-      g.tor_lat !== null && g.tor_lon !== null ? { lat: g.tor_lat, lon: g.tor_lon } : null,
-      torn,
-    );
+  const pins: PinSet[] = field.map((g) => ({
+    lat: g.lat, lon: g.lon,
+    tor: g.tor_lat !== null && g.tor_lon !== null ? { lat: g.tor_lat, lon: g.tor_lon } : null,
+  }));
+  const severeAll = scoreSevereField(pins, all);
+  const tornadoAll = scoreTornadoField(pins, torn);
+
+  let scored = 0;
+  for (let i = 0; i < field.length; i++) {
+    const g = field[i];
+    if (g.points !== null) continue;
+    const severe = severeAll[i], tornado = tornadoAll[i];
     const total = severe + tornado;
     await admin.from("game_guesses").update({
       severe_points: severe, tornado_points: tornado, points: total, scored_at: now,
@@ -769,8 +857,9 @@ async function scoreGame(): Promise<{ scored: number; tornadoReports: number }> 
       points: total, earned_on: dateStr,
       detail: { severe_points: severe, tornado_points: tornado, quiet_day_call: g.tor_lat === null },
     });
+    scored++;
   }
-  return { scored: guesses.length, tornadoReports: torn.length };
+  return { scored, entrants: field.length, tornadoReports: torn.length };
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────────

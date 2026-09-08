@@ -4,7 +4,8 @@ import { useAuth } from "../hooks/useAuth";
 import { SubmittingAsNotice } from "../components/SubmittingAsNotice";
 import {
   getMyGuess, getLastScored, lockGuess, monthlyLeaderboard, getWinners,
-  SEVERE_BANDS, SEVERE_MISS, TORNADO_BANDS, QUIET_DAY_BONUS,
+  SEVERE_PLACES, SEVERE_CONSOLATION, TORNADO_PLACES, TORNADO_BULLSEYE,
+  QUIET_DAY_BONUS, ordinal,
   type GameGuess, type LeaderRow, type WinnerRow, type Pin,
 } from "../lib/gameDb";
 import { Leaderboard } from "../components/Leaderboard";
@@ -625,7 +626,8 @@ export default function ForecastGame() {
               </div>
             ) : (
               <p className="text-xs text-muted-foreground">
-                No SPC risk areas today. Your ⚡ pin still banks {SEVERE_MISS} pts, and calling "no tornadoes" is worth {QUIET_DAY_BONUS}.
+                No SPC risk areas today — which makes the ⚡ pin a guess about where anything at all
+                fires, and calling "no tornadoes" worth {QUIET_DAY_BONUS}.
               </p>
             )}
           </div>
@@ -638,34 +640,61 @@ export default function ForecastGame() {
                 <div className="flex items-center gap-1.5 text-yellow-300 text-[10px] font-black uppercase tracking-widest mb-2">
                   <Zap className="w-3.5 h-3.5" /> Severe pin
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2">Nearest storm report of any kind.</p>
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  Ranked on distance to the nearest storm report of any kind. The five closest pins
+                  of the day place.
+                </p>
                 <ul className="text-xs space-y-1">
-                  {SEVERE_BANDS.map((b) => (
-                    <li key={b.within} className="flex justify-between tabular-nums">
-                      <span className="text-muted-foreground">{b.label} (≤{b.within} mi)</span><strong>{fmt(b.points)}</strong>
+                  {SEVERE_PLACES.map((pts, i) => (
+                    <li key={i} className="flex justify-between tabular-nums">
+                      <span className="text-muted-foreground">{ordinal(i + 1)} closest</span>
+                      <strong>{fmt(pts)}</strong>
                     </li>
                   ))}
-                  <li className="flex justify-between tabular-nums"><span className="text-muted-foreground">Anything else</span><strong>{SEVERE_MISS}</strong></li>
+                </ul>
+                <p className="text-[10px] text-muted-foreground/80 mt-2 mb-1 uppercase tracking-wider">
+                  Outside the top five
+                </p>
+                <ul className="text-xs space-y-1">
+                  {SEVERE_CONSOLATION.map((b) => (
+                    <li key={b.within} className="flex justify-between tabular-nums">
+                      <span className="text-muted-foreground">Within {b.within} mi</span>
+                      <strong>{fmt(b.points)}</strong>
+                    </li>
+                  ))}
                 </ul>
               </div>
               <div className="rounded-xl border border-red-500/25 bg-red-500/[0.06] p-3">
                 <div className="flex items-center gap-1.5 text-red-400 text-[10px] font-black uppercase tracking-widest mb-2">
                   <Tornado className="w-3.5 h-3.5" /> Tornado pin
                 </div>
-                <p className="text-[11px] text-muted-foreground mb-2">Nearest <em>tornado</em> report only — harder, pays more.</p>
+                <p className="text-[11px] text-muted-foreground mb-2">
+                  Ranked on distance to the nearest <em>tornado</em> report. The three closest place —
+                  however far away that turns out to be.
+                </p>
                 <ul className="text-xs space-y-1">
-                  {TORNADO_BANDS.map((b) => (
-                    <li key={b.within} className="flex justify-between tabular-nums">
-                      <span className="text-muted-foreground">{b.label} (≤{b.within} mi)</span><strong>{fmt(b.points)}</strong>
+                  <li className="flex justify-between tabular-nums">
+                    <span className="text-red-300">Within {TORNADO_BULLSEYE.within} mi of a tornado</span>
+                    <strong className="text-red-300">{fmt(TORNADO_BULLSEYE.points)}</strong>
+                  </li>
+                  {TORNADO_PLACES.map((pts, i) => (
+                    <li key={i} className="flex justify-between tabular-nums">
+                      <span className="text-muted-foreground">{ordinal(i + 1)} closest</span>
+                      <strong>{fmt(pts)}</strong>
                     </li>
                   ))}
-                  <li className="flex justify-between tabular-nums"><span className="text-[#d9b775]">Correct quiet-day call</span><strong className="text-[#d9b775]">{QUIET_DAY_BONUS}</strong></li>
+                  <li className="flex justify-between tabular-nums">
+                    <span className="text-[#d9b775]">Correct quiet-day call</span>
+                    <strong className="text-[#d9b775]">{fmt(QUIET_DAY_BONUS)}</strong>
+                  </li>
                 </ul>
               </div>
             </div>
             <p className="text-[10px] text-muted-foreground/70">
               Both pins are added together and feed the same week/month/year board as Daily Trivia.
-              Scoring is computed server-side from SPC storm reports — never in your browser.
+              Placings are decided against everybody who played that day, so what a call is worth
+              depends on what everybody else called. Scoring is computed server-side from SPC storm
+              reports — never in your browser.
             </p>
           </div>
 

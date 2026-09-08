@@ -79,6 +79,26 @@ const chunk = <T>(a: T[], n: number): T[][] => {
 };
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
 
+/**
+ * The contest day, in Eastern time.
+ *
+ * The Forecast Game runs on a calendar day and this used to be the UTC one,
+ * which in Eastern time turns over at 8pm — so an evening's picks were filed
+ * against tomorrow, and yesterday's round was scored four hours after it was
+ * already over for the people who played it. `en-CA` is not a style choice: it
+ * is the locale that formats as YYYY-MM-DD, the shape the date column wants.
+ * The zone carries its own daylight-saving rules, so this needs no offset
+ * table and stays right across both changeovers.
+ */
+const GAME_TZ = "America/New_York";
+const GAME_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: GAME_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+});
+const gameDate = (at: Date = new Date()) => GAME_DAY_FMT.format(at);
+const gameDateOffset = (days: number, at: Date = new Date()) =>
+  gameDate(new Date(at.getTime() + days * 86_400_000));
+
+
 // ── SPC categorical ranking (deterministic, non-AI) ─────────────────────────────
 const CAT_ORDER = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"];
 const CAT_NAMES: Record<string, string> = {
@@ -778,7 +798,9 @@ const PLACE = ["1st", "2nd", "3rd", "4th"];
 // Settle the previous month once (idempotent — skips if the winner row exists):
 // crown the winner and credit the top-4 their game-win loyalty points.
 async function rollupMonth(today: Date): Promise<void> {
-  if (today.getUTCDate() !== 1) return;
+  // The month ends on the Eastern clock too, so a run in the small hours of
+  // the 1st settles the month that has actually just ended.
+  if (gameDate(today).slice(-2) !== "01") return;
   const pm = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
   const month = `${pm.getUTCFullYear()}-${String(pm.getUTCMonth() + 1).padStart(2, "0")}`;
   const { data: existing } = await admin.from("game_winners").select("month").eq("month", month).maybeSingle();
@@ -806,10 +828,13 @@ interface GuessRow {
   points: number | null;
 }
 async function scoreGame(): Promise<{ scored: number; entrants: number; tornadoReports: number }> {
-  const today = new Date();
-  await rollupMonth(today); // runs even on a day with no new guesses
-  const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
-  const dateStr = isoDate(yest);
+  const runAt = new Date();
+  await rollupMonth(runAt); // runs even on a day with no new guesses
+  // Yesterday's round, on the Eastern clock the round itself ran on. Taking
+  // "yesterday" off the UTC date meant that between midnight and 8pm Eastern
+  // the two disagreed, and the job scored a day that was not the one that had
+  // just finished for the people who played it.
+  const dateStr = gameDateOffset(-1, runAt);
 
   /*
    * THE WHOLE DAY IS READ, not only the unscored rows.
@@ -911,6 +936,32 @@ Deno.serve(async (req: Request) => {
   const dryRun = body.dryRun === true || body.action === "dry-run";
   const briefDate = new Date().toISOString().slice(0, 10);
   const started = Date.now();
+
+  /*
+   * Scoring on its own, without the brief.
+   *
+   * The round now ends at midnight Eastern, and the members who played it
+   * should see their score when it ends rather than at breakfast — but the
+   * full run generates the daily brief off an AI call and reads five feeds,
+   * which is a morning job and has no business firing at midnight. So the
+   * scorer is reachable by itself, and the cron calls it twice: once at each
+   * of the two UTC hours that can be midnight Eastern, since cron has no
+   * concept of a time zone. Whichever of the two lands after the turnover does
+   * the work; the other finds yesterday already scored and does nothing, which
+   * is exactly what `points is null` has always guaranteed.
+   */
+  if (body.action === "score-game") {
+    try {
+      const game = await scoreGame();
+      await logRun({ brief_date: briefDate, status: "game-scored", trigger: auth.trigger,
+                     duration_ms: Date.now() - started, detail: JSON.stringify(game) });
+      return json({ ok: true, game });
+    } catch (e) {
+      const msg = String(e instanceof Error ? e.message : e);
+      await logRun({ brief_date: briefDate, status: "game-error", trigger: auth.trigger, detail: msg });
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
 
   try {
     const src = await ingest();

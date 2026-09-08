@@ -9,6 +9,7 @@ import {
   type GameGuess, type LeaderRow, type WinnerRow, type Pin,
 } from "../lib/gameDb";
 import { Leaderboard } from "../components/Leaderboard";
+import { gameDate, msUntilNextGameDay } from "../lib/gameDay";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import { geocodeLocation } from "../utils/weatherApi";
 import usStatesAlbers from "../data/usStatesAlbers.json";
@@ -188,13 +189,14 @@ function buildOverlay(geo: unknown, kind: "cat" | "prob"): OverlayData {
 const fmt = (n: number) => n.toLocaleString();
 
 /** Time remaining until the 00 UTC scoring cut-off. */
+/** Time left in the round, counted to midnight Eastern — the same clock the
+ *  round itself turns over on, rather than to UTC midnight, which is 8pm here
+ *  and was four hours adrift of the moment it claimed to be counting to. */
 function useLockCountdown(): string {
   const [s, setS] = useState("");
   useEffect(() => {
     const tick = () => {
-      const now = new Date();
-      const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0));
-      const ms = next.getTime() - now.getTime();
+      const ms = msUntilNextGameDay();
       const h = Math.floor(ms / 3_600_000), m = Math.floor((ms % 3_600_000) / 60_000);
       setS(`${h}h ${String(m).padStart(2, "0")}m`);
     };
@@ -203,6 +205,23 @@ function useLockCountdown(): string {
     return () => clearInterval(id);
   }, []);
   return s;
+}
+
+/**
+ * The current contest day, which changes under the page at midnight.
+ *
+ * Somebody who leaves the game open overnight — which on a phone is everybody,
+ * since the tab is never really closed — should watch the board reset rather
+ * than sit on a finished round until they think to reload. The timer is armed
+ * for the exact moment of the turnover and re-armed after it.
+ */
+function useGameDate(): string {
+  const [date, setDate] = useState(() => gameDate());
+  useEffect(() => {
+    const id = setTimeout(() => setDate(gameDate()), msUntilNextGameDay() + 1_000);
+    return () => clearTimeout(id);
+  }, [date]);
+  return date;
 }
 
 export default function ForecastGame() {
@@ -227,7 +246,7 @@ export default function ForecastGame() {
 
   const { data: brief } = useDailyBrief();
   const svgRef = useRef<SVGSVGElement>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = useGameDate();
   const yyyymm = today.slice(0, 7);
   const countdown = useLockCountdown();
 
@@ -252,6 +271,10 @@ export default function ForecastGame() {
         monthlyLeaderboard(yyyymm), getWinners(),
       ]);
       if (cancelled) return;
+      // Reset first. This effect re-runs when the day turns over, and without
+      // clearing, last night's locked pins stayed on the map over today's
+      // outlook — the exact thing that made a finished round look live.
+      setLocked(false); setSeverePin(null); setTornadoPin(null); setQuietDay(false);
       if (g) {
         setLocked(true);
         setSeverePin(g.severe); setTornadoPin(g.tornado); setQuietDay(g.tornado === null);

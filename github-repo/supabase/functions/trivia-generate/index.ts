@@ -120,6 +120,25 @@ Exactly 4 choices, only one correct. Question under 190 characters.
 The explanation should be one or two sentences and genuinely interesting.
 Vary the subject; variation seed ${seed}.\n${SHAPE}`;
 
+
+/**
+ * The contest day, in Eastern time.
+ *
+ * Daily Trivia runs on a calendar day and this used to be the UTC one,
+ * which in Eastern time turns over at 8pm — so the day's questions appeared at 8pm the
+ * evening before and the day they belonged to was already stale by breakfast. `en-CA` is not a style choice: it
+ * is the locale that formats as YYYY-MM-DD, the shape the date column wants.
+ * The zone carries its own daylight-saving rules, so this needs no offset
+ * table and stays right across both changeovers.
+ */
+const GAME_TZ = "America/New_York";
+const GAME_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: GAME_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+});
+const gameDate = (at: Date = new Date()) => GAME_DAY_FMT.format(at);
+const gameDateOffset = (days: number, at: Date = new Date()) =>
+  gameDate(new Date(at.getTime() + days * 86_400_000));
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -129,7 +148,7 @@ Deno.serve(async (req: Request) => {
   let body: { date?: string; force?: boolean; debug?: boolean } = {};
   try { body = await req.json(); } catch { /* no body */ }
 
-  const day = body.date ?? new Date().toISOString().slice(0, 10);
+  const day = body.date ?? gameDate();
   const seed = `${day}-${Math.floor(Math.random() * 100000)}`;
 
   const { data: existing } = await admin

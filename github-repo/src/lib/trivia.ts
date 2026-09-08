@@ -9,6 +9,7 @@
  * RLS only exposes questions dated today or earlier, so tomorrow's answers can't
  * be pulled from the client.
  */
+import { gameDate } from "./gameDay";
 import { supabase, isSupabaseConfigured } from "./supabase";
 import { viewingAs } from "./impersonate";
 import { logger } from "./logger";
@@ -35,7 +36,15 @@ export interface TriviaAnswer {
   points: number;
 }
 
-export const todayUTC = (): string => new Date().toISOString().slice(0, 10);
+/**
+ * Today, for trivia.
+ *
+ * Named `todayUTC` when the day really was UTC. It is the Eastern contest day
+ * now — shared with the Forecast Game, so the two cannot roll over at
+ * different moments — and the name is kept only because it is what every
+ * caller already imports.
+ */
+export const todayUTC = (): string => gameDate();
 
 interface Row {
   id: string; ask_date: string; slot: number; category: string; question: string;
@@ -158,16 +167,36 @@ export interface QuestionInput {
 
 export interface MutationOutcome { ok: boolean; error?: string }
 
+/**
+ * Save a question, through the definer function rather than the table.
+ *
+ * Adding a question always failed with "permission denied for table
+ * trivia_questions" while editing one worked, and the difference was the
+ * upsert. Members have no table-level SELECT here — the answer key is kept
+ * unreadable by granting SELECT column by column — and `INSERT ... ON CONFLICT
+ * DO UPDATE` is the one write Postgres requires table-level SELECT for. A
+ * column grant does not satisfy it. PostgREST even returns the hint "GRANT
+ * SELECT ON public.trivia_questions TO authenticated", which would have handed
+ * every signed-in member tomorrow's answers.
+ *
+ * The upsert is needed: (ask_date, slot) is UNIQUE, and "override slot 1" has
+ * to replace whatever the generator put there. So it happens inside
+ * `admin_save_trivia_question`, which runs as its owner and checks for admin
+ * itself — the same shape the editor already uses to READ the answer key.
+ */
 export async function adminSaveQuestion(input: QuestionInput, id?: string): Promise<MutationOutcome> {
-  const row = {
-    ask_date: input.askDate, slot: input.slot, category: input.category,
-    question: input.question, choices: input.choices, answer_index: input.answerIndex,
-    explanation: input.explanation ?? null, points: input.points,
-    source: "admin", active: input.active ?? true,
-  };
-  const { error } = id
-    ? await supabase.from("trivia_questions").update(row).eq("id", id)
-    : await supabase.from("trivia_questions").upsert(row, { onConflict: "ask_date,slot" });
+  const { error } = await supabase.rpc("admin_save_trivia_question", {
+    p_id: id ?? null,
+    p_ask_date: input.askDate,
+    p_slot: input.slot,
+    p_category: input.category,
+    p_question: input.question,
+    p_choices: input.choices,
+    p_answer_index: input.answerIndex,
+    p_explanation: input.explanation ?? null,
+    p_points: input.points,
+    p_active: input.active ?? true,
+  });
   return error ? { ok: false, error: error.message } : { ok: true };
 }
 

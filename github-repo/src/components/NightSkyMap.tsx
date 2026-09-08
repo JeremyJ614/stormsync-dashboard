@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { skyScore, skyBand, SKY_BANDS } from "../lib/stargazing";
 import maplibregl from "maplibre-gl";
 import { BaseMap, type BaseMapHandle } from "./map/BaseMap";
 
@@ -57,9 +58,13 @@ const STATES = [
   { name: "Hawaii", abbr: "HI", lat: 20.80, lon: -156.0 },
 ];
 
-function clarityScore(cloud: number, humidity: number, precip: number): number {
-  return Math.max(0, Math.round(100 - cloud * 0.85 - Math.max(0, humidity - 60) * 0.2 - (precip > 0.1 ? 35 : 0)));
-}
+/*
+ * The per-state fill was a THIRD copy of the stargazing formula, with its own
+ * constants again — humidity over 60 rather than 50, rain worth 35 rather than
+ * 40. So the map and the page beside it could disagree about the same night in
+ * the same place, and neither knew about the moon or about whether it was even
+ * dark. Both read `skyScore` now.
+ */
 
 // Purple-focused color scale (brighter, more purple than blue)
 /**
@@ -74,7 +79,9 @@ type MeteoHourly = {
     cloud_cover?: number[];
     relative_humidity_2m?: number[];
     precipitation?: number[];
+    time?: string[];
   };
+  utc_offset_seconds?: number;
 };
 
 const CLARITY_TTL_MS = 15 * 60 * 1000;
@@ -106,14 +113,34 @@ async function clarityByState(nightHour: number): Promise<Record<string, number>
     STATES.forEach((state, i) => {
       const h = rows[i]?.hourly;
       if (!h) { scores[state.name] = 50; return; }
-      const avg = (arr: number[] | undefined) => {
-        const vals = idxs.map((k) => arr?.[k]).filter((v): v is number => typeof v === "number");
-        return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      /*
+       * Each state is scored at its OWN clock and its OWN sky.
+       *
+       * `hourly.time` comes back as local wall-clock for that coordinate, and
+       * each row carries the offset that made it — so the real instant is the
+       * stamp read as UTC, minus the offset. Without that the moon and the sun
+       * would be placed by somebody else's clock, and on a map spanning four
+       * time zones that is the difference between dusk and midnight.
+       */
+      const offset = (rows[i] as { utc_offset_seconds?: number })?.utc_offset_seconds ?? 0;
+      const instant = (k: number): Date | null => {
+        const stamp = h.time?.[k];
+        return stamp ? new Date(Date.parse(`${stamp}:00Z`) - offset * 1000) : null;
       };
-      const cloud = avg(h.cloud_cover);
-      const hum = avg(h.relative_humidity_2m);
-      const precip = Math.max(0, ...idxs.map((k) => h.precipitation?.[k] ?? 0));
-      scores[state.name] = clarityScore(cloud, hum, precip);
+      const hourScores = idxs.map((k) => {
+        const at = instant(k);
+        if (!at) return null;
+        return skyScore({
+          at, lat: state.lat, lon: state.lon,
+          cloudPct: h.cloud_cover?.[k] ?? 50,
+          humidityPct: h.relative_humidity_2m?.[k] ?? 60,
+          precipIn: h.precipitation?.[k] ?? 0,
+        }).score;
+      }).filter((v): v is number => v !== null);
+      // The BEST of the four hours, not the average: the question is whether
+      // there is a window worth going out for, and averaging a clear 2am into
+      // a cloudy 10pm answers a question nobody asked.
+      scores[state.name] = hourScores.length ? Math.max(...hourScores) : 50;
     });
 
     clarityCache.set(nightHour, { at: Date.now(), scores });
@@ -129,18 +156,22 @@ async function clarityByState(nightHour: number): Promise<Record<string, number>
 }
 
 function clarityBucket(score: number): { label: string; fill: string; stroke: string } {
-  if (score >= 85) return { label: "PRISTINE",   fill: "#fde047", stroke: "#ca8a04" };
-  if (score >= 70) return { label: "EXCELLENT",  fill: "#e879f9", stroke: "#c026d3" };
-  if (score >= 55) return { label: "CLEAR",      fill: "#c084fc", stroke: "#9333ea" };
-  if (score >= 35) return { label: "HAZY",       fill: "#818cf8", stroke: "#4f46e5" };
-  return                   { label: "WASHED OUT",fill: "#4c1d95", stroke: "#3b0764" };
+  const b = skyBand(score);
+  return { label: b.text, fill: b.color, stroke: b.stroke };
 }
 
 // Aurora view-line latitude from Kp
 const KP_VIEW: [number, number][] = [
   [0, 66], [1, 63], [2, 60], [3, 56], [4, 53], [5, 50], [6, 47], [7, 43], [8, 40], [9, 37],
 ];
-function viewLineLat(kp: number): number {
+/**
+ * The latitude a naked-eye aurora reaches at a given Kp.
+ *
+ * Exported so the page's latitude ladder and the map's view lines cannot
+ * disagree — two versions of this table drifting apart is exactly the sort of
+ * thing that makes a dashboard contradict itself.
+ */
+export function viewLineLat(kp: number): number {
   const k = Math.max(0, Math.min(9, kp));
   for (let i = 0; i < KP_VIEW.length - 1; i++) {
     const [k0, l0] = KP_VIEW[i], [k1, l1] = KP_VIEW[i + 1];
@@ -151,13 +182,9 @@ function viewLineLat(kp: number): number {
 
 // Each entry carries BOTH colors (map fill + outline) so the single unified
 // legend can show them side-by-side against the label.
-export const SKY_LEGEND = [
-  { label: "PRISTINE",   color: "#fde047", stroke: "#ca8a04", range: "85+" },
-  { label: "EXCELLENT",  color: "#e879f9", stroke: "#c026d3", range: "70-84" },
-  { label: "CLEAR",      color: "#c084fc", stroke: "#9333ea", range: "55-69" },
-  { label: "HAZY",       color: "#818cf8", stroke: "#4f46e5", range: "35-54" },
-  { label: "WASHED OUT", color: "#4c1d95", stroke: "#3b0764", range: "0-34" },
-];
+export const SKY_LEGEND = SKY_BANDS.map((b) => ({
+  label: b.text, color: b.color, stroke: b.stroke, range: b.range,
+}));
 
 export const AURORA_LEGEND = [
   { label: "OVERHEAD",    color: "#c084fc", stroke: "#7e22ce" },
@@ -234,8 +261,15 @@ export function NightSkyMap({
       // ── aurora view lines ────────────────────────────────────────────────
       if (mode === "aurora" || mode === "both") {
         const nakedLat = viewLineLat(peakKp);
-        const overheadLat = viewLineLat(Math.min(9, peakKp + 1.5));
-        const cameraLat = viewLineLat(Math.max(0, peakKp - 1.5));
+        // North to south: overhead, then the naked-eye view line, then the
+        // stretch only a long exposure reaches. These two were the other way
+        // round — the map had "camera only" drawn NORTH of the naked-eye line
+        // and "overhead" south of it, which is backwards in both directions.
+        // The oval expands equatorward as Kp climbs, so being under it takes a
+        // higher latitude than seeing it on the horizon does, and a camera
+        // reaches further south than the eye, not less far.
+        const overheadLat = viewLineLat(Math.max(0, peakKp - 1.5));
+        const cameraLat = viewLineLat(Math.min(9, peakKp + 1.5));
         const curLat = viewLineLat(currentKp);
 
         const line = (lat: number, color: string, width: number, dash: number[] | null, label: string, kind: string): GeoJSON.Feature => ({

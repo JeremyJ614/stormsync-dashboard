@@ -5,6 +5,8 @@ import { Link } from "wouter";
 import { HIDDEN_MODULES } from "../hooks/useAuth";
 import { DEFAULT_FAQ } from "../lib/faqDefaults";
 import { listFaq, listCategories, type FaqSection } from "../lib/faq";
+import { JsonLd } from "../components/JsonLd";
+import { faqSchema } from "../lib/seo";
 
 interface UiEntry { id: string; title: string; moduleId?: string; sections: FaqSection[] }
 interface UiCategory { id: string; name: string; entries: UiEntry[] }
@@ -39,8 +41,31 @@ export default function FAQ() {
   const visible = ui.filter((c) => c.entries.length > 0);
   const current = visible.find((c) => c.id === activeCat) ?? visible[0];
 
+  /**
+   * Every question on the page, as structured data.
+   *
+   * ALL of them, not just the open category — the answers live inside
+   * accordions that are collapsed until somebody clicks, so anything reading
+   * the rendered page sees sixty-one headings and no answers. This is the only
+   * place the actual content is legible to a machine.
+   *
+   * To be plain about the payoff: Google restricted FAQ rich results to
+   * government and health sites in 2023, so this will not put a dropdown under
+   * the search result. It is still what Bing reads for the same feature, and
+   * it is how an assistant answering "how does StormSync billing work" finds a
+   * real answer instead of guessing one.
+   */
+  const schema = useMemo(() => {
+    const qa = ui.flatMap((c) => c.entries.map((e) => ({
+      q: e.title,
+      a: e.sections.map((s) => [s.heading, s.body].filter(Boolean).join(": ")).join(" ").trim(),
+    }))).filter((x) => x.q && x.a);
+    return qa.length ? faqSchema(qa) : null;
+  }, [ui]);
+
   return (
     <div className="p-4 md:p-6 max-w-4xl mx-auto space-y-5">
+      {schema && <JsonLd id="faq" data={schema} />}
       <div className="flex items-center gap-2">
         <HelpCircle className="w-6 h-6 text-primary" />
         <h1 className="text-2xl font-bold tracking-wide uppercase">Help &amp; FAQ</h1>

@@ -14,6 +14,7 @@ import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
 import { PullToRefresh } from "./components/PullToRefresh";
 import { ScrollMemory } from "./components/ScrollMemory";
+import { useSeo } from "./hooks/useSeo";
 import { UpdateChip } from "./components/UpdateChip";
 import { ViewAsBanner } from "./components/ViewAsBanner";
 import { AnimatePresence, LayoutGroup } from "framer-motion";
@@ -237,6 +238,7 @@ function AppInner() {
       <ViewAsBanner />
       <PullToRefresh />
       <ScrollMemory />
+      <Seo />
     </Layout>
     </>
   );
@@ -270,3 +272,14 @@ function App() {
 }
 
 export default App;
+
+/**
+ * Head management, as a component so the hook sits inside the Router.
+ *
+ * Renders nothing. `useSeo` needs `useLocation`, which needs a Router above
+ * it, and the app's provider tree is assembled outside one.
+ */
+function Seo() {
+  useSeo();
+  return null;
+}

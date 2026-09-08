@@ -3,15 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, viewport-fit=cover" />
-    <title>StormSync Media</title>
-    <meta name="description" content="StormSync Media — VIP Forecast Group. Personalized severe weather intelligence for subscribers." />
-    <meta name="robots" content="index, follow" />
-    <meta property="og:title" content="StormSync Media" />
-    <meta property="og:description" content="StormSync Media — VIP Forecast Group. Personalized severe weather intelligence." />
+    <!-- These are the FALLBACK head tags. `scripts/seo-build.mjs` replaces them
+         per page after the build, because a social crawler never runs the app
+         and so never sees a title React sets. Anything here is what a route
+         with no entry in the page table gets. -->
+    <title>StormSync Media — Severe Weather Intelligence</title>
+    <meta name="description" content="Live severe weather tracking built for people who take storms seriously: SPC outlooks, real-time warnings, hurricane tracking and radar, from NOAA and the National Weather Service." />
+    <meta name="robots" content="index, follow, max-image-preview:large" />
+    <link rel="canonical" href="https://vip.sswx.space/" />
     <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="StormSync Media" />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:url" content="https://vip.sswx.space/" />
+    <meta property="og:title" content="StormSync Media — Severe Weather Intelligence" />
+    <meta property="og:description" content="Live severe weather tracking built for people who take storms seriously." />
+    <!-- The file existed in public/ from the beginning and nothing pointed at
+         it, so every link to StormSync ever shared anywhere showed no image. -->
+    <meta property="og:image" content="https://vip.sswx.space/opengraph.jpg" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="StormSync Media severe weather tracking" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content="StormSync Media" />
-    <meta name="twitter:description" content="StormSync Media — VIP Forecast Group. Personalized severe weather intelligence." />
+    <meta name="twitter:title" content="StormSync Media — Severe Weather Intelligence" />
+    <meta name="twitter:description" content="Live severe weather tracking built for people who take storms seriously." />
+    <meta name="twitter:image" content="https://vip.sswx.space/opengraph.jpg" />
     <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
     <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -22,7 +37,20 @@
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Raleway:wght@500..900&family=DM+Sans:opsz,wght@9..40,400..900&family=Cinzel:wght@400..900&display=swap" rel="stylesheet" />
+    <!-- Loaded without blocking the first paint. As a plain stylesheet link
+         this sat in the critical path: the browser would not draw anything
+         until Google's CSS came back, which is paid for directly in Largest
+         Contentful Paint — a ranking signal, and the one a phone on a bad
+         connection feels most. `print` makes it non-blocking; onload swaps it
+         back to `all`. The <noscript> copy keeps it working without JS. -->
+    <link rel="preload" as="style"
+          href="https://fonts.googleapis.com/css2?family=Raleway:wght@500..900&family=DM+Sans:opsz,wght@9..40,400..900&family=Cinzel:wght@400..900&display=swap" />
+    <link rel="stylesheet" media="print" onload="this.media='all'"
+          href="https://fonts.googleapis.com/css2?family=Raleway:wght@500..900&family=DM+Sans:opsz,wght@9..40,400..900&family=Cinzel:wght@400..900&display=swap" />
+    <noscript>
+      <link rel="stylesheet"
+            href="https://fonts.googleapis.com/css2?family=Raleway:wght@500..900&family=DM+Sans:opsz,wght@9..40,400..900&family=Cinzel:wght@400..900&display=swap" />
+    </noscript>
   </head>
   <body>
     <div id="root"></div>

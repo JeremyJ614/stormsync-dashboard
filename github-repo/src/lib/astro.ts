@@ -62,16 +62,31 @@ const siderealTime = (d: number, lw: number) =>
 
 const solarMeanAnomaly = (d: number) => RAD * (357.5291 + 0.98560028 * d);
 
-/** Ecliptic longitude, mean anomaly plus the equation of centre plus perihelion. */
-function eclipticLongitude(M: number): number {
+/**
+ * Ecliptic longitude: mean anomaly, plus the equation of centre, plus the
+ * longitude of perihelion.
+ *
+ * That last term is not a constant, and treating it as one is the bug this
+ * carries a comment for. Earth's perihelion precesses about 0.0000471° a day —
+ * 1.72° a century — so a fixed 102.9372 is right at J2000 and drifts by roughly
+ * a fifth of a degree a decade after it. Measured against the standard Meeus
+ * expression the old form was 0.46° adrift in 2026 and 0.70° by 2040, and it
+ * grows without bound.
+ *
+ * That is not a rounding error. The sun moves about a degree a day, so it put
+ * the equinoxes and solstices THIRTEEN HOURS late, dragged every moon phase
+ * about fifty minutes late with it (a phase is an elongation from the sun), and
+ * cost a couple of minutes on every sunrise and sunset in the app.
+ */
+function eclipticLongitude(M: number, d: number): number {
   const C = RAD * (1.9148 * Math.sin(M) + 0.02 * Math.sin(2 * M) + 0.0003 * Math.sin(3 * M));
-  const P = RAD * 102.9372; // perihelion of the Earth
+  const P = RAD * (102.93735 + 0.00004708 * d); // perihelion of the Earth, precessing
   return M + C + P + Math.PI;
 }
 
 function sunCoords(d: number) {
   const M = solarMeanAnomaly(d);
-  const L = eclipticLongitude(M);
+  const L = eclipticLongitude(M, d);
   return { dec: declination(L, 0), ra: rightAscension(L, 0) };
 }
 
@@ -289,7 +304,7 @@ export function sunTimes(date: Date, lat: number, lon: number): SunTimes {
   const n = julianCycle(d, lw);
   const ds = approxTransit(0, lw, n);
   const M = solarMeanAnomaly(ds);
-  const L = eclipticLongitude(M);
+  const L = eclipticLongitude(M, ds);
   const dec = declination(L, 0);
   const Jnoon = solarTransitJ(ds, M, L);
 
@@ -418,4 +433,220 @@ export function compassPoint(azimuthDeg: number): string {
   const points = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
                   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
   return points[Math.round((((azimuthDeg % 360) + 360) % 360) / 22.5) % 16];
+}
+
+/* ── the sun's place in the year ───────────────────────────────────────── */
+
+/** The sun's apparent ecliptic longitude in degrees, 0 at the March equinox. */
+export function sunEclipticLongitude(date: Date): number {
+  const d = toDays(date);
+  const L = eclipticLongitude(solarMeanAnomaly(d), d) * DEG;
+  return ((L % 360) + 360) % 360;
+}
+
+export type SeasonName = "Spring" | "Summer" | "Autumn" | "Winter";
+
+export interface SeasonEvent {
+  /** What the sun is doing, not what month it is. */
+  name: "March equinox" | "June solstice" | "September equinox" | "December solstice";
+  /** The season that STARTS here, in the northern hemisphere. */
+  starts: SeasonName;
+  at: Date;
+}
+
+/**
+ * The equinoxes and solstices of a year, to the minute.
+ *
+ * These are not dates. They are the four instants when the sun's ecliptic
+ * longitude passes 0°, 90°, 180° and 270°, and they move by up to about
+ * eighteen hours across the leap-year cycle — the September equinox was the
+ * 22nd in 2025 and is the 23rd in 2026. The page this replaces had the four
+ * dates written into it as constants, so it was simply wrong in some years, and
+ * it never showed a time at all.
+ *
+ * Found by bisection on the longitude, which is monotonic here. Checked against
+ * the U.S. Naval Observatory's own seasons service.
+ */
+export function seasonEvents(year: number): SeasonEvent[] {
+  const targets: { deg: number; name: SeasonEvent["name"]; starts: SeasonName; month: number }[] = [
+    { deg: 0,   name: "March equinox",      starts: "Spring", month: 2 },
+    { deg: 90,  name: "June solstice",      starts: "Summer", month: 5 },
+    { deg: 180, name: "September equinox",  starts: "Autumn", month: 8 },
+    { deg: 270, name: "December solstice",  starts: "Winter", month: 11 },
+  ];
+
+  return targets.map((t) => {
+    // A twenty-day bracket around the nominal date always contains the
+    // crossing; the events never wander more than a couple of days.
+    let lo = Date.UTC(year, t.month, 10);
+    let hi = Date.UTC(year, t.month, 30);
+    // Measure longitude relative to the target so the crossing is a sign change
+    // rather than a wrap at 360.
+    const f = (ms: number) => {
+      const d = sunEclipticLongitude(new Date(ms)) - t.deg;
+      return d > 180 ? d - 360 : d < -180 ? d + 360 : d;
+    };
+    for (let i = 0; i < 48; i++) {
+      const mid = (lo + hi) / 2;
+      if (f(mid) < 0) lo = mid; else hi = mid;
+    }
+    return { name: t.name, starts: t.starts, at: new Date((lo + hi) / 2) };
+  });
+}
+
+/**
+ * Which season it is, and the instant the next one begins.
+ *
+ * Driven by the events above rather than by month numbers, so the boundary is
+ * the real one — on the 20th of March the answer changes at the minute the sun
+ * crosses, not at midnight.
+ */
+export function currentSeason(at: Date = new Date()): { season: SeasonName; next: SeasonEvent } {
+  const events = [
+    ...seasonEvents(at.getUTCFullYear() - 1),
+    ...seasonEvents(at.getUTCFullYear()),
+    ...seasonEvents(at.getUTCFullYear() + 1),
+  ];
+  const next = events.find((e) => e.at > at)!;
+  const started = events.filter((e) => e.at <= at).pop()!;
+  return { season: started.starts, next };
+}
+
+/* ── the moon's own calendar ───────────────────────────────────────────── */
+
+export type PhaseName = "New Moon" | "First Quarter" | "Full Moon" | "Last Quarter";
+
+export interface PhaseEvent { name: PhaseName; at: Date }
+
+/**
+ * The next few new moons, quarters and full moons.
+ *
+ * The quantity that defines them is the elongation of the moon from the sun —
+ * 0° new, 90° first quarter, 180° full — not a count of days from a fixed
+ * epoch. The count-of-days version this replaces drifts by up to about half a
+ * day, which is the difference between a full moon tonight and a full moon
+ * tomorrow.
+ *
+ * Stepped six hours at a time looking for a crossing, then bisected. Checked
+ * against the U.S. Naval Observatory's own phase service.
+ */
+export function moonPhases(from: Date, count = 4): PhaseEvent[] {
+  const elong = (ms: number) => {
+    const d = toDays(new Date(ms));
+    const s = sunCoords(d), m = moonCoords(d);
+    // Difference in apparent ecliptic longitude, which is what "quarter" means.
+    const sl = Math.atan2(Math.sin(s.ra) * Math.cos(OBLIQUITY) + Math.tan(s.dec) * Math.sin(OBLIQUITY), Math.cos(s.ra));
+    const ml = Math.atan2(Math.sin(m.ra) * Math.cos(OBLIQUITY) + Math.tan(m.dec) * Math.sin(OBLIQUITY), Math.cos(m.ra));
+    return (((ml - sl) * DEG % 360) + 360) % 360;
+  };
+
+  const NAMES: PhaseName[] = ["New Moon", "First Quarter", "Full Moon", "Last Quarter"];
+  const out: PhaseEvent[] = [];
+  const STEP = 6 * 3600_000;
+
+  let t = from.getTime();
+  let prev = elong(t);
+  const end = t + 45 * 86400_000;
+
+  while (t < end && out.length < count) {
+    const next = t + STEP;
+    const cur = elong(next);
+    // Which quarter boundaries fall inside this step. Elongation always
+    // increases, so a drop means it wrapped past 360.
+    for (let q = 0; q < 4; q++) {
+      const target = q * 90;
+      const crossed = prev < cur ? (prev < target && cur >= target)
+        : (prev < target || cur >= target);   // the wrap at new moon
+      if (!crossed) continue;
+      let lo = t, hi = next;
+      const dist = (ms: number) => {
+        const d = elong(ms) - target;
+        return d > 180 ? d - 360 : d < -180 ? d + 360 : d;
+      };
+      for (let i = 0; i < 40; i++) {
+        const mid = (lo + hi) / 2;
+        if (dist(mid) < 0) lo = mid; else hi = mid;
+      }
+      out.push({ name: NAMES[q], at: new Date((lo + hi) / 2) });
+    }
+    t = next;
+    prev = cur;
+  }
+
+  return out.sort((a, b) => a.at.getTime() - b.at.getTime()).slice(0, count);
+}
+
+/* ── the night, as a window ────────────────────────────────────────────── */
+
+type SunEventKind = "sunrise" | "sunset" | "astronomicalDusk" | "astronomicalDawn"
+  | "civilDusk" | "civilDawn" | "nauticalDusk" | "nauticalDawn";
+
+/**
+ * The next time the sun does a given thing, looking forward from an instant.
+ *
+ * `sunTimes` answers for the UTC day it is handed, which is not the same
+ * question. In the Americas the evening's sunset belongs to the NEXT UTC day,
+ * so "today's sunset and tomorrow's sunrise" — the obvious-looking pairing —
+ * spans about thirty-five hours and swallows a whole daytime. Anything scored
+ * across that window is scored partly in daylight.
+ */
+export function nextSunEvent(
+  kind: SunEventKind, lat: number, lon: number, from: Date,
+): Date | null {
+  for (let d = 0; d < 3; d++) {
+    const t = sunTimes(new Date(from.getTime() + d * 86400_000), lat, lon)[kind];
+    if (t && t > from) return t;
+  }
+  return null;
+}
+
+/** Likewise for the moon, which can skip a calendar day entirely. */
+export function nextMoonEvent(
+  kind: "rise" | "set", lat: number, lon: number, from: Date,
+): Date | null {
+  for (let d = 0; d < 3; d++) {
+    const t = moonTimes(new Date(from.getTime() + d * 86400_000), lat, lon)[kind];
+    if (t && t > from) return t;
+  }
+  return null;
+}
+
+export interface NightWindow {
+  /** Sunset to sunrise — the night as a whole. */
+  start: Date;
+  end: Date;
+  /** The astronomically dark part, which is shorter and can be absent. */
+  darkStart: Date | null;
+  darkEnd: Date | null;
+  /** True when the night is already under way. */
+  started: boolean;
+}
+
+/**
+ * Tonight, bounded properly.
+ *
+ * If the sun is already down the night has begun, so it runs from now; if it is
+ * still up, from the coming sunset. Either way it ends at the FIRST sunrise
+ * after that, never a later one. The dark window is the same question asked of
+ * astronomical twilight, and comes back null in the summer above about 49°,
+ * where the sun never gets 18° down and there is no astronomical night at all.
+ */
+export function nightWindow(lat: number, lon: number, at: Date = new Date()): NightWindow {
+  const sunUp = sunPosition(at, lat, lon).altitude > SUN_ANGLES.sunrise;
+  const start = sunUp ? (nextSunEvent("sunset", lat, lon, at) ?? at) : at;
+  const end = nextSunEvent("sunrise", lat, lon, start)
+    ?? new Date(start.getTime() + 12 * 3600_000);
+
+  const darkNow = sunPosition(at, lat, lon).altitude <= SUN_ANGLES.astronomical;
+  const darkStart = darkNow ? at : nextSunEvent("astronomicalDusk", lat, lon, at);
+  const darkEnd = darkStart ? nextSunEvent("astronomicalDawn", lat, lon, darkStart) : null;
+
+  // A dark window that does not sit inside the night is not this night's.
+  const usableDark = darkStart && darkEnd && darkStart < end;
+  return {
+    start, end,
+    darkStart: usableDark ? darkStart : null,
+    darkEnd: usableDark ? darkEnd : null,
+    started: !sunUp,
+  };
 }

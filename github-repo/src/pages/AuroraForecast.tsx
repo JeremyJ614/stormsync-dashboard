@@ -15,7 +15,7 @@ import { AuroraCurtain } from "../components/sky/AuroraCurtain";
 import { ROYAL, HEADING, EASE } from "../lib/royal";
 import { useCalm } from "../lib/calm";
 import { useSticky } from "../lib/stickyState";
-import { sunTimes } from "../lib/astro";
+import { nightWindow } from "../lib/astro";
 import { BASE_API } from "../config";
 
 interface Props { location: Location }
@@ -260,10 +260,8 @@ export default function AuroraForecast({ location }: Props) {
    * at nine in the evening, today's dawn is sixteen hours in the past.
    */
   const dark = useMemo(() => {
-    const now = new Date();
-    const today = sunTimes(now, location.lat, location.lon);
-    const tomorrow = sunTimes(new Date(now.getTime() + 86400_000), location.lat, location.lon);
-    return { start: today.astronomicalDusk, end: tomorrow.astronomicalDawn };
+    const n = nightWindow(location.lat, location.lon);
+    return { start: n.darkStart, end: n.darkEnd };
   }, [location.lat, location.lon]);
 
   const showSky = tab === "stargazing" || tab === "both";

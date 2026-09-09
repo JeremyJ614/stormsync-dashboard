@@ -333,7 +333,7 @@ export const STORMSYNC_DARK: StyleSpecification = {
       "source-layer": "place",
       minzoom: 3.5,
       maxzoom: 8,
-      filter: ["all", ["==", ["get", "class"], "city"], ["has", "rank"], ["<=", ["get", "rank"], 6]],
+      filter: ["all", ["==", ["get", "class"], "city"], ["<=", ["get", "rank"], 6]],
       paint: {
         "circle-radius": byZoom([4, 1.6], [7, 2.8]) as never,
         "circle-color": MAP_INK.labelDim,
@@ -344,29 +344,45 @@ export const STORMSYNC_DARK: StyleSpecification = {
       },
     },
     {
-      id: "place_city_small",
-      type: "symbol",
+      /**
+       * A dot for every populated place once you are close enough.
+       *
+       * Labels collide and the loser is dropped, which is correct — overlapping
+       * text is unreadable. But a dropped label used to mean the place vanished
+       * entirely, so a map of a metro area showed empty ground between the two
+       * or three names that survived. The dot survives the collision, so the
+       * town is at least THERE, and its name appears as soon as there is room.
+       */
+      id: "place_minor_dot",
+      type: "circle",
       source: "carto",
       "source-layer": "place",
       minzoom: 8,
-      filter: ["all", ["==", ["get", "class"], "city"], ["has", "rank"], [">=", ["get", "rank"], 6]],
-      layout: {
-        "text-field": ["get", "name"],
-        "text-font": FONT,
-        "text-size": byZoom([8, 11], [12, 14], [15, 18]) as never,
-        "text-max-width": 9,
-        "text-transform": "uppercase",
-        "text-letter-spacing": 0.04,
+      filter: ["in", ["get", "class"], ["literal", ["town", "village", "hamlet", "suburb", "borough", "quarter"]]],
+      paint: {
+        "circle-radius": byZoom([8, 1.3], [11, 2.2], [14, 3]) as never,
+        "circle-color": MAP_INK.labelDim,
+        "circle-opacity": 0.7,
+        "circle-stroke-width": 0.7,
+        "circle-stroke-color": MAP_INK.halo,
+        "circle-stroke-opacity": 0.55,
       },
-      paint: { "text-color": MAP_INK.labelDim, "text-halo-color": MAP_INK.halo, "text-halo-width": 1.2 },
     },
     {
+      /**
+       * The big names. First in the file on purpose.
+       *
+       * MapLibre places symbol layers in order and later ones give way to
+       * earlier ones, so whichever city layer comes first wins its collisions.
+       * The small-town layer used to be declared above this one, which meant a
+       * village could push Oklahoma City's label off the map.
+       */
       id: "place_city",
       type: "symbol",
       source: "carto",
       "source-layer": "place",
       minzoom: 4,
-      filter: ["all", ["==", ["get", "class"], "city"], ["has", "rank"], ["<=", ["get", "rank"], 5]],
+      filter: ["all", ["==", ["get", "class"], "city"], ["<=", ["get", "rank"], 6]],
       layout: {
         "text-field": ["get", "name"],
         "text-font": FONT,
@@ -376,24 +392,99 @@ export const STORMSYNC_DARK: StyleSpecification = {
         "text-letter-spacing": 0.05,
         "text-offset": [0, 0.85],
         "text-anchor": "top",
+        // Rank ascending, so the more important name is placed first and keeps
+        // its spot when two labels want the same pixels.
+        "symbol-sort-key": ["get", "rank"] as never,
+        "text-padding": 3,
       },
       paint: { "text-color": MAP_INK.label, "text-halo-color": MAP_INK.halo, "text-halo-width": 1.3 },
     },
     {
+      /**
+       * Everything else called a city, let in as you zoom.
+       *
+       * The rank scale in these tiles runs past 14, not to 5 — at zoom 7 around
+       * Oklahoma the cities present carry ranks from 3 to 14. A flat `rank <= 5`
+       * threw away nearly all of them, which is most of why a zoomed-in map
+       * showed one or two names.
+       */
+      id: "place_city_minor",
+      type: "symbol",
+      source: "carto",
+      "source-layer": "place",
+      minzoom: 6,
+      filter: ["all",
+        ["==", ["get", "class"], "city"],
+        [">", ["get", "rank"], 6],
+        ["<=", ["get", "rank"], ["step", ["zoom"], 8, 7, 10, 8, 14, 9, 30]],
+      ],
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": FONT,
+        "text-size": byZoom([6, 10], [10, 13], [14, 17]) as never,
+        "text-max-width": 9,
+        "text-transform": "uppercase",
+        "text-letter-spacing": 0.04,
+        "symbol-sort-key": ["get", "rank"] as never,
+        "text-padding": 3,
+      },
+      paint: { "text-color": MAP_INK.labelDim, "text-halo-color": MAP_INK.halo, "text-halo-width": 1.2 },
+    },
+    {
+      /**
+       * Towns, which is what most of a US metro is called in this data.
+       *
+       * Moore, Edmond, Del City, Bethany and Midwest City are all `town` here.
+       * This layer used to start at zoom 9 and STOP at 15, so it was absent
+       * exactly where someone zooming into their own county needed it most.
+       */
       id: "place_town",
       type: "symbol",
       source: "carto",
       "source-layer": "place",
-      minzoom: 9,
-      maxzoom: 15,
-      filter: ["==", ["get", "class"], "town"],
+      minzoom: 7,
+      filter: ["all",
+        ["==", ["get", "class"], "town"],
+        ["<=", ["get", "rank"], ["step", ["zoom"], 9, 8, 12, 9, 30]],
+      ],
       layout: {
         "text-field": ["get", "name"],
         "text-font": FONT_REG,
-        "text-size": byZoom([9, 10], [13, 13]) as never,
+        "text-size": byZoom([7, 10], [11, 12.5], [15, 15]) as never,
         "text-max-width": 9,
+        "symbol-sort-key": ["get", "rank"] as never,
+        "text-padding": 2,
       },
       paint: { "text-color": MAP_INK.labelDim, "text-halo-color": MAP_INK.halo, "text-halo-width": 1.1 },
+    },
+    {
+      /**
+       * Villages, hamlets and named suburbs — which had no layer at all.
+       *
+       * At zoom 9 over Oklahoma a single tile carries 107 villages, 28 towns and
+       * six cities. Nothing drew the villages, so nine tenths of the populated
+       * places in view were simply not on the map, and zooming further in made
+       * it worse rather than better: by zoom 11 the tile is hamlets and suburbs
+       * almost entirely.
+       */
+      id: "place_locality",
+      type: "symbol",
+      source: "carto",
+      "source-layer": "place",
+      minzoom: 9,
+      filter: ["all",
+        ["in", ["get", "class"], ["literal", ["village", "hamlet", "suburb", "borough", "quarter"]]],
+        ["<=", ["get", "rank"], ["step", ["zoom"], 12, 10, 14, 11, 30]],
+      ],
+      layout: {
+        "text-field": ["get", "name"],
+        "text-font": FONT_REG,
+        "text-size": byZoom([9, 9.5], [12, 11.5], [15, 13.5]) as never,
+        "text-max-width": 8,
+        "symbol-sort-key": ["get", "rank"] as never,
+        "text-padding": 2,
+      },
+      paint: { "text-color": MAP_INK.labelDim, "text-halo-color": MAP_INK.halo, "text-halo-width": 1 },
     },
     {
       id: "place_state",

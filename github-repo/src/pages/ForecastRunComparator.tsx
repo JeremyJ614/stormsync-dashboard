@@ -16,7 +16,7 @@ import {
 } from "../lib/modelRuns";
 
 /**
- * Model Runs — HRRR & GFS map viewer (Phase 4).
+ * Model Runs — HRRR, GFS and HREF map viewer.
  *
  * Frames are pre-rendered from the NOAA Open Data GRIB buckets by
  * `scripts/render_maps.py` and served from Supabase Storage, so the browser only
@@ -44,7 +44,7 @@ export default function ForecastRunComparator({ location }: Props) {
   // "nowcast" is not a model here — it is a third view. The maps are national
   // and pre-rendered four times a day; the nowcast is this one point, stepped
   // every fifteen minutes, and answers what a map structurally cannot.
-  const [view, setView] = useState<"hrrr" | "gfs" | "nowcast">("hrrr");
+  const [view, setView] = useState<"hrrr" | "gfs" | "href" | "nowcast">("hrrr");
   const model: ModelId = view === "nowcast" ? "hrrr" : view;
   const setModel = (m: ModelId) => setView(m);
   const [runIdx, setRunIdx] = useState(0);
@@ -359,13 +359,14 @@ export default function ForecastRunComparator({ location }: Props) {
     <ModuleShell
       eyebrow="NOAA · NOMADS"
       title="Model Runs"
-      subtitle="HRRR and GFS severe-weather maps rendered from NOAA model data, plus a fifteen-minute nowcast for your location."
+      subtitle="HRRR, GFS and HREF ensemble maps rendered from NOAA model data, plus a fifteen-minute nowcast for your location."
     >
       {/* Views */}
-      <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-card border border-border rounded-xl p-1.5">
         {([
           { id: "hrrr", label: "HRRR · 3 km" },
           { id: "gfs", label: "GFS · 13 km" },
+          { id: "href", label: "HREF · ensemble" },
           { id: "nowcast", label: "Nowcast · 15 min" },
         ] as const).map((v) => (
           <button key={v.id} onClick={() => setView(v.id)}
@@ -419,7 +420,7 @@ export default function ForecastRunComparator({ location }: Props) {
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Resolution</div>
-              <div className="text-sm font-semibold">{model === "hrrr" ? "3 km" : "13 km"}</div>
+              <div className="text-sm font-semibold">{model === "hrrr" ? "3 km" : model === "href" ? "3 km · 10 members" : "13 km"}</div>
             </div>
           </>
         )}
@@ -571,8 +572,9 @@ export default function ForecastRunComparator({ location }: Props) {
       </div>
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Rendered from NOAA HRRR &amp; GFS data on the AWS Open Data registry. HRRR updates four
-        times daily out to F018; GFS out to F048 in 3-hour steps. Model guidance is not a
+        Rendered from NOAA HRRR &amp; GFS data on the AWS Open Data registry, and HREF ensemble
+        probabilities from NOMADS. HRRR updates four times daily out to F018; GFS out to F048 in
+        3-hour steps; HREF hourly to F036. Model guidance is not a
         forecast — always defer to official NWS products.
       </p>
       </>)}

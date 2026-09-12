@@ -22,7 +22,7 @@ on:
       model:
         description: "Model to render"
         type: choice
-        options: [hrrr, gfs, both]
+        options: [hrrr, gfs, href, both]
         default: both
       max_fhr:
         description: "Last forecast hour"
@@ -64,7 +64,9 @@ jobs:
             if [ "${{ github.event.schedule }}" = "40 1,7,13,19 * * *" ]; then
               echo "model=hrrr" >> $GITHUB_OUTPUT
             else
-              echo "model=gfs" >> $GITHUB_OUTPUT
+              # The later slot renders GFS and HREF: both are 6-hourly and both
+              # are published by the time this fires.
+              echo "model=gfs+href" >> $GITHUB_OUTPUT
             fi
           else
             echo "model=${{ inputs.model || 'both' }}" >> $GITHUB_OUTPUT
@@ -78,8 +80,21 @@ jobs:
         run: python scripts/render_maps.py --model hrrr --max-fhr ${{ inputs.max_fhr || 18 }} --step 1
 
       - name: Render GFS
-        if: steps.pick.outputs.model == 'gfs' || steps.pick.outputs.model == 'both'
+        if: contains(steps.pick.outputs.model, 'gfs') || steps.pick.outputs.model == 'both'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: python scripts/render_maps.py --model gfs --max-fhr 48 --step 3
+
+      # HREF probabilities, 2-hourly to F36.
+      #
+      # Twenty-one products times nineteen frames times four cycles a day is
+      # already the largest single contributor to the storage budget, and
+      # ensemble probability fields change slowly enough between adjacent hours
+      # that a 2-hour loop loses nothing a chaser would act on.
+      - name: Render HREF
+        if: contains(steps.pick.outputs.model, 'href') || steps.pick.outputs.model == 'both'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: python scripts/render_maps.py --model href --max-fhr 36 --step 2

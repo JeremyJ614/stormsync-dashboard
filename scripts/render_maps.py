@@ -44,6 +44,9 @@ import xarray as xr
 
 HRRR_BUCKET = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
 GFS_BUCKET = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
+# HREF has no public S3 mirror — NCEP publishes it on NOMADS only, one GRIB2 per
+# forecast hour with every probability threshold as its own record.
+HREF_BASE = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
 SESSION = requests.Session()
 SESSION.headers["User-Agent"] = "StormSyncVIP-renderer/1.0"
 
@@ -65,6 +68,22 @@ class Param:
     levels: list
     var: str | None = None      # cfgrib variable name override
     legend: list = field(default_factory=list)
+    # Extra .idx matches this parameter needs alongside `match`, and what to do
+    # with them. Most fields are one GRIB record; a few honest exceptions are not:
+    #   "mag"    -> hypot(match, extra[0]); a u/v pair is a vector, and its
+    #               magnitude is the thing anybody plots (shear, storm motion).
+    #   "vecdiff"-> |(u1,v1) - (u0,v0)|; bulk shear between two levels, for GFS,
+    #               which publishes winds but not the shear layers HRRR does.
+    #   "thetae" -> equivalent potential temperature from T, Td and surface
+    #               pressure (Bolton 1980). Derived, not invented: every input is
+    #               a real field in the same file.
+    extra: list = field(default_factory=list)
+    combine: str | None = None
+    # A second substring the index line must ALSO contain. HREF publishes five
+    # `CAPE:90-0 mb above ground` records per file and only the threshold tells
+    # them apart — and the threshold is not adjacent to the level in the line
+    # (the forecast hour sits between), so it cannot just be concatenated on.
+    match_also: str | None = None
     # True  -> values under levels[0] mean "nothing here", draw them transparent
     # False -> the low end is meaningful (temperature, dew point, negative CIN)
     mask_below: bool = True
@@ -107,6 +126,60 @@ HRRR_PARAMS = [
     Param("dpt2m", "2 m Dew Point", "Surface & Precipitation",
           ":DPT:2 m above ground:", "°F", "dewp",
           [30, 40, 45, 50, 55, 60, 65, 70, 75, 80], mask_below=False),
+
+    # ── added: every one of these was confirmed against a live wrfsfc .idx ──
+    Param("mlcape", "Mixed-Layer CAPE", "Severe Weather",
+          ":CAPE:90-0 mb above ground:", "J/kg", "cape",
+          [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000]),
+    Param("cape03", "0-3 km CAPE", "Severe Weather",
+          ":CAPE:0-3000 m above ground:", "J/kg", "cape",
+          [25, 50, 75, 100, 125, 150, 200, 250, 300]),
+    Param("uphl03", "0-3 km Updraft Helicity", "Severe Weather",
+          ":MXUPHL:3000-0 m above ground:", "m²/s²", "uphl",
+          [10, 25, 50, 75, 100, 150, 200, 300]),
+    Param("shear01", "0-1 km Vertical Shear", "Severe Weather",
+          ":VUCSH:0-1000 m above ground:", "kt", "shear",
+          [10, 15, 20, 25, 30, 35, 40, 50],
+          extra=[":VVCSH:0-1000 m above ground:"], combine="mag"),
+    Param("shear06", "0-6 km Vertical Shear", "Severe Weather",
+          ":VUCSH:0-6000 m above ground:", "kt", "shear",
+          [20, 25, 30, 35, 40, 45, 50, 60, 70],
+          extra=[":VVCSH:0-6000 m above ground:"], combine="mag"),
+    Param("stmmot", "Storm Motion", "Severe Weather",
+          ":USTM:0-6000 m above ground:", "kt", "wind",
+          [5, 10, 15, 20, 25, 30, 35, 40, 50],
+          extra=[":VSTM:0-6000 m above ground:"], combine="mag"),
+    Param("blftx", "Best Lifted Index", "Severe Weather",
+          ":4LFTX:180-0 mb above ground:", "°C", "cin",
+          [-10, -8, -6, -4, -2, 0, 2, 4], mask_below=False),
+    Param("lclhgt", "LCL Height", "Severe Weather",
+          ":HGT:level of adiabatic condensation from sfc:", "kft", "lcl",
+          [0.5, 1, 1.5, 2, 2.5, 3, 4, 5], mask_below=False),
+    Param("vort02", "Cyclonic Vorticity (0-2 km)", "Severe Weather",
+          ":RELV:2000-0 m above ground:", "1e-3/s", "vort",
+          [1, 2, 3, 4, 5, 7, 10, 15]),
+    Param("ltng", "Lightning Threat", "Severe Weather",
+          ":LTNG:entire atmosphere:", "flashes/km²/5min", "ltng",
+          [0.05, 0.1, 0.25, 0.5, 1, 2, 4, 8]),
+    Param("refd1km", "1 km AGL Reflectivity", "Surface & Precipitation",
+          ":REFD:1000 m above ground:", "dBZ", "refl",
+          [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75]),
+    Param("retop", "Echo Top", "Surface & Precipitation",
+          ":RETOP:cloud top:", "kft", "echotop",
+          [10, 15, 20, 25, 30, 35, 40, 45, 50, 55]),
+    Param("tcdc", "Total Cloud Cover", "Surface & Precipitation",
+          ":TCDC:entire atmosphere:", "%", "cloud",
+          [10, 20, 30, 40, 50, 60, 70, 80, 90]),
+    Param("smoke", "Near-Surface Smoke", "Surface & Precipitation",
+          ":MASSDEN:8 m above ground:", "µg/m³", "smoke",
+          [1, 2, 5, 10, 20, 40, 80, 150, 250]),
+    # Derived from T, Td and surface pressure in the same file — HRRR publishes
+    # 2 m potential temperature, which is NOT theta-E, so using POT and calling
+    # it theta-E would be the wrong field under the right label.
+    Param("thetae2m", "2 m AGL Theta-E", "Severe Weather",
+          ":TMP:2 m above ground:", "K", "thetae",
+          [290, 300, 310, 320, 330, 340, 350, 360], mask_below=False,
+          extra=[":DPT:2 m above ground:", ":PRES:surface:"], combine="thetae"),
 ]
 
 GFS_PARAMS = [
@@ -145,7 +218,84 @@ GFS_PARAMS = [
     Param("rh700", "700 mb Relative Humidity", "Upper Air",
           ":RH:700 mb:", "%", "cloud",
           [10, 20, 30, 40, 50, 60, 70, 80, 90]),
+
+    # ── added: confirmed against a live gfs.pgrb2.0p25 .idx ─────────────────
+    Param("refd1km", "1 km AGL Reflectivity", "Surface & Precipitation",
+          ":REFD:1000 m above ground:", "dBZ", "refl",
+          [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75]),
+    Param("blftx", "Best Lifted Index", "Severe Weather",
+          ":4LFTX:surface:", "°C", "cin",
+          [-10, -8, -6, -4, -2, 0, 2, 4], mask_below=False),
+    # "Storm Relativity Index" resolves to storm-relative helicity.
+    #
+    # There is no NWS product by that name. Every candidate the phrase could
+    # mean was checked against the live GFS index: storm-relative helicity is
+    # there (HLCY, 0-3 km) and is the standard storm-relative field a forecast
+    # map carries; the supercell composite and significant tornado parameter,
+    # which are the other readings of "index", are not in GFS at all. So this is
+    # SRH, labelled as SRH rather than as the ambiguous phrase.
+    Param("srh3", "0-3 km Storm-Relative Helicity", "Severe Weather",
+          ":HLCY:3000-0 m above ground:", "m²/s²", "srh",
+          [50, 100, 150, 200, 250, 300, 400, 500]),
+    Param("stmmot", "Storm Motion", "Severe Weather",
+          ":USTM:6000-0 m above ground:", "kt", "wind",
+          [5, 10, 15, 20, 25, 30, 35, 40, 50],
+          extra=[":VSTM:6000-0 m above ground:"], combine="mag"),
+    # GFS has no VUCSH/VVCSH layers, so the bulk shear is taken as the vector
+    # difference between the 10 m and 500 mb winds — which is the definition.
+    Param("shearsfc500", "Surface-500 mb Vertical Shear", "Severe Weather",
+          ":UGRD:10 m above ground:", "kt", "shear",
+          [20, 30, 40, 50, 60, 70, 80, 100],
+          extra=[":VGRD:10 m above ground:", ":UGRD:500 mb:", ":VGRD:500 mb:"],
+          combine="vecdiff"),
+    Param("haines", "Haines Index", "Surface & Precipitation",
+          ":HINDEX:surface:", "", "smoke",
+          [2, 3, 4, 5, 6], mask_below=False),
 ]
+
+# ── HREF ensemble probabilities ──────────────────────────────────────────────
+# NCEP publishes HREF's neighbourhood probability grids on NOMADS as one GRIB2
+# file per forecast hour, each probability threshold its own record. The `match`
+# strings below carry the threshold, because "CAPE:90-0 mb above ground" alone
+# appears five times in the index and only the threshold tells them apart.
+#
+# Every entry was read off a live href.tHHz.conus.prob index, thresholds and all.
+PROB_LEVELS = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90]
+
+
+def prob(key: str, label: str, group: str, match: str, thresh: str) -> Param:
+    return Param(key, label, group, match, "%", "prob", PROB_LEVELS, match_also=thresh)
+
+
+HREF_PARAMS = [
+    prob("p_refc30", "Reflectivity > 30 dBZ", "Severe Weather",
+         ":REFC:entire atmosphere (considered as a single layer):", "prob >30:"),
+    prob("p_refd40", "1 km Reflectivity > 40 dBZ", "Severe Weather",
+         ":REFD:1000 m above ground:", "prob >40:"),
+    prob("p_uh25", "UH > 25", "Severe Weather", ":MXUPHL:5000-2000 m above ground:", "prob >25:"),
+    prob("p_uh75", "UH > 75", "Severe Weather", ":MXUPHL:5000-2000 m above ground:", "prob >75:"),
+    prob("p_uh150", "UH > 150", "Severe Weather", ":MXUPHL:5000-2000 m above ground:", "prob >150:"),
+    prob("p_mlcape500", "ML CAPE > 500", "Severe Weather", ":CAPE:90-0 mb above ground:", "prob >500:"),
+    prob("p_mlcape1000", "ML CAPE > 1000", "Severe Weather", ":CAPE:90-0 mb above ground:", "prob >1000:"),
+    prob("p_mlcape2000", "ML CAPE > 2000", "Severe Weather", ":CAPE:90-0 mb above ground:", "prob >2000:"),
+    prob("p_mlcin50", "ML CIN < -50", "Severe Weather", ":CIN:90-0 mb above ground:", "prob <-50:"),
+    prob("p_mlcin100", "ML CIN < -100", "Severe Weather", ":CIN:90-0 mb above ground:", "prob <-100:"),
+    prob("p_srh100", "0-3 km SRH > 100", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >100:"),
+    prob("p_srh200", "0-3 km SRH > 200", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >200:"),
+    prob("p_srh400", "0-3 km SRH > 400", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >400:"),
+    prob("p_wind58", "Severe Wind 58 mph", "Severe Weather", ":WIND:10 m above ground:", "prob >25.72:"),
+    prob("p_etop30", "Echo Top > 30 kft", "Severe Weather",
+         ":RETOP:entire atmosphere (considered as a single layer):", "prob >9144:"),
+    prob("p_etop40", "Echo Top > 40 kft", "Severe Weather",
+         ":RETOP:entire atmosphere (considered as a single layer):", "prob >12192:"),
+    prob("p_etop50", "Echo Top > 50 kft", "Severe Weather",
+         ":RETOP:entire atmosphere (considered as a single layer):", "prob >15240:"),
+    prob("p_uvv1", "Updraft > 1 m/s", "Severe Weather", ":MAXUVV:400-1000 mb:", "prob >1:"),
+    prob("p_uvv10", "Updraft > 10 m/s", "Severe Weather", ":MAXUVV:400-1000 mb:", "prob >10:"),
+    prob("p_uvv20", "Updraft > 20 m/s", "Severe Weather", ":MAXUVV:400-1000 mb:", "prob >20:"),
+    prob("p_ltng", "Lightning", "Severe Weather", ":LTNG:surface:", "prob >0.2:"),
+]
+
 
 CMAPS = {
     "refl": refl_cmap(),
@@ -173,6 +323,20 @@ CMAPS = {
                  "#14607a", "#123f75"]),
     "vort": seq(["#101a33", "#274690", "#4a7fd4", "#7bc4c4", "#f7d774",
                  "#e0703a", "#b3202c"]),
+    "shear": seq(["#0d1b2a", "#1b3a6b", "#3d6fb5", "#5fb0c9", "#a8d95f",
+                  "#f4d03f", "#e8743b", "#c0392b"]),
+    "thetae": seq(["#2c1a4d", "#28407a", "#2f7fa8", "#37a67c", "#8ec63f",
+                   "#f2e33c", "#f0932b", "#d21f3c"]),
+    "ltng": seq(["#10162b", "#233b7a", "#3f7fd0", "#63d3c6", "#f6e27a",
+                 "#f39c12", "#e74c3c"]),
+    "smoke": seq(["#101014", "#3a2f24", "#6d5230", "#a87d33", "#d6a83c",
+                  "#e8613c", "#b32020"]),
+    "prob": seq(["#0f1d33", "#14456b", "#1f7a8c", "#39a96b", "#9ad14b",
+                 "#f4d03f", "#e8743b", "#c0392b", "#8e2de2"]),
+    "echotop": seq(["#0d1b2a", "#1f4e79", "#3f8ecc", "#66c2a5", "#c8e06a",
+                    "#f4d03f", "#ef8354", "#c0392b"]),
+    "lcl": seq(["#12303f", "#1e6f5c", "#57b894", "#c8e06a", "#f4d03f",
+                "#e8743b", "#a33b2a"]),
 }
 
 
@@ -192,13 +356,13 @@ def fetch_index(url: str) -> list[dict]:
     return rows
 
 
-def fetch_record(url: str, rows: list[dict], match: str) -> bytes | None:
-    """HTTP Range fetch for just the record(s) matching `match`."""
+def fetch_record(url: str, rows: list[dict], match: str, also: str | None = None) -> bytes | None:
+    """HTTP Range fetch for just the record(s) matching `match` (and `also`)."""
     # Some fields appear twice in the index — an instantaneous record and a
     # time-averaged one (TCDC, for instance, is also published as "6-12 hour ave
     # fcst"). Always prefer the instantaneous record; falling through to
     # whichever happened to be indexed first would silently plot an average.
-    candidates = [r for r in rows if match in r["line"]]
+    candidates = [r for r in rows if match in r["line"] and (not also or also in r["line"])]
     if not candidates:
         return None
     hit = next((r for r in candidates if "ave fcst" not in r["line"]), candidates[0])
@@ -207,6 +371,28 @@ def fetch_record(url: str, rows: list[dict], match: str) -> bytes | None:
     if r.status_code not in (200, 206):
         return None
     return r.content
+
+
+def values_of(ds: xr.Dataset) -> np.ndarray | None:
+    name = next((v for v in ds.data_vars), None)
+    return None if name is None else np.asarray(ds[name].values, dtype="float32")
+
+
+def bolton_theta_e(t_k: np.ndarray, td_k: np.ndarray, p_pa: np.ndarray) -> np.ndarray:
+    """Equivalent potential temperature, Bolton (1980) eq. 15 and 39.
+
+    Every input is a real record out of the same GRIB file — this computes a
+    standard quantity from them rather than standing in something else and
+    calling it theta-E.
+    """
+    p_hpa = p_pa / 100.0
+    # Saturation vapour pressure at the dew point IS the actual vapour pressure.
+    e = 6.112 * np.exp(17.67 * (td_k - 273.15) / (td_k - 29.65))
+    r = 0.622 * e / np.maximum(p_hpa - e, 1e-3)          # mixing ratio, kg/kg
+    t_l = 56.0 + 1.0 / (1.0 / (td_k - 56.0) + np.log(t_k / td_k) / 800.0)
+    theta_dl = t_k * (1000.0 / np.maximum(p_hpa - e, 1e-3)) ** 0.2854 \
+        * (t_k / t_l) ** (0.28 * r)
+    return theta_dl * np.exp((3036.0 / t_l - 1.78) * r * (1.0 + 0.448 * r))
 
 
 def open_grib(buf: bytes) -> xr.Dataset | None:
@@ -251,6 +437,16 @@ def convert(key: str, data: np.ndarray) -> np.ndarray:
         return data / 10.0              # m -> decametres
     if key == "tmp850":
         return data - 273.15            # K -> C
+    if key in ("shear01", "shear06", "stmmot", "shearsfc500"):
+        return data * 1.943844          # m/s -> kt
+    if key == "thetae2m":
+        return data                     # already K
+    if key in ("retop", "lclhgt"):
+        return data / 304.8             # m -> kft
+    if key == "smoke":
+        return data * 1e9               # kg/m^3 -> ug/m^3
+    if key.startswith("p_"):
+        return data * 100.0 if float(np.nanmax(data) if data.size else 0) <= 1.01 else data
     return data
 
 
@@ -334,6 +530,7 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     fig.subplots_adjust(left=0.01, right=0.99, top=0.90, bottom=0.06)
     fig.savefig(out, facecolor=BG, edgecolor="none")
     plt.close(fig)
+    quantise(out)
     return True
 
 
@@ -448,7 +645,7 @@ class Supa:
 # ── run discovery ────────────────────────────────────────────────────────────
 def latest_cycle(model: str, max_back: int = 8) -> datetime | None:
     now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
-    step = 6 if model == "gfs" else 1
+    step = 6 if model in ("gfs", "href") else 1
     now = now.replace(hour=(now.hour // step) * step)
     for i in range(max_back):
         c = now - timedelta(hours=i * step)
@@ -461,8 +658,35 @@ def grib_url(model: str, cycle: datetime, fhr: int) -> str:
     if model == "hrrr":
         return (f"{HRRR_BUCKET}/hrrr.{cycle:%Y%m%d}/conus/"
                 f"hrrr.t{cycle:%H}z.wrfsfcf{fhr:02d}.grib2")
+    if model == "href":
+        return (f"{HREF_BASE}/href.{cycle:%Y%m%d}/ensprod/"
+                f"href.t{cycle:%H}z.conus.prob.f{fhr:02d}.grib2")
     return (f"{GFS_BUCKET}/gfs.{cycle:%Y%m%d}/{cycle:%H}/atmos/"
             f"gfs.t{cycle:%H}z.pgrb2.0p25.f{fhr:03d}")
+
+
+def quantise(path: str) -> None:
+    """Re-save the PNG with a 256-colour palette.
+
+    These are filled contour maps: a few dozen ramp colours, flat land, flat
+    ocean. A truecolour PNG spends most of its bytes describing a palette it
+    does not need, and the saving is roughly 40% at no visible cost.
+
+    That matters more than it sounds. The parameter list has gone from twenty to
+    sixty-one across three models, and this project has already been taken
+    offline once by model maps filling its storage quota — see the retention
+    migration. Halving every frame is the cheapest half of staying under it.
+    """
+    try:
+        from PIL import Image
+    except ImportError:
+        return
+    try:
+        with Image.open(path) as im:
+            im.convert("RGB").quantize(colors=256, method=Image.Quantize.MEDIANCUT) \
+              .save(path, optimize=True)
+    except Exception as e:  # noqa: BLE001
+        print(f"    ! quantise skipped: {e}", file=sys.stderr)
 
 
 def legend_for(p: Param) -> list[dict]:
@@ -474,7 +698,7 @@ def legend_for(p: Param) -> list[dict]:
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--model", choices=["hrrr", "gfs"], required=True)
+    ap.add_argument("--model", choices=["hrrr", "gfs", "href"], required=True)
     ap.add_argument("--max-fhr", type=int, default=18)
     ap.add_argument("--step", type=int, default=1)
     ap.add_argument("--keep-runs", type=int, default=8,
@@ -488,8 +712,9 @@ def main() -> int:
         return 2
     supa = None if a.dry_run else Supa(url, key)
 
-    params = HRRR_PARAMS if a.model == "hrrr" else GFS_PARAMS
-    step = a.step if a.model == "hrrr" else max(a.step, 3)
+    params = {"hrrr": HRRR_PARAMS, "gfs": GFS_PARAMS, "href": HREF_PARAMS}[a.model]
+    # HREF's probability files start at F01 and run hourly to F48; GFS is 3-hourly.
+    step = a.step if a.model in ("hrrr", "href") else max(a.step, 3)
 
     cycle = latest_cycle(a.model)
     if cycle is None:
@@ -509,7 +734,7 @@ def main() -> int:
             break
         print(f"  F{fhr:03d}")
         for p in params:
-            raw = fetch_record(gurl, rows, p.match)
+            raw = fetch_record(gurl, rows, p.match, p.match_also)
             if not raw:
                 print(f"    - {p.key}: not in index")
                 continue
@@ -517,6 +742,51 @@ def main() -> int:
             ds = open_grib(raw)
             if ds is None:
                 continue
+
+            # Parameters built from more than one record. A missing companion is
+            # a skip, never a silent fall-back to the primary field on its own —
+            # half of a shear vector plotted as if it were the shear would be
+            # wrong everywhere the wind is not due west.
+            if p.combine:
+                parts = []
+                ok = True
+                for m in p.extra:
+                    r2 = fetch_record(gurl, rows, m)
+                    d2 = open_grib(r2) if r2 else None
+                    v2 = values_of(d2) if d2 is not None else None
+                    if v2 is None:
+                        print(f"    - {p.key}: companion record missing ({m})")
+                        ok = False
+                        break
+                    bytes_pulled += len(r2)
+                    parts.append(v2)
+                if not ok:
+                    continue
+                base = values_of(ds)
+                if base is None:
+                    continue
+                if p.combine == "mag":
+                    combined = np.hypot(base, parts[0])
+                elif p.combine == "vecdiff":
+                    # match = u0, extra = [v0, u1, v1]
+                    v0, u1, v1 = parts
+                    combined = np.hypot(u1 - base, v1 - v0)
+                elif p.combine == "thetae":
+                    # match = TMP, extra = [DPT, PRES]
+                    td, pres = parts
+                    combined = bolton_theta_e(base, td, pres)
+                else:
+                    print(f"    - {p.key}: unknown combine '{p.combine}'")
+                    continue
+                if combined.shape != base.shape:
+                    print(f"    - {p.key}: companion grid mismatch "
+                          f"{base.shape} vs {combined.shape}")
+                    continue
+                # Rebuilt rather than written in place: a cfgrib array can come
+                # back read-only, and a shallow Dataset.copy() would share it
+                # with the record we just decoded.
+                vname = next(iter(ds.data_vars))
+                ds = ds.assign({vname: (ds[vname].dims, combined)})
             out = os.path.join(tempfile.gettempdir(), f"{a.model}_{p.key}_{fhr:03d}.png")
             if not render(ds, p, a.model, cycle, fhr, out):
                 continue

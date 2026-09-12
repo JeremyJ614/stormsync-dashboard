@@ -11,7 +11,7 @@
  */
 import { supabase, isSupabaseConfigured } from "./supabase";
 
-export type ModelId = "hrrr" | "gfs";
+export type ModelId = "hrrr" | "gfs" | "href";
 
 export interface ModelParam {
   key: string;

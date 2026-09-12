@@ -4,7 +4,7 @@
  * river in trouble is findable without reading a single label.
  */
 import { useEffect, useRef } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 import { FLOOD_STYLE, type GaugeSummary } from "../../lib/riverGauges";

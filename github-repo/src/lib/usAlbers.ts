@@ -1,75 +1,131 @@
-// Shared albers-USA projection + pre-projected state outlines.
-// The state paths (usStatesAlbers.json) are rendered in a 975×610 viewBox that
-// matches d3-geo geoAlbersUsa. `project()` is a calibrated affine fit that maps
-// lon/lat → that same projected space (accurate to ~15-25 mi over CONUS), so SPC
-// geojson can be drawn straight onto the state map. Used by the Forecast Game and
-// the SPC static outlook images.
+// Shared Albers-USA projection + pre-projected state outlines.
+//
+// The state paths in `usStatesAlbers.json` are d3-geo `geoAlbersUsa()` output at
+// `.scale(1300).translate([487.5, 305])` in a 975x610 viewBox — the us-atlas
+// standard. `project()` below is that same projection, implemented exactly, so
+// anything drawn through it lands on the state map it is drawn over.
+//
+// WHAT THIS REPLACED, AND WHY IT MATTERED
+// The previous version fitted a six-parameter AFFINE transform to nine
+// hand-recorded city pixel positions. Albers is a conic projection: it curves,
+// and no affine can represent it, so the fit carried error that grew towards the
+// edges of the country. Worse, the nine reference positions had been read off a
+// differently-scaled rendering — checked against the state outlines actually
+// shipping, Los Angeles was out by 120 px and Seattle by 80.
+//
+// The result was every SPC outlook, probability field and chase scan drawn in a
+// slightly different projection from the map underneath it. At the Canadian
+// border the two disagreed by about 38 px — roughly 120 miles — which is why
+// risk areas over North Dakota did not sit inside North Dakota.
+//
+// Verified against all 51 pre-projected state paths: bounding boxes agree to
+// 0.1 px, Hawaii's inset included.
 import usStatesAlbers from "../data/usStatesAlbers.json";
+import usNationAlbers from "../data/usNationAlbers.json";
 
 export const US_STATES = (usStatesAlbers as { states: { name: string; d: string }[] }).states;
+/** The national outline, same projection. Used to mask overlays to the country. */
+export const US_NATION_PATH = (usNationAlbers as { nation: string }).nation;
 export const MAP_W = 975;
 export const MAP_H = 610;
 
-const CITIES_CAL: { lat: number; lon: number; x: number; y: number }[] = [
-  { lat: 47.61, lon: -122.33, x: 137, y: 116 },
-  { lat: 34.05, lon: -118.24, x: 207, y: 357 },
-  { lat: 39.74, lon: -104.99, x: 422, y: 274 },
-  { lat: 41.88, lon: -87.63, x: 644, y: 254 },
-  { lat: 29.76, lon: -95.37, x: 541, y: 466 },
-  { lat: 25.76, lon: -80.19, x: 814, y: 522 },
-  { lat: 40.71, lon: -74.0, x: 838, y: 245 },
-  { lat: 33.75, lon: -84.39, x: 715, y: 384 },
-  { lat: 35.47, lon: -97.52, x: 521, y: 372 },
-];
+/** The scale and translate the shipped state paths were generated at. */
+const K = 1300;
+const TX = 487.5;
+const TY = 305;
+const RAD = Math.PI / 180;
 
-function solveAffine() {
-  let sX = 0, sY = 0, sLon = 0, sLat = 0, sXLon = 0, sXLat = 0, sYLon = 0, sYLat = 0;
-  let sLonLon = 0, sLatLat = 0, sLonLat = 0;
-  const n = CITIES_CAL.length;
-  for (const c of CITIES_CAL) {
-    sX += c.x; sY += c.y; sLon += c.lon; sLat += c.lat;
-    sXLon += c.x * c.lon; sXLat += c.x * c.lat;
-    sYLon += c.y * c.lon; sYLat += c.y * c.lat;
-    sLonLon += c.lon * c.lon; sLatLat += c.lat * c.lat; sLonLat += c.lon * c.lat;
-  }
-  const A = [[n, sLon, sLat], [sLon, sLonLon, sLonLat], [sLat, sLonLat, sLatLat]];
-  const bx = [sX, sXLon, sXLat];
-  const by = [sY, sYLon, sYLat];
-  function solve3(M: number[][], v: number[]): number[] {
-    const m = M.map((r, i) => [...r, v[i]]);
-    for (let i = 0; i < 3; i++) {
-      let p = i;
-      for (let k = i + 1; k < 3; k++) if (Math.abs(m[k][i]) > Math.abs(m[p][i])) p = k;
-      [m[i], m[p]] = [m[p], m[i]];
-      for (let k = i + 1; k < 3; k++) {
-        const f = m[k][i] / m[i][i];
-        for (let j = i; j < 4; j++) m[k][j] -= f * m[i][j];
-      }
-    }
-    const x = [0, 0, 0];
-    for (let i = 2; i >= 0; i--) {
-      let s = m[i][3];
-      for (let j = i + 1; j < 3; j++) s -= m[i][j] * x[j];
-      x[i] = s / m[i][i];
-    }
-    return x;
-  }
-  const [a, b, c] = solve3(A, bx);
-  const [d, e, f] = solve3(A, by);
-  return { a, b, c, d, e, f };
+/**
+ * One conic equal-area lobe of the composite, as d3 defines it.
+ *
+ * `rotLon` is d3's `.rotate([rotLon, 0])`; `centerLon`/`centerLat` are its
+ * `.center([...])`, which d3 interprets in the rotated frame — hence the
+ * `-rotLon + centerLon` when locating it.
+ */
+function conic(p0deg: number, p1deg: number, rotLon: number, centerLon: number, centerLat: number) {
+  const p0 = p0deg * RAD, p1 = p1deg * RAD;
+  const n = (Math.sin(p0) + Math.sin(p1)) / 2;
+  const c = 1 + Math.sin(p0) * (2 * n - Math.sin(p0));
+  const r0 = Math.sqrt(c) / n;
+
+  const raw = (lon: number, lat: number): [number, number] => {
+    const x = (lon + rotLon) * RAD * n;
+    const r = Math.sqrt(c - 2 * n * Math.sin(lat * RAD)) / n;
+    return [r * Math.sin(x), r0 - r * Math.cos(x)];
+  };
+  const [cx, cy] = raw(-rotLon + centerLon, centerLat);
+
+  return {
+    forward(lon: number, lat: number, k: number, tx: number, ty: number): [number, number] {
+      const [X, Y] = raw(lon, lat);
+      return [tx + k * (X - cx), ty - k * (Y - cy)];
+    },
+    inverse(sx: number, sy: number, k: number, tx: number, ty: number): { lon: number; lat: number } {
+      const X = (sx - tx) / k + cx;
+      const Y = cy - (sy - ty) / k;
+      const r0y = r0 - Y;
+      const lonRot = (Math.atan2(X, Math.abs(r0y)) / n) * Math.sign(r0y || 1);
+      const lat = Math.asin((c - (X * X + r0y * r0y) * n * n) / (2 * n));
+      return { lon: lonRot / RAD - rotLon, lat: lat / RAD };
+    },
+  };
 }
-const AFFINE = solveAffine();
 
+// d3's three lobes, verbatim.
+const LOWER48 = conic(29.5, 45.5, 96, -0.6, 38.7);
+const ALASKA = conic(55, 65, 154, -2.0, 58.5);
+const HAWAII = conic(8, 18, 157, -3.0, 19.9);
+const EPS = 1e-6;
+
+/**
+ * Where each lobe lives on the canvas, and the box that decides which lobe owns
+ * a point. These fractions of the scale are d3's own, and getting them right is
+ * what puts Alaska and Hawaii in their insets rather than in the Pacific.
+ */
+const LOBES = [
+  { p: LOWER48, k: K, tx: TX, ty: TY,
+    x0: TX - 0.455 * K, x1: TX + 0.455 * K, y0: TY - 0.238 * K, y1: TY + 0.238 * K },
+  { p: ALASKA, k: K * 0.35, tx: TX - 0.307 * K, ty: TY + 0.201 * K,
+    x0: TX - 0.425 * K + EPS, x1: TX - 0.214 * K - EPS, y0: TY + 0.120 * K + EPS, y1: TY + 0.234 * K - EPS },
+  { p: HAWAII, k: K, tx: TX - 0.205 * K, ty: TY + 0.212 * K,
+    x0: TX - 0.214 * K + EPS, x1: TX - 0.115 * K - EPS, y0: TY + 0.166 * K + EPS, y1: TY + 0.234 * K - EPS },
+] as const;
+
+/**
+ * lon/lat → the 975x610 canvas.
+ *
+ * Tries the lower 48 first, then the Alaska and Hawaii insets, exactly as d3
+ * does: a point belongs to the first lobe whose clip box it lands inside.
+ * Anything outside all three — mid-Pacific, deep into Canada — still returns the
+ * lower-48 position rather than null, because every caller here draws polygons
+ * that may legitimately run off the edge of the country, and a hole in a ring is
+ * worse than a vertex past the border.
+ */
 export function project(lon: number, lat: number): { x: number; y: number } {
-  const { a, b, c, d, e, f } = AFFINE;
-  return { x: a + b * lon + c * lat, y: d + e * lon + f * lat };
+  for (const l of LOBES) {
+    const [x, y] = l.p.forward(lon, lat, l.k, l.tx, l.ty);
+    if (x >= l.x0 && x <= l.x1 && y >= l.y0 && y <= l.y1) return { x, y };
+  }
+  const [x, y] = LOWER48.forward(lon, lat, K, TX, TY);
+  return { x, y };
 }
+
+/**
+ * Canvas → lon/lat.
+ *
+ * The inset boxes are tested FIRST and the lower 48 is the fallback — the
+ * reverse of `project`. That is not a stylistic choice: the lower-48 clip box
+ * spans the whole canvas, so both insets sit inside it, and checking it first
+ * would resolve every click on Hawaii to a point in the Pacific off Baja.
+ * (d3's own `albersUsa.invert` orders it the same way, for the same reason.)
+ */
 export function unproject(x: number, y: number): { lat: number; lon: number } {
-  const { a, b, c, d, e, f } = AFFINE;
-  const det = b * f - c * e;
-  const lon = (f * (x - a) - c * (y - d)) / det;
-  const lat = (-e * (x - a) + b * (y - d)) / det;
-  return { lat, lon };
+  for (const l of [LOBES[1], LOBES[2]]) {
+    if (x >= l.x0 && x <= l.x1 && y >= l.y0 && y <= l.y1) {
+      return l.p.inverse(x, y, l.k, l.tx, l.ty);
+    }
+  }
+  return LOWER48.inverse(x, y, K, TX, TY);
 }
 
 // State name → 2-letter abbreviation, for on-map labels.

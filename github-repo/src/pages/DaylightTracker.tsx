@@ -8,7 +8,7 @@ import type { Location } from "../hooks/useLocation";
 import { reverseGeocode } from "../utils/weatherApi";
 import { MapPin, ChevronLeft, ChevronRight, X, Sun, ArrowLeftRight } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import { BaseMap, type BaseMapHandle } from "../components/map/BaseMap";
 
 interface Props { location: Location }

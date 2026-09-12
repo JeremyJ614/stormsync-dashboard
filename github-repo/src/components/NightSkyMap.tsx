@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { skyScore, skyBand, SKY_BANDS } from "../lib/stargazing";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { BaseMap, type BaseMapHandle } from "./map/BaseMap";
 
 // State centroids for sky-condition fetch

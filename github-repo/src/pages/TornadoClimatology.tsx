@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 import { BaseMap, type BaseMapHandle } from "../components/map/BaseMap";
 import type { Location } from "../hooks/useLocation";
 import {

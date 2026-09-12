@@ -7,7 +7,7 @@ import {
 } from "../lib/spcPalette";
 import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { MAP_W, MAP_H, project } from "../lib/usAlbers";
-import { UsStatesBackdrop, UsStateLabels } from "./UsStatesBackdrop";
+import { UsStatesBackdrop, UsStateLabels, UsNationMask, useUsMaskId } from "./UsStatesBackdrop";
 import type { SPCProduct, DisplayMode } from "./SPCMap";
 
 // A self-contained, non-interactive SPC outlook map in your exact palette. It
@@ -24,6 +24,7 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
   const [status, setStatus] = useState<Status>("loading");
   const [topIdx, setTopIdx] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
+  const maskId = useUsMaskId();
 
   const hazard: Hazard = hazardFromProduct(product);
   const kind: Kind = hazard === "cat" ? "cat"
@@ -118,15 +119,18 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
       <div className="relative rounded-lg overflow-hidden border border-border bg-[#0a0e1a]">
         <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} width={MAP_W} height={MAP_H} xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
+          <UsNationMask id={maskId} />
           <UsStatesBackdrop />
-          {polys.map((p, i) => (
-            <path key={i} d={p.d}
-              fill={p.sig ? "none" : palette[p.idx]?.color ?? "#888"}
-              fillOpacity={p.sig ? 0 : 0.6}
-              stroke={p.sig ? "#ffffff" : palette[p.idx]?.color ?? "#888"}
-              strokeWidth={p.sig ? 2.5 : 1}
-              strokeOpacity={0.95} />
-          ))}
+          <g mask={`url(#${maskId})`}>
+            {polys.map((p, i) => (
+              <path key={i} d={p.d}
+                fill={p.sig ? "none" : palette[p.idx]?.color ?? "#888"}
+                fillOpacity={p.sig ? 0 : 0.6}
+                stroke={p.sig ? "#ffffff" : palette[p.idx]?.color ?? "#888"}
+                strokeWidth={p.sig ? 2.5 : 1}
+                strokeOpacity={0.95} />
+            ))}
+          </g>
           <UsStateLabels />
 
           <rect x={16} y={16} width={280} height={44} rx={8} fill="rgba(0,0,0,0.75)" />

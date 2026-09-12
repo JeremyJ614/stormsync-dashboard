@@ -34,7 +34,7 @@ import { TTL } from "../lib/queryClient";
 import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 import { useCalm } from "../lib/calm";
 import type { Location } from "../hooks/useLocation";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
 
 type View = "grid" | "map";
 

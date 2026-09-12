@@ -111,6 +111,32 @@ export function project(lon: number, lat: number): { x: number; y: number } {
 }
 
 /**
+ * Which lobe of the composite owns a point: 0 lower 48, 1 Alaska, 2 Hawaii.
+ *
+ * Exposed so a caller drawing a *polygon* can decide the lobe once for the whole
+ * ring and then hold it. `project` decides per point, which is right for a dot
+ * and wrong for a ring: a coastline in the Aleutians has vertices that fall
+ * inside the Alaska inset box and vertices that do not, and projecting them
+ * independently sends half the ring to the inset and half to a point two
+ * thousand pixels above the map.
+ */
+export function lobeOf(lon: number, lat: number): number {
+  for (let i = 0; i < LOBES.length; i++) {
+    const l = LOBES[i];
+    const [x, y] = l.p.forward(lon, lat, l.k, l.tx, l.ty);
+    if (x >= l.x0 && x <= l.x1 && y >= l.y0 && y <= l.y1) return i;
+  }
+  return 0;
+}
+
+/** Project forcing a particular lobe. See `lobeOf`. */
+export function projectIn(lobe: number, lon: number, lat: number): { x: number; y: number } {
+  const l = LOBES[lobe] ?? LOBES[0];
+  const [x, y] = l.p.forward(lon, lat, l.k, l.tx, l.ty);
+  return { x, y };
+}
+
+/**
  * Canvas → lon/lat.
  *
  * The inset boxes are tested FIRST and the lower 48 is the fallback — the

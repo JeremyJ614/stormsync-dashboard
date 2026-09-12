@@ -547,7 +547,8 @@ export const YearlyPanel = memo(function YearlyPanel({
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-px" style={{ background: ROYAL.hairline }}>
-            <Led label="Days recorded" value={String(ctx!.days_scored)} />
+            <Led label="Days recorded" value={String(ctx!.days_scored)}
+                 sub={ctx!.first_date ? `since ${shortDate(ctx!.first_date)}` : undefined} />
             <Led label="Best so far" value={ctx!.best_score != null ? Number(ctx!.best_score).toFixed(1) : "—"}
                  sub={ctx!.best_date ?? undefined} />
             <Led label="Typical day" value={ctx!.median_score != null ? Number(ctx!.median_score).toFixed(1) : "—"} />
@@ -582,6 +583,13 @@ export const YearlyPanel = memo(function YearlyPanel({
   );
 });
 
+/** "2026-03-07" → "Mar 7", for the one place that needs a span rather than a day. */
+function shortDate(iso: string): string {
+  try {
+    return new Date(`${iso}T12:00:00`).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  } catch { return iso; }
+}
+
 function Led({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
     <div className="px-3 py-3 text-center" style={{ background: ROYAL.ink2 }}>
@@ -592,9 +600,27 @@ function Led({ label, value, sub }: { label: string; value: string; sub?: string
   );
 }
 
+/**
+ * Terrain, with its working shown on hover.
+ *
+ * The score used to be 100 for almost every target, so there was nothing to
+ * explain. Now that it separates the High Plains from the Ozarks by sixty
+ * points, a chaser looking at 41/100 deserves to know whether that is trees,
+ * hills or roads — and the four components say exactly which.
+ */
 export const TerrainNote = memo(function TerrainNote({ t }: { t: ChaseTarget }) {
+  const d = t.terrain_detail;
+  const title = d
+    ? [
+        `Terrain ${t.terrain_score}/100`,
+        d.trees != null ? `open ground ${d.trees}/100${d.detail.canopy_pct != null ? ` (${d.detail.canopy_pct}% canopy)` : ""}` : null,
+        d.rugged != null ? `flatness ${d.rugged}/100${d.detail.relief_m != null ? ` (${d.detail.relief_m} m relief)` : ""}` : null,
+        d.sight != null ? `sightlines ${d.sight}/100` : null,
+        d.roads != null ? `roads ${d.roads}/100${d.detail.road_grid_frac != null ? ` (${Math.round(d.detail.road_grid_frac * 100)}% on the grid)` : ""}` : null,
+      ].filter(Boolean).join(" · ")
+    : undefined;
   return (
-    <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: ROYAL.dim }}>
+    <span className="inline-flex items-center gap-1 text-[11px]" style={{ color: ROYAL.dim }} title={title}>
       <Mountain className="w-3 h-3" /> terrain {t.terrain_score}/100
     </span>
   );

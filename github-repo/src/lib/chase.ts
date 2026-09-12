@@ -54,6 +54,7 @@ export interface ChaseTarget {
   why: string;
   peak_hour: string; sunset: string; hours_to_sunset: number;
   terrain_score: number; daylight_score: number;
+  terrain_detail?: TerrainDetail | null;
   params: ChaseParams;
   storm_mode: ChaseStormMode;
   bust: { probability: number; word: string; summary: string };
@@ -66,6 +67,39 @@ export interface ChaseYearContext {
   median_score: number | null;
   above_seven: number | null;
   percentile: number | null;
+  /**
+   * The earliest day in the ledger. Added with the historical backfill: "beats
+   * 74% of this year" means one thing over seven days and quite another over a
+   * whole season, and the page should be able to say which it is.
+   */
+  first_date?: string | null;
+}
+
+/**
+ * What a terrain score is made of.
+ *
+ * Present on rows written after the terrain rewrite; absent on older ones,
+ * which is why every field is optional rather than defaulted — a target scored
+ * under the old flat-100 scheme should say nothing rather than claim a
+ * breakdown it never had.
+ */
+export interface TerrainDetail {
+  score: number;
+  trees: number | null;
+  rugged: number | null;
+  sight: number | null;
+  roads: number | null;
+  confidence: number;
+  detail: {
+    canopy_pct: number | null;
+    forest_frac: number | null;
+    tri_m: number | null;
+    relief_m: number | null;
+    slope_pct: number | null;
+    horizon_deg: number | null;
+    road_km_per_100km2: number | null;
+    road_grid_frac: number | null;
+  };
 }
 
 export interface ChaseOutlook {
@@ -114,10 +148,29 @@ export async function fetchChaseOutlook(): Promise<ChaseOutlook | null> {
   return (data as ChaseOutlook | null) ?? null;
 }
 
-/** True when the row is not from today. The page says so rather than hiding it. */
+/**
+ * Which chase day the reader is currently in.
+ *
+ * Not `toISOString().slice(0,10)`. That is the UTC date, and after 8 pm Eastern
+ * it is already tomorrow — so a perfectly fresh outlook read at nine in the
+ * evening was being stamped "Last run ...", which is the one thing a chaser
+ * checking the forecast before bed should not be told.
+ *
+ * The engine rolls the day over at 04:25 UTC, in the small hours of the morning
+ * across the United States. The reader's day should roll at the same moment, so
+ * this is the local calendar date with the small hours still counted as the day
+ * before — matching the module's own definition of a chase day, which runs from
+ * the afternoon through to 2 am.
+ */
+export function chaseDayLocal(now: Date = new Date()): string {
+  const d = new Date(now);
+  if (d.getHours() < 3) d.setDate(d.getDate() - 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** True when the row is older than the day the reader is in. */
 export function isStale(o: ChaseOutlook): boolean {
-  const today = new Date().toISOString().slice(0, 10);
-  return o.outlook_date !== today;
+  return o.outlook_date < chaseDayLocal();
 }
 
 // ─── presentation ────────────────────────────────────────────────────────────

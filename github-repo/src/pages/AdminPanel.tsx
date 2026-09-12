@@ -38,6 +38,7 @@ import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { AdminTiersTab } from "../components/admin/AdminTiersTab";
 import { AdminChasesTab } from "../components/admin/AdminChasesTab";
 import { AdminRafflesTab } from "../components/admin/AdminRafflesTab";
+import { AdminShell, type ShellGroup } from "../components/admin/AdminShell";
 // Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
 // when somebody opens the News tab, not when they open the admin panel.
 const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
@@ -125,7 +126,19 @@ export default function AdminPanel() {
   useEffect(() => { reloadBadges(); }, [reloadBadges]);
   useEffect(() => { getAdminLayout().then(setLayout).catch(() => {}); }, []);
 
-  const groups = useMemo(() => resolveLayout(layout, TABS), [layout]);
+  /**
+   * The saved layout, folded together with the registry so the rail has icons.
+   * `resolveLayout` deliberately knows nothing about icons — it arranges tabs —
+   * so the lookup happens here, where the registry lives.
+   */
+  const groups = useMemo<ShellGroup[]>(() => {
+    const iconOf = new Map(TABS.map((t) => [t.id, t.icon]));
+    return resolveLayout(layout, TABS).map((g) => ({
+      id: g.id,
+      label: g.label,
+      tabs: g.tabs.map((t) => ({ ...t, icon: iconOf.get(t.id as Tab) ?? Settings })),
+    }));
+  }, [layout]);
 
   if (!user || !user.isAdmin) {
     return (
@@ -139,40 +152,12 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center gap-2">
-        <Shield className="w-6 h-6 text-yellow-400" />
-        <h1 className="text-2xl font-bold tracking-wide uppercase">Admin Panel</h1>
-      </div>
-
-
-      {/* Tabs, grouped by the layout saved in app_config. */}
-      <div className="space-y-2 border-b border-border pb-2">
-        {groups.map((g) => (
-          <div key={g.id} className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground w-20 shrink-0">
-              {g.label}
-            </span>
-            <div className="flex gap-1 flex-wrap">
-              {g.tabs.map((t) => {
-                const meta = TABS.find((x) => x.id === t.id)!;
-                const Icon = meta.icon;
-                const on = tab === t.id;
-                return (
-                  <button key={t.id} onClick={() => setTab(t.id as Tab)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                      on ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
-                    style={on ? { background: "hsl(var(--primary) / 0.14)", border: "1px solid hsl(var(--primary) / 0.35)" }
-                              : { border: "1px solid transparent" }}>
-                    <Icon className="w-3.5 h-3.5" /> {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
+    <AdminShell
+      groups={groups}
+      value={tab}
+      onChange={(id) => setTab(id as Tab)}
+      operator={{ name: user.name, role: "Administrator" }}
+    >
       {tab === "users" && <AdminUsersTab badgeDefs={badgeDefs} onCreate={() => setShowCreate(true)} />}
       {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />}
       {tab === "tiers" && <AdminTiersTab />}
@@ -196,7 +181,7 @@ export default function AdminPanel() {
       {tab === "billing" && <AdminBillingTab />}
       {tab === "invoices" && <AdminInvoicesTab />}
       {tab === "settings" && <SettingsTab />}
-    </div>
+    </AdminShell>
   );
 }
 

@@ -1,18 +1,80 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { BrandMark } from "./BrandMark";
 
 /**
- * StormSync intro (P-1.5). A geometric, single-take reveal: a radar sweep over a
- * hex/grid field, concentric range rings, a self-drawing polygon lattice, then the
- * brand mark and wordmarks. Shown once per browser session (see App.tsx).
+ * The opening plate.
  *
- * Motion is purely CSS so it stays smooth on low-end phones, and the whole thing
- * collapses to a static frame under `prefers-reduced-motion`.
+ * WHAT THIS REPLACES
+ * A purple radar sweep over a hex grid with corner brackets and a HUD progress
+ * pill. Two problems with it, and the second is the serious one. It was in a
+ * palette the application no longer uses — the app is champagne and periwinkle
+ * on indigo ink, and the splash was magenta on violet, so the first thing a
+ * member ever saw was the only screen that did not look like the product. And
+ * it was a radar, which reads as *weather software* when what this is is a
+ * membership: members choose their own menu style, and half of those styles are
+ * not weather at all.
+ *
+ * WHAT IT IS
+ * An engraving. The centrepiece is a guilloché rosette — the interlaced line
+ * ornament on a banknote, a share certificate, a watch dial — drawn live and
+ * engraved on screen, stroke by stroke, in champagne. It is not an asset: the
+ * three rosettes are hypotrochoids computed at module load, so they are a few
+ * hundred bytes of arithmetic rather than an image, they are exact at any
+ * screen size, and no stock file exists anywhere that looks like them.
+ *
+ * The order is the whole idea, and it is the order of making a certificate. The
+ * rule is scribed first, on an empty plate, before there is anything to write on
+ * it. The ornament engraves itself. The mark is struck — one ring, once, on
+ * impact, not a pulse looping for three seconds. Then the words are set into
+ * place, wiped in rather than faded, because type on an engraving arrives by
+ * being cut, not by materialising.
+ *
+ * Everything is CSS animation on transform, opacity, clip-path and
+ * stroke-dashoffset — the four things a compositor can do without touching
+ * layout — so it holds sixty frames on a cheap phone. Under reduced motion the
+ * whole plate renders in its finished state and simply holds.
  */
 const TOTAL_MS = 3000;
 
+/* ── the ornament ────────────────────────────────────────────────────────── */
+
+function gcd(a: number, b: number): number {
+  return b === 0 ? a : gcd(b, a % b);
+}
+
+/**
+ * One hypotrochoid: a pen at distance `d` from the centre of a circle of radius
+ * `r` rolling inside a circle of radius `R`. It closes after `r / gcd(R, r)`
+ * turns and draws `R / gcd(R, r)` lobes, which is what the parameters below are
+ * chosen against — a rosette that does not close is a scribble, and one with
+ * too few lobes is a flower.
+ */
+function rosette(R: number, r: number, d: number, steps: number): string {
+  const turns = r / gcd(R, r);
+  const k = (R - r) / r;
+  let out = "";
+  for (let i = 0; i <= steps; i++) {
+    const t = (i / steps) * turns * 2 * Math.PI;
+    const x = (R - r) * Math.cos(t) + d * Math.cos(k * t);
+    const y = (R - r) * Math.sin(t) - d * Math.sin(k * t);
+    // One decimal on a 340-unit viewBox is a twentieth of a pixel, and the
+    // difference between a 60 kB path string and a 100 kB one.
+    out += `${i ? "L" : "M"}${x.toFixed(1)} ${y.toFixed(1)}`;
+  }
+  return `${out}Z`;
+}
+
+// R and r share no factor in any of these, so each closes only after `r` turns
+// and lays down `R` lobes — 120, 95 and 66 of them, at radii 150, 110 and 70.
+// That density is the point: guilloché is an interlace, and a rosette with a
+// dozen lobes is a flower.
+const OUTER = rosette(120, 23, 53, 2400);
+const MIDDLE = rosette(95, 18, 33, 1800);
+const INNER = rosette(66, 13, 17, 1400);
+
 export function SplashScreen({ onDone }: { onDone: () => void }) {
   const [leaving, setLeaving] = useState(false);
+  const paths = useMemo(() => ({ OUTER, MIDDLE, INNER }), []);
 
   useEffect(() => {
     const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -23,45 +85,34 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
   }, [onDone]);
 
   return (
-    <div className={`sswx-splash${leaving ? " is-leaving" : ""}`} role="presentation">
+    <div className={`sx${leaving ? " is-leaving" : ""}`} role="presentation">
       <style>{CSS}</style>
 
-      {/* ── Geometric field ── */}
-      <div className="sswx-field" aria-hidden="true">
-        <div className="sswx-grid" />
-        <div className="sswx-vignette" />
+      <div className="sx-ground" aria-hidden="true" />
 
-        {/* Range rings + sweep */}
-        <div className="sswx-radar">
-          <span className="sswx-ring r1" />
-          <span className="sswx-ring r2" />
-          <span className="sswx-ring r3" />
-          <span className="sswx-sweep" />
-        </div>
-
-        {/* Self-drawing lattice */}
-        <svg className="sswx-lattice" viewBox="0 0 400 400" fill="none" aria-hidden="true">
-          <polygon className="lat lat-a" points="200,40 340,120 340,280 200,360 60,280 60,120" />
-          <polygon className="lat lat-b" points="200,95 292,148 292,252 200,305 108,252 108,148" />
-          <circle className="lat lat-c" cx="200" cy="200" r="152" />
-          <path className="lat lat-d" d="M200 40 L200 360 M60 120 L340 280 M340 120 L60 280" />
-        </svg>
-
-        {/* Corner brackets */}
-        <span className="sswx-br tl" /><span className="sswx-br tr" />
-        <span className="sswx-br bl" /><span className="sswx-br br" />
-      </div>
-
-      {/* ── Brand ── */}
-      <div className="sswx-center">
-        <div className="sswx-markwrap">
+      <div className="sx-plate">
+        {/* The medallion. Its box is the disc, so the type below clears the
+            ornament instead of being laid across it. */}
+        <div className="sx-medallion">
+          <svg className="sx-rose" viewBox="-170 -170 340 340" aria-hidden="true">
+            <g className="sx-spin">
+              <circle className="eng e0" cx="0" cy="0" r="160" pathLength={1} />
+              <path className="eng e1" d={paths.OUTER} pathLength={1} />
+              <path className="eng e2" d={paths.MIDDLE} pathLength={1} />
+              <path className="eng e3" d={paths.INNER} pathLength={1} />
+              <circle className="eng e4" cx="0" cy="0" r="46" pathLength={1} />
+            </g>
+          </svg>
+          <span className="sx-halo" aria-hidden="true" />
+          <span className="sx-strike" aria-hidden="true" />
           {/* Shares BRAND_LAYOUT_ID with the header copy, so it flies rather
-              than fades when the splash lifts. */}
-          <BrandMark size={112} drip />
-          <span className="sswx-pulse" />
+              than fades when the plate lifts. Nothing may clip this element. */}
+          <span className="sx-markin">
+            <BrandMark size={112} drip glow="rgba(217,183,117,0.42)" />
+          </span>
         </div>
 
-        <h1 className="sswx-title">
+        <h1 className="sx-title">
           <span className="w w1">VIP</span>{" "}
           <span className="w w2">Forecasts</span>{" "}
           <span className="w w3">&amp;</span>{" "}
@@ -69,115 +120,123 @@ export function SplashScreen({ onDone }: { onDone: () => void }) {
           <span className="w w5">Data</span>
         </h1>
 
-        <div className="sswx-rule" />
-        <p className="sswx-by">Created By: <strong>StormSync Media</strong></p>
+        <div className="sx-rule" aria-hidden="true" />
+        <p className="sx-by">Created By <strong>StormSync Media</strong></p>
       </div>
 
-      <p className="sswx-dev">Developed By: <strong>Jay Myers</strong></p>
-      <div className="sswx-progress"><span /></div>
+      <p className="sx-dev">Developed By <strong>Jay Myers</strong></p>
+      <div className="sx-bar" aria-hidden="true"><span /></div>
     </div>
   );
 }
 
+const GOLD = "#d9b775";
+const IRIS = "#ccccff";
+
 const CSS = `
-.sswx-splash{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(120% 90% at 50% 42%,#1a0f33 0%,#0d0720 45%,#05010f 100%);
-  overflow:hidden;opacity:1;transition:opacity .45s ease,transform .45s ease;}
-.sswx-splash.is-leaving{opacity:0;transform:scale(1.045);}
+.sx{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+  background:#070713;overflow:hidden;opacity:1;
+  transition:opacity .46s cubic-bezier(.22,1,.36,1),transform .46s cubic-bezier(.22,1,.36,1);}
+.sx.is-leaving{opacity:0;transform:scale(1.03);}
 
-.sswx-field{position:absolute;inset:0;pointer-events:none;}
-.sswx-grid{position:absolute;inset:-20%;
-  background-image:linear-gradient(rgba(168,85,247,.15) 1px,transparent 1px),
-                   linear-gradient(90deg,rgba(168,85,247,.15) 1px,transparent 1px);
-  background-size:46px 46px;
-  -webkit-mask-image:radial-gradient(circle at 50% 45%,#000 0%,#000 38%,transparent 72%);
-          mask-image:radial-gradient(circle at 50% 45%,#000 0%,#000 38%,transparent 72%);
-  animation:sswx-drift 3s linear both;opacity:0;}
-@keyframes sswx-drift{0%{opacity:0;transform:translate3d(0,14px,0) scale(1.06)}
-  22%{opacity:1}80%{opacity:.85}100%{opacity:.5;transform:translate3d(0,0,0) scale(1)}}
-.sswx-vignette{position:absolute;inset:0;background:radial-gradient(circle at 50% 45%,transparent 30%,rgba(5,1,15,.8) 78%);}
+/* ── ground ── */
+.sx-ground{position:absolute;inset:0;
+  background:
+    radial-gradient(62% 52% at 50% 46%,rgba(217,183,117,.10),transparent 64%),
+    radial-gradient(80% 70% at 50% 108%,rgba(120,110,255,.10),transparent 66%),
+    radial-gradient(120% 100% at 50% 44%,#0b0b1a 0%,#070713 58%,#040409 100%);
+  opacity:0;animation:sx-in .9s cubic-bezier(.22,1,.36,1) both;}
+@keyframes sx-in{to{opacity:1}}
 
-.sswx-radar{position:absolute;left:50%;top:45%;width:min(76vw,540px);aspect-ratio:1;transform:translate(-50%,-50%);}
-.sswx-ring{position:absolute;inset:0;margin:auto;border-radius:50%;border:1px solid rgba(196,132,252,.35);
-  opacity:0;animation:sswx-ping 2.6s cubic-bezier(.2,.7,.3,1) both;}
-.sswx-ring.r1{width:26%;height:26%;animation-delay:.10s}
-.sswx-ring.r2{width:26%;height:26%;animation-delay:.45s}
-.sswx-ring.r3{width:26%;height:26%;animation-delay:.80s}
-@keyframes sswx-ping{0%{opacity:0;transform:scale(.35)}18%{opacity:.85}100%{opacity:0;transform:scale(3.9)}}
-.sswx-sweep{position:absolute;inset:0;border-radius:50%;opacity:0;
-  background:conic-gradient(from 0deg,transparent 0deg,rgba(168,85,247,.00) 250deg,rgba(217,70,239,.30) 330deg,rgba(244,114,182,.55) 358deg,transparent 360deg);
-  -webkit-mask-image:radial-gradient(circle,transparent 12%,#000 13%,#000 68%,transparent 70%);
-          mask-image:radial-gradient(circle,transparent 12%,#000 13%,#000 68%,transparent 70%);
-  animation:sswx-spin 1.55s linear 2,sswx-fadein .4s ease both;}
-@keyframes sswx-spin{to{transform:rotate(360deg)}}
-@keyframes sswx-fadein{to{opacity:1}}
+/* ── the plate ── */
+.sx-plate{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;
+  text-align:center;padding:0 24px;}
 
-.sswx-lattice{position:absolute;left:50%;top:45%;width:min(62vw,420px);aspect-ratio:1;transform:translate(-50%,-50%);}
-.sswx-lattice .lat{stroke:rgba(196,132,252,.55);stroke-width:1.1;fill:none;
-  stroke-dasharray:1400;stroke-dashoffset:1400;animation:sswx-draw 1.5s cubic-bezier(.6,0,.2,1) both;}
-.sswx-lattice .lat-a{animation-delay:.10s}
-.sswx-lattice .lat-b{animation-delay:.28s;stroke:rgba(244,114,182,.45)}
-.sswx-lattice .lat-c{animation-delay:.46s;stroke:rgba(168,85,247,.30)}
-.sswx-lattice .lat-d{animation-delay:.60s;stroke:rgba(196,132,252,.18)}
-@keyframes sswx-draw{to{stroke-dashoffset:0}}
+.sx-medallion{position:relative;display:grid;place-items:center;
+  width:min(74vw,340px);height:min(74vw,340px);margin-bottom:6px;}
 
-.sswx-br{position:absolute;width:26px;height:26px;border:2px solid rgba(196,132,252,.5);opacity:0;
-  animation:sswx-fadein .5s ease .9s both;}
-.sswx-br.tl{top:22px;left:22px;border-right:0;border-bottom:0}
-.sswx-br.tr{top:22px;right:22px;border-left:0;border-bottom:0}
-.sswx-br.bl{bottom:22px;left:22px;border-right:0;border-top:0}
-.sswx-br.br{bottom:22px;right:22px;border-left:0;border-top:0}
+.sx-halo{position:absolute;inset:-18%;border-radius:50%;
+  background:radial-gradient(circle,rgba(217,183,117,.16) 0%,rgba(217,183,117,.05) 42%,transparent 68%);
+  opacity:0;animation:sx-in 1.1s ease .35s both;}
 
-.sswx-center{position:relative;z-index:2;display:flex;flex-direction:column;align-items:center;text-align:center;padding:0 24px;}
-.sswx-markwrap{position:relative;display:grid;place-items:center;margin-bottom:18px;}
-.sswx-mark{width:clamp(74px,15vw,112px);height:auto;object-fit:contain;
-  filter:drop-shadow(0 0 26px rgba(168,85,247,.75));
-  animation:sswx-mark-in 1.05s cubic-bezier(.16,1,.3,1) .35s both;}
-@keyframes sswx-mark-in{0%{opacity:0;transform:translateY(16px) scale(.72)}
-  60%{opacity:1}100%{opacity:1;transform:translateY(0) scale(1)}}
-.sswx-pulse{position:absolute;width:150%;aspect-ratio:1;border-radius:50%;
-  background:radial-gradient(circle,rgba(168,85,247,.35) 0%,transparent 62%);
-  animation:sswx-breathe 2.1s ease-in-out .8s infinite;}
-@keyframes sswx-breathe{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:.85;transform:scale(1.06)}}
+/* ── the engraving ── */
+.sx-rose{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
+.sx-spin{transform-origin:0 0;animation:sx-turn 120s linear infinite;}
+@keyframes sx-turn{to{transform:rotate(360deg)}}
+.sx .eng{fill:none;stroke:${GOLD};stroke-linejoin:round;
+  stroke-dasharray:1;stroke-dashoffset:1;
+  animation:sx-engrave 1.5s cubic-bezier(.42,0,.2,1) both;}
+@keyframes sx-engrave{to{stroke-dashoffset:0}}
+.sx .e0{stroke-width:1.1;stroke-opacity:.42;animation-delay:.16s}
+.sx .e1{stroke-width:.5;stroke-opacity:.62;animation-delay:.26s}
+.sx .e2{stroke-width:.5;stroke-opacity:.42;stroke:${IRIS};animation-delay:.44s}
+.sx .e3{stroke-width:.5;stroke-opacity:.55;animation-delay:.60s}
+.sx .e4{stroke-width:1.1;stroke-opacity:.40;animation-delay:.78s}
 
-.sswx-title{margin:0;font-family:'Raleway',system-ui,sans-serif;font-weight:800;letter-spacing:.06em;
-  font-size:clamp(20px,5.2vw,38px);line-height:1.18;color:#F1F4FF;text-transform:uppercase;}
-.sswx-title .w{display:inline-block;opacity:0;filter:blur(9px);
-  animation:sswx-word .62s cubic-bezier(.2,.8,.2,1) both;}
-.sswx-title .w1{animation-delay:.80s}.sswx-title .w2{animation-delay:.90s}
-.sswx-title .w3{animation-delay:1.00s;color:#c084fc}.sswx-title .w4{animation-delay:1.10s}
-.sswx-title .w5{animation-delay:1.20s;
-  background:linear-gradient(90deg,#c084fc,#f472b6);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
-@keyframes sswx-word{to{opacity:1;filter:blur(0);transform:none}}
+.sx-markin{position:relative;z-index:2;display:block;
+  animation:sx-strike-in 1.0s cubic-bezier(.16,1,.3,1) .48s both;}
+@keyframes sx-strike-in{
+  0%{opacity:0;transform:scale(1.22)}
+  55%{opacity:1}
+  100%{opacity:1;transform:scale(1)}}
 
-.sswx-rule{width:0;height:1px;margin:16px auto 12px;
-  background:linear-gradient(90deg,transparent,#c084fc,#f472b6,transparent);
-  animation:sswx-rule .85s cubic-bezier(.2,.8,.2,1) 1.32s both;}
-@keyframes sswx-rule{to{width:min(64vw,320px)}}
+/* One ring, once, on impact. Not a pulse. */
+.sx-strike{position:absolute;width:46%;aspect-ratio:1;border-radius:50%;
+  border:1px solid ${GOLD};opacity:0;
+  animation:sx-strike-ring 1.2s cubic-bezier(.16,1,.3,1) .72s both;}
+@keyframes sx-strike-ring{
+  0%{opacity:0;transform:scale(.5)}
+  16%{opacity:.75}
+  100%{opacity:0;transform:scale(2.4)}}
 
-.sswx-by{margin:0;font-size:clamp(11px,2.6vw,13px);letter-spacing:.16em;text-transform:uppercase;
-  color:#A3A3CC;opacity:0;animation:sswx-fadeup .6s ease 1.55s both;}
-.sswx-by strong{color:#F1F4FF;font-weight:700;}
-@keyframes sswx-fadeup{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.sx-title{margin:0;font-family:'Raleway',system-ui,sans-serif;font-weight:800;letter-spacing:.07em;
+  font-size:clamp(19px,5vw,36px);line-height:1.2;color:#f1f4ff;text-transform:uppercase;}
+/* Wiped in, not faded: type on an engraving arrives by being cut. The clip ends
+   past the right edge so a gradient-filled word is never shaved. */
+.sx-title .w{display:inline-block;clip-path:inset(0 100% 0 0);opacity:.001;
+  animation:sx-cut .58s cubic-bezier(.22,1,.36,1) both;}
+@keyframes sx-cut{to{clip-path:inset(0 -4% 0 0);opacity:1}}
+.sx-title .w1{animation-delay:.86s}
+.sx-title .w2{animation-delay:.95s}
+.sx-title .w3{animation-delay:1.04s;color:${GOLD}}
+.sx-title .w4{animation-delay:1.13s}
+.sx-title .w5{animation-delay:1.22s;
+  background:linear-gradient(92deg,${GOLD},${IRIS});
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;}
 
-.sswx-dev{position:absolute;right:22px;bottom:22px;z-index:2;margin:0;
-  font-size:clamp(9px,2.2vw,11px);letter-spacing:.13em;text-transform:uppercase;color:#6f6f96;
-  opacity:0;animation:sswx-fadeup .6s ease 1.85s both;}
-.sswx-dev strong{color:#A3A3CC;font-weight:600;}
+/* Scribed first, on an empty plate. */
+.sx-rule{width:0;height:1px;margin:22px auto 15px;
+  background:linear-gradient(90deg,transparent,${GOLD},${IRIS},transparent);
+  animation:sx-scribe .62s cubic-bezier(.22,1,.36,1) .06s both;}
+@keyframes sx-scribe{to{width:min(66vw,340px)}}
 
-.sswx-progress{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);z-index:2;
-  width:min(46vw,190px);height:2px;border-radius:2px;background:rgba(196,132,252,.14);overflow:hidden;}
-.sswx-progress>span{display:block;height:100%;width:0;border-radius:2px;
-  background:linear-gradient(90deg,#a855f7,#f472b6);animation:sswx-bar ${TOTAL_MS}ms cubic-bezier(.35,.1,.2,1) both;}
-@keyframes sswx-bar{to{width:100%}}
+.sx-by{margin:0;font-size:clamp(10px,2.5vw,12px);letter-spacing:.24em;text-transform:uppercase;
+  color:#a3a3cc;opacity:0;animation:sx-up .55s cubic-bezier(.22,1,.36,1) 1.58s both;}
+.sx-by strong{color:#f1f4ff;font-weight:700;}
+@keyframes sx-up{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+
+.sx-dev{position:absolute;left:0;right:0;bottom:30px;z-index:2;margin:0;text-align:center;
+  font-size:clamp(9px,2.2vw,10px);letter-spacing:.26em;text-transform:uppercase;color:#6f6f96;
+  opacity:0;animation:sx-up .55s cubic-bezier(.22,1,.36,1) 1.86s both;}
+.sx-dev strong{color:#a3a3cc;font-weight:600;}
+
+/* Edge to edge along the very bottom, the way a plate is trimmed. */
+.sx-bar{position:absolute;left:0;right:0;bottom:0;z-index:2;height:2px;
+  background:rgba(217,183,117,.10);}
+.sx-bar>span{display:block;height:100%;width:0;
+  background:linear-gradient(90deg,${GOLD},${IRIS});
+  box-shadow:0 0 12px -2px ${GOLD};
+  animation:sx-fill ${TOTAL_MS}ms cubic-bezier(.35,.1,.2,1) both;}
+@keyframes sx-fill{to{width:100%}}
 
 @media (prefers-reduced-motion:reduce){
-  .sswx-splash *{animation:none!important;transition:none!important;}
-  .sswx-grid,.sswx-mark,.sswx-by,.sswx-dev,.sswx-br,.sswx-sweep{opacity:1!important;}
-  .sswx-title .w{opacity:1!important;filter:none!important;}
-  .sswx-lattice .lat{stroke-dashoffset:0!important;}
-  .sswx-rule{width:min(64vw,320px)!important;}
-  .sswx-progress>span{width:100%!important;}
+  .sx *{animation:none!important;transition:none!important;}
+  .sx-ground,.sx-markin,.sx-halo,.sx-by,.sx-dev{opacity:1!important;transform:none!important;}
+  .sx-strike{display:none!important;}
+  .sx .eng{stroke-dashoffset:0!important;}
+  .sx-title .w{clip-path:none!important;opacity:1!important;}
+  .sx-rule{width:min(66vw,340px)!important;}
+  .sx-bar>span{width:100%!important;}
 }
 `;
 

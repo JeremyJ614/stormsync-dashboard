@@ -14,8 +14,17 @@
  *
  * On a phone it docks to the bottom instead of the corner and opens as a sheet,
  * because a floating panel over a 390px-wide map is just a smaller map.
+ *
+ * AND ON A PHONE IT OPENS CLOSED. The first version opened expanded, which on a
+ * 390px screen meant arriving at a radar module whose radar you could not see:
+ * six product groups, a legend and an opacity slider filling the viewport
+ * before you had asked for any of them. Folded, it is a single pill naming what
+ * is currently on the map — which is the one thing worth saying unprompted —
+ * and the map gets the whole screen. Opening it is one tap, and even open it is
+ * capped at half the height with the rest scrolling, so it can never take the
+ * map away again.
  */
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, SlidersHorizontal } from "lucide-react";
 import { ROYAL, HEADING, EASE, SPRING, prefersReducedMotion } from "../../lib/royal";
@@ -25,18 +34,38 @@ interface Props {
   /** One line summarising the current selection, shown when folded. */
   summary?: ReactNode;
   children: ReactNode;
+  /** Overrides the width-based default. */
   defaultOpen?: boolean;
 }
 
+/** Desktop has room beside the map; a phone does not. */
+function roomForIt(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia("(min-width: 640px)").matches;
+}
+
 export const MapConsole = memo(function MapConsole({
-  title, summary, children, defaultOpen = true,
+  title, summary, children, defaultOpen,
 }: Props) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, setOpen] = useState(() => defaultOpen ?? roomForIt());
   const still = prefersReducedMotion();
+
+  // Rotating a phone into landscape, or a desktop window being dragged narrow,
+  // should change the answer — but only while the member has not touched it.
+  const [touched, setTouched] = useState(false);
+  useEffect(() => {
+    if (touched || defaultOpen !== undefined) return;
+    const mq = window.matchMedia("(min-width: 640px)");
+    const on = () => setOpen(mq.matches);
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [touched, defaultOpen]);
 
   return (
     <motion.div
-      className="absolute z-20 left-2 right-2 bottom-2 sm:right-auto sm:top-2 sm:bottom-auto sm:w-[310px] sm:left-2"
+      className={`absolute z-20 bottom-2 left-2 sm:right-auto sm:top-2 sm:bottom-auto sm:w-[310px] sm:left-2 ${
+        open ? "right-2" : "right-auto max-w-[calc(100%-1rem)]"
+      }`}
       initial={still ? { opacity: 0 } : { opacity: 0, x: -14 }}
       animate={{ opacity: 1, x: 0 }}
       transition={{ duration: still ? 0.2 : 0.45, delay: 0.1, ease: EASE }}
@@ -55,14 +84,14 @@ export const MapConsole = memo(function MapConsole({
               style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
 
         <button
-          onClick={() => setOpen((v) => !v)}
+          onClick={() => { setTouched(true); setOpen((v) => !v); }}
           aria-expanded={open}
           className="w-full px-3.5 py-2.5 flex items-center gap-2 text-left"
         >
           <SlidersHorizontal className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.gold }} />
           <span className="min-w-0 flex-1">
             <span className="block text-[10px] uppercase tracking-[0.26em] font-semibold"
-                  style={{ color: ROYAL.gold }}>{title}</span>
+                  style={{ color: ROYAL.gold }}>{open ? title : "On the map"}</span>
             {!open && summary && (
               <span className="block text-[11px] truncate mt-0.5" style={{ color: ROYAL.text }}>{summary}</span>
             )}
@@ -86,7 +115,7 @@ export const MapConsole = memo(function MapConsole({
               transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
               style={{ overflow: "hidden" }}
             >
-              <div className="px-3.5 pb-3.5 space-y-3 max-h-[46vh] sm:max-h-[64vh] overflow-y-auto">
+              <div className="px-3.5 pb-3.5 space-y-3 max-h-[42svh] sm:max-h-[64vh] overflow-y-auto overscroll-contain">
                 {children}
               </div>
             </motion.div>

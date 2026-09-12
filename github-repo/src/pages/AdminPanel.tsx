@@ -19,7 +19,6 @@ import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
 import { useDraft } from "../lib/draft";
 import { markUnsaved, releaseUnsaved } from "../lib/unsavedWork";
 import { AdminNavTab } from "../components/AdminNavTab";
-import { useSticky } from "../lib/stickyState";
 import { setScrollVariant } from "../components/ScrollMemory";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
@@ -38,7 +37,7 @@ import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { AdminTiersTab } from "../components/admin/AdminTiersTab";
 import { AdminChasesTab } from "../components/admin/AdminChasesTab";
 import { AdminRafflesTab } from "../components/admin/AdminRafflesTab";
-import { AdminShell, type ShellGroup } from "../components/admin/AdminShell";
+import { AdminShell, OVERVIEW, type ShellGroup } from "../components/admin/AdminShell";
 // Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
 // when somebody opens the News tab, not when they open the admin panel.
 const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
@@ -56,7 +55,8 @@ import { Shield, Users, Crown, Route, Ticket, Bell, BellRing, Mail, MessageSquar
 type Tab =
   | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
   | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings"
-  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles";
+  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles"
+  | typeof OVERVIEW;
 
 /**
  * Every tab that exists, as data.
@@ -94,20 +94,16 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
 export default function AdminPanel() {
   const { user } = useAuth();
   /**
-   * The open section, remembered.
+   * The panel opens on the map of itself.
    *
-   * This was plain state, so opening a member's profile, following a link out,
-   * or closing the browser and coming back all dropped you on Members again —
-   * having scrolled to the top of it. Admin work is long and interrupted by
-   * design: you go and look something up, then come back. The validator
-   * matters as much as the storage: a section stored by an older build and
-   * since renamed would leave the panel showing nothing at all, with no way to
-   * tell why.
+   * This used to restore whichever section you were last in, which sounds
+   * helpful and is not: an admin panel is opened cold far more often than it is
+   * resumed, and landing straight inside one of twenty-two sections with no
+   * view of the other twenty-one is exactly the complaint. The overview lists
+   * everything, marks where you were last, and is one press away from the
+   * masthead and the rail at all times.
    */
-  const [tab, setTab] = useSticky<Tab>(
-    "admin.tab", "users",
-    (v): v is Tab => typeof v === "string" && TABS.some((t) => t.id === v),
-  );
+  const [tab, setTab] = useState<Tab>(OVERVIEW);
 
   /**
    * Scroll is remembered per SECTION, not per URL.

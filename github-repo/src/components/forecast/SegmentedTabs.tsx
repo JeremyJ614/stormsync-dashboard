@@ -22,6 +22,14 @@ import { ROYAL, SPRING, prefersReducedMotion } from "../../lib/royal";
 export interface Segment<T extends string> {
   id: T;
   label: string;
+  /**
+   * A few words under the label saying what the section is.
+   *
+   * "SPC" and "CPC" are opaque to anyone who does not already work with these
+   * products, and a tab nobody understands is a tab nobody presses. Hidden on
+   * the narrowest phones, where the row would wrap.
+   */
+  sub?: string;
   /** Optional trailing count or status dot content. */
   badge?: string | number;
 }
@@ -92,12 +100,18 @@ function SegmentedTabsInner<T extends string>({
             aria-controls={controls}
             tabIndex={on ? 0 : -1}
             onClick={() => onChange(s.id)}
-            className="relative shrink-0 px-3.5 sm:px-4 py-2 rounded-xl text-[13px] font-semibold whitespace-nowrap outline-none transition-colors focus-visible:ring-2"
+            // A press should feel like a press. Transform only, so it is a
+            // compositor job and costs nothing on a phone.
             style={{
               color: on ? "#120f1e" : ROYAL.dim,
+              WebkitTapHighlightColor: "transparent",
               // @ts-expect-error custom property for the focus ring colour
               "--tw-ring-color": ROYAL.goldSoft,
             }}
+            onPointerDown={(e) => { e.currentTarget.style.transform = "scale(0.96)"; }}
+            onPointerUp={(e) => { e.currentTarget.style.transform = ""; }}
+            onPointerLeave={(e) => { e.currentTarget.style.transform = ""; }}
+            className="relative shrink-0 px-3.5 sm:px-4 py-2 rounded-xl text-[13px] font-semibold whitespace-nowrap outline-none transition-[color,transform] duration-150 focus-visible:ring-2"
           >
             {on && (
               <motion.span
@@ -111,7 +125,8 @@ function SegmentedTabsInner<T extends string>({
                 }}
               />
             )}
-            <span className="relative flex items-center gap-1.5">
+            <span className="relative flex flex-col items-center leading-tight">
+              <span className="flex items-center gap-1.5">
               {s.label}
               {s.badge !== undefined && s.badge !== "" && (
                 <span
@@ -122,6 +137,13 @@ function SegmentedTabsInner<T extends string>({
                   }}
                 >
                   {s.badge}
+                </span>
+              )}
+              </span>
+              {s.sub && (
+                <span className="hidden sm:block text-[9px] font-medium tracking-[0.1em] uppercase mt-0.5"
+                      style={{ color: on ? "rgba(18,15,30,0.62)" : ROYAL.dim, opacity: on ? 1 : 0.75 }}>
+                  {s.sub}
                 </span>
               )}
             </span>

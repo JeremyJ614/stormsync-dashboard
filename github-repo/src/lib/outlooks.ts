@@ -296,13 +296,29 @@ function qpfColour(v: number): string {
   return c;
 }
 
-/** CPC's divergent scale: browns above, blues below, grey for equal chances. */
-const CPC_ABOVE: Record<number, string> = {
-  33: "#f3d3b4", 40: "#eeb083", 50: "#e58b52", 60: "#d76a2c", 70: "#bb4e17", 80: "#96390d", 90: "#742a06",
+/**
+ * CPC's divergent scales — and there are TWO of them.
+ *
+ * Temperature is red-above / blue-below. Precipitation is green-above /
+ * brown-below. That is not a house style, it is CPC's own convention and it is
+ * load-bearing: on a map with no units, the hue is the only thing telling you
+ * whether "above, 60%" means hot or wet. Running both products off one ramp —
+ * which is what shipped — made the precipitation outlook a recolour of the
+ * temperature one, and there is no way to read it correctly.
+ */
+const CPC_TEMP_ABOVE: Record<number, string> = {
+  33: "#f7d8bd", 40: "#f2b489", 50: "#e88e55", 60: "#d96c2e", 70: "#bd4f18", 80: "#97390d", 90: "#742a06",
 };
-const CPC_BELOW: Record<number, string> = {
-  33: "#cbe3f3", 40: "#a1cbe8", 50: "#70b0da", 60: "#4290c6", 70: "#2470ab", 80: "#155489", 90: "#0c3c66",
+const CPC_TEMP_BELOW: Record<number, string> = {
+  33: "#cfe6f6", 40: "#a3cdea", 50: "#71b2dc", 60: "#4291c7", 70: "#2470ab", 80: "#155489", 90: "#0c3c66",
 };
+const CPC_PRECIP_ABOVE: Record<number, string> = {
+  33: "#d5ecd2", 40: "#aedcaa", 50: "#7cc67e", 60: "#4aa956", 70: "#2b8a3c", 80: "#186b2a", 90: "#0d4c1c",
+};
+const CPC_PRECIP_BELOW: Record<number, string> = {
+  33: "#f0e2c8", 40: "#e2c99f", 50: "#d0ac74", 60: "#b88f52", 70: "#9a7238", 80: "#7b5825", 90: "#5d4116",
+};
+
 // CPC prints "equal chances" white, which on a dark map would be the loudest
 // thing on it. Charcoal keeps it legible as its own area while saying,
 // correctly, that there is nothing to read there.
@@ -481,7 +497,10 @@ async function cpcOutlook(kind: "temp" | "precip", view: string): Promise<Outloo
     if (cls === "ec") {
       return { key: "ec", label: "Equal chances", fill: CPC_EC, stroke: CPC_EC, order: 0 };
     }
-    const fill = (cls === "above" ? CPC_ABOVE : CPC_BELOW)[prob];
+    const ramp = kind === "temp"
+      ? (cls === "above" ? CPC_TEMP_ABOVE : CPC_TEMP_BELOW)
+      : (cls === "above" ? CPC_PRECIP_ABOVE : CPC_PRECIP_BELOW);
+    const fill = ramp[prob];
     return {
       key: `${cls}-${prob}`,
       label: `${cls === "above" ? "Above" : "Below"} ${prob}%`,

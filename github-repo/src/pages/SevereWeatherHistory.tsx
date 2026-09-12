@@ -8,6 +8,7 @@ import { Loader2, AlertTriangle, RefreshCw } from "lucide-react";
 import { WeatherHistoryMap } from "../components/WeatherHistoryMap";
 import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { StaticHistoryMap, type LegendRow, type StatBox } from "../components/StaticHistoryMap";
+import { StatBank, type BankRow } from "../components/history/StatBank";
 import {
   fetchWarnings, fetchTornadoTracks, daysBackRange,
   WARN_TIERS, EF_ORDER, efHistoryColor,
@@ -63,63 +64,6 @@ const TOR_RANGES = [
 
 const fmt = (iso: string) =>
   new Date(iso).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-
-/** One headline figure. */
-function Stat({ label, value, tone, i, still }: {
-  label: string; value: string; tone?: string; i: number; still: boolean;
-}) {
-  return (
-    <motion.div
-      className="px-4 py-3"
-      style={{ background: "rgba(8,8,18,0.72)" }}
-      initial={still ? { opacity: 0 } : { opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: still ? 0.2 : 0.38, delay: still ? 0 : 0.06 * i, ease: EASE }}
-    >
-      <div className="text-[9px] uppercase tracking-[0.24em]" style={{ color: ROYAL.dim }}>{label}</div>
-      <div className="text-[26px] font-black tabular-nums leading-none mt-1"
-           style={{ color: tone ?? ROYAL.text, fontFamily: HEADING }}>{value}</div>
-    </motion.div>
-  );
-}
-
-/**
- * What the period is made of, as one bar.
- *
- * A legend says which categories exist; this says how much of the period each
- * one IS. Thirty tornado warnings and one tornado emergency read very
- * differently from fifteen and sixteen, and a row of equal-sized swatches
- * cannot tell them apart.
- */
-function Composition({ rows, still }: { rows: LegendRow[]; still: boolean }) {
-  const total = rows.reduce((n, r) => n + r.count, 0);
-  if (!total) return null;
-  return (
-    <div className="space-y-2">
-      <div className="flex h-2.5 rounded-full overflow-hidden" style={{ background: "rgba(255,255,255,0.05)" }}>
-        {rows.filter((r) => r.count > 0).map((r, i) => (
-          <motion.span
-            key={r.label}
-            title={`${r.label}: ${r.count}`}
-            style={{ background: r.color }}
-            initial={still ? { flexGrow: r.count } : { flexGrow: 0 }}
-            animate={{ flexGrow: r.count }}
-            transition={still ? { duration: 0 } : { duration: 0.6, delay: 0.1 + i * 0.06, ease: EASE }}
-          />
-        ))}
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5">
-        {rows.map((l) => (
-          <div key={l.label} className="flex items-center gap-1.5 text-[11.5px]">
-            <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: l.color }} />
-            <span style={{ color: ROYAL.dim }}>{l.label}</span>
-            <span className="font-bold tabular-nums" style={{ color: ROYAL.text }}>{l.count}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 export default function SevereWeatherHistory() {
   const [mode, setMode] = useState<Mode>("warnings");
@@ -221,6 +165,27 @@ export default function SevereWeatherHistory() {
     .map(ef => ({ label: ef, color: efHistoryColor(ef), count: tornadoes.data?.counts[ef] ?? 0 }))
     .filter(r => r.count > 0);
 
+  /**
+   * The breakdown, in the order the categories escalate.
+   *
+   * Warnings are proportional — they add up to the total — so each row carries
+   * its count and gets a bar. Tornado ratings are too, so they do as well; the
+   * human cost is not a proportion of anything and is shown beneath as its own
+   * pair of readings rather than pretending to be a share.
+   */
+  const bankRows: BankRow[] = mode === "warnings"
+    ? warnLegend.map((l) => ({ label: l.label, value: l.count.toLocaleString(), color: l.color, count: l.count }))
+    : [
+        ...torLegend.map((l) => ({ label: l.label, value: l.count.toLocaleString(), color: l.color, count: l.count })),
+        ...(tornadoes.data
+          ? [
+              { label: "Fatalities", value: tornadoes.data.fatalities.toLocaleString(),
+                color: tornadoes.data.fatalities > 0 ? "#ff5257" : ROYAL.dim },
+              { label: "Injuries", value: tornadoes.data.injuries.toLocaleString(), color: "#eab308" },
+            ]
+          : []),
+      ];
+
   const torStats: StatBox[] = tornadoes.data ? [
     { label: "Fatalities", value: String(tornadoes.data.fatalities), color: "#ef4444" },
     { label: "Injuries", value: String(tornadoes.data.injuries), color: "#eab308" },
@@ -237,6 +202,7 @@ export default function SevereWeatherHistory() {
   const active = mode === "warnings" ? warnings : tornadoes;
   const range = mode === "warnings" ? warnRange : torRange;
   const ranges = mode === "warnings" ? WARN_RANGES : TOR_RANGES;
+  const periodLabel = ranges.find((r) => r.days === days)?.label ?? "";
   const days = mode === "warnings" ? warnDays : torDays;
   const setDays = mode === "warnings" ? setWarnDays : setTorDays;
 
@@ -296,43 +262,22 @@ export default function SevereWeatherHistory() {
 
         {/* the headline band */}
         <AnimatePresence mode="wait" initial={false}>
-          <motion.section
+          <motion.div
             key={`${mode}-${days}`}
-            className="relative rounded-2xl overflow-hidden"
             initial={still ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={still ? { opacity: 0 } : { opacity: 0, y: -6 }}
             transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
-            style={{
-              border: `1px solid ${ROYAL.hairline}`,
-              background: `radial-gradient(70% 130% at 8% -20%, rgba(217,183,117,0.13), transparent 60%),`
-                + `linear-gradient(180deg, ${ROYAL.ink2}, ${ROYAL.ink})`,
-            }}
           >
-            <span aria-hidden className="absolute inset-x-0 top-0 h-px"
-                  style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-px" style={{ background: ROYAL.hairline }}>
-              {mode === "warnings" ? (
-                <>
-                  <Stat i={0} still={still} label="Warnings issued" value={String(warnings.data?.total ?? 0)} tone={ROYAL.gold} />
-                  <Stat i={1} still={still} label="Tornado warnings" value={warnStats[0]?.value ?? "0"} tone="#ff5257" />
-                  <Stat i={2} still={still} label="Severe thunderstorm" value={warnStats[1]?.value ?? "0"} tone="#c3d117" />
-                </>
-              ) : (
-                <>
-                  <Stat i={0} still={still} label="Tornado paths" value={String(tornadoes.data?.total ?? 0)} tone={ROYAL.gold} />
-                  <Stat i={1} still={still} label="Strongest" value={tornadoes.data?.highestEf ?? "—"}
-                        tone={tornadoes.data ? efHistoryColor(tornadoes.data.highestEf) : undefined} />
-                  <Stat i={2} still={still} label="Fatalities · injuries"
-                        value={tornadoes.data ? `${tornadoes.data.fatalities} · ${tornadoes.data.injuries}` : "—"}
-                        tone={tornadoes.data && tornadoes.data.fatalities > 0 ? "#ff5257" : undefined} />
-                </>
-              )}
-            </div>
-            <div className="px-4 py-3.5" style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
-              <Composition rows={mode === "warnings" ? warnLegend : torLegend} still={still} />
-            </div>
-          </motion.section>
+            <StatBank
+              still={still}
+              eyebrow={`${periodLabel} · ${mode === "warnings" ? "warnings" : "tornadoes"}`}
+              total={(mode === "warnings" ? warnings.data?.total : tornadoes.data?.total) ?? 0}
+              unit={mode === "warnings" ? "warnings issued" : "tornado paths"}
+              caption={`${fmt(range.start)} → ${fmt(range.end)}`}
+              rows={bankRows}
+            />
+          </motion.div>
         </AnimatePresence>
 
         {/* ── the map ───────────────────────────────────────────────────── */}

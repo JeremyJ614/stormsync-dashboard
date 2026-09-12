@@ -118,11 +118,8 @@ export function Panel({
 }) {
   return (
     <section
-      className={`relative rounded-2xl overflow-hidden ${className}`}
+      className={`royal-glass relative rounded-2xl overflow-hidden ${className}`}
       style={{
-        background: ROYAL.panel,
-        backdropFilter: "blur(14px) saturate(1.15)",
-        WebkitBackdropFilter: "blur(14px) saturate(1.15)",
         border: `1px solid ${ROYAL.hairline}`,
         boxShadow: `0 20px 44px -30px rgba(0,0,0,0.95)`,
         ...(defer ? { contentVisibility: "auto", containIntrinsicSize: "480px" } as React.CSSProperties : {}),

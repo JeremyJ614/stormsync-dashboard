@@ -26,8 +26,9 @@
  */
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
-import { Shield, Command, ChevronRight } from "lucide-react";
+import { Shield, Command, ChevronRight, LayoutGrid } from "lucide-react";
 import { AdminCommand, type CommandEntry } from "./AdminCommand";
+import { AdminOverview } from "./AdminOverview";
 import { useSticky } from "../../lib/stickyState";
 import { ROYAL, HEADING, SPRING, EASE, prefersReducedMotion } from "../../lib/royal";
 
@@ -36,6 +37,9 @@ export interface ShellGroup {
   label: string;
   tabs: { id: string; label: string; icon: React.ComponentType<{ className?: string }> }[];
 }
+
+/** The id the panel opens on: the map of itself, not a section. */
+export const OVERVIEW = "overview";
 
 interface Props {
   groups: ShellGroup[];
@@ -137,7 +141,8 @@ export function AdminShell({ groups, value, onChange, operator, children }: Prop
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const Icon = here?.tab.icon ?? Shield;
+  const Icon = here?.tab.icon ?? LayoutGrid;
+  const onOverview = value === OVERVIEW;
 
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto">
@@ -169,8 +174,22 @@ export function AdminShell({ groups, value, onChange, operator, children }: Prop
           </div>
 
           <button
-            onClick={() => setPalette(true)}
+            onClick={() => go(OVERVIEW)}
+            aria-current={value === OVERVIEW ? "page" : undefined}
             className="ml-auto flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] transition-colors hover:bg-white/[0.05]"
+            style={{
+              border: `1px solid ${value === OVERVIEW ? ROYAL.goldSoft : ROYAL.hairline}`,
+              color: value === OVERVIEW ? ROYAL.gold : ROYAL.dim,
+              background: value === OVERVIEW ? ROYAL.goldFaint : "transparent",
+            }}
+          >
+            <LayoutGrid className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">All sections</span>
+          </button>
+
+          <button
+            onClick={() => setPalette(true)}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12px] transition-colors hover:bg-white/[0.05]"
             style={{ border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
           >
             <Command className="w-3.5 h-3.5" />
@@ -187,14 +206,22 @@ export function AdminShell({ groups, value, onChange, operator, children }: Prop
         {/* ── the rail ──────────────────────────────────────────────────── */}
         <nav
           aria-label="Admin sections"
-          className="hidden lg:block self-start sticky top-4 rounded-2xl p-2 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto"
-          style={{
-            background: ROYAL.panel,
-            backdropFilter: "blur(14px)",
-            WebkitBackdropFilter: "blur(14px)",
-            border: `1px solid ${ROYAL.hairline}`,
-          }}
+          className="royal-glass hidden lg:block self-start sticky top-4 rounded-2xl p-2 space-y-3 max-h-[calc(100vh-2rem)] overflow-y-auto"
+          style={{ border: `1px solid ${ROYAL.hairline}` }}
         >
+          <button
+            onClick={() => go(OVERVIEW)}
+            className="relative w-full flex items-center gap-2.5 px-2.5 py-2 rounded-lg text-left outline-none transition-colors"
+            style={{
+              color: value === OVERVIEW ? ROYAL.gold : ROYAL.dim,
+              background: value === OVERVIEW ? ROYAL.goldFaint : "transparent",
+              border: `1px solid ${value === OVERVIEW ? ROYAL.goldSoft : "transparent"}`,
+            }}
+          >
+            <LayoutGrid className="w-4 h-4 shrink-0" />
+            <span className="text-[13px] font-semibold">All sections</span>
+          </button>
+
           {groups.map((g) => (
             <div key={g.id}>
               <div className="px-2.5 pt-1 pb-1.5 text-[9px] uppercase tracking-[0.26em] font-bold"
@@ -222,11 +249,11 @@ export function AdminShell({ groups, value, onChange, operator, children }: Prop
             <span className="shrink-0" style={{ color: ROYAL.gold }}><Icon className="w-4 h-4" /></span>
             <span className="min-w-0">
               <span className="block text-[9px] uppercase tracking-[0.24em]" style={{ color: ROYAL.dim }}>
-                {here?.group ?? "Section"}
+                {onOverview ? "Admin" : here?.group ?? "Section"}
               </span>
               <span className="block text-sm font-bold truncate"
                     style={{ color: ROYAL.text, fontFamily: HEADING }}>
-                {here?.tab.label ?? "Choose a section"}
+                {onOverview ? "Everything in here" : here?.tab.label ?? "Choose a section"}
               </span>
             </span>
             <ChevronRight className="ml-auto w-4 h-4 shrink-0" style={{ color: ROYAL.dim }} />
@@ -249,7 +276,11 @@ export function AdminShell({ groups, value, onChange, operator, children }: Prop
             </h1>
           </motion.header>
 
-          <div className="space-y-5">{children}</div>
+          <div className="space-y-5">
+            {value === OVERVIEW
+              ? <AdminOverview groups={groups} recent={recent} onPick={go} still={still} />
+              : children}
+          </div>
         </div>
       </div>
 

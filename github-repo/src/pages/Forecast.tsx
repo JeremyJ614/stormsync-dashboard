@@ -41,15 +41,28 @@ import { WEATHER_ICONS, WMO_DESCRIPTIONS } from "../config";
 
 interface Props { location: Location }
 
+/**
+ * The sections, and why the labels carry a second line.
+ *
+ * The outlooks were shipped as "SPC", "WPC", "CPC", "Other" sitting below a
+ * full-height hero — which meant that unless you already knew what those
+ * initials were and thought to scroll, the entire national half of this module
+ * was invisible. The initials stay, because they are what the products are
+ * actually called, but each now says in plain words what it is, and the whole
+ * bar sits at the TOP of the page rather than a screen down.
+ */
 const TABS = [
-  { id: "brief", label: "Brief" },
-  { id: "daily", label: "Daily" },
-  { id: "spc", label: "SPC" },
-  { id: "wpc", label: "WPC" },
-  { id: "cpc", label: "CPC" },
-  { id: "other", label: "Other" },
+  { id: "brief", label: "Brief", sub: "your digest" },
+  { id: "daily", label: "NWS", sub: "official forecast" },
+  { id: "spc", label: "SPC", sub: "storm risk" },
+  { id: "wpc", label: "WPC", sub: "rain & heat" },
+  { id: "cpc", label: "CPC", sub: "climate outlook" },
+  { id: "other", label: "Seasonal", sub: "fall colour" },
 ] as const satisfies readonly Segment<string>[];
 type TabId = typeof TABS[number]["id"];
+
+/** The two sections that are about the member's own location. */
+const LOCAL: readonly TabId[] = ["brief", "daily"];
 
 interface NWSPeriod {
   name: string; temperature: number; temperatureUnit: string;
@@ -174,16 +187,26 @@ export default function Forecast({ location }: Props) {
     : ((nwsForecast as unknown as { properties?: { periods?: unknown[] } })?.properties?.periods ?? [])
   ).slice(0, 14) as NWSPeriod[];
 
+  const isLocal = (LOCAL as readonly string[]).includes(tab);
+
   return (
     <ModuleShell
       eyebrow="Open-Meteo · NWS · SPC · WPC · CPC"
       title="Daily Brief"
       subtitle={`${location.name} — your brief, the week ahead, and what the national centres are watching.`}
-      status={days.length > 0
-        ? <DayRibbon days={days} selected={activeKey} onSelect={setSelected} still={still} />
-        : undefined}
+      status={
+        <SegmentedTabs segments={TABS} value={tab} onChange={setTab}
+                       layoutId="forecast-tabs" controls="forecast-panel" label="Forecast sections" />
+      }
     >
-      {day && (
+      {/* The week and the day belong to the local sections. On an outlook the
+          hero is a screen of somebody else's weather standing between you and
+          the map you came for. */}
+      {isLocal && days.length > 0 && (
+        <DayRibbon days={days} selected={activeKey} onSelect={setSelected} still={still} />
+      )}
+
+      {isLocal && day && (
         <DayHero
           key={activeKey}
           eyebrow={isToday ? "Right now" : "Forecast"}
@@ -202,9 +225,6 @@ export default function Forecast({ location }: Props) {
           still={still}
         />
       )}
-
-      <SegmentedTabs segments={TABS} value={tab} onChange={setTab}
-                     layoutId="forecast-tabs" controls="forecast-panel" label="Forecast sections" />
 
       <div id="forecast-panel" role="tabpanel">
         <AnimatePresence mode="wait" initial={false}>

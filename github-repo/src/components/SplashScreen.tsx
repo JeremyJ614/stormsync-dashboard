@@ -161,8 +161,15 @@ const CSS = `
 
 /* ── the engraving ── */
 .sx-rose{position:absolute;inset:0;width:100%;height:100%;overflow:visible;}
-.sx-spin{transform-origin:0 0;animation:sx-turn 120s linear infinite;}
-@keyframes sx-turn{to{transform:rotate(360deg)}}
+/* A one-shot settle, NOT a loop.
+   The rosettes are about sixty kilobytes of path — tens of thousands of
+   vertices — and an SVG group transform is not composited: every frame
+   re-rasterises the whole drawing. Rotating that for ever was costing a phone
+   real frames during the one moment the app has nothing else to do, which is
+   the worst possible place to spend them. It turns a few degrees as it lands
+   and then stops, which is all the life it needed. */
+.sx-spin{transform-origin:0 0;animation:sx-settle 2.6s cubic-bezier(.22,1,.36,1) .2s both;}
+@keyframes sx-settle{from{transform:rotate(-7deg)}to{transform:rotate(0deg)}}
 .sx .eng{fill:none;stroke:${GOLD};stroke-linejoin:round;
   stroke-dasharray:1;stroke-dashoffset:1;
   animation:sx-engrave 1.5s cubic-bezier(.42,0,.2,1) both;}

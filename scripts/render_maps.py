@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import math
 import json
 import os
 import sys
@@ -36,6 +37,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.colors import BoundaryNorm, LinearSegmentedColormap, ListedColormap
+import matplotlib.patheffects as patheffects
 
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
@@ -52,9 +54,18 @@ SESSION.headers["User-Agent"] = "StormSyncVIP-renderer/1.0"
 
 # ── styling ──────────────────────────────────────────────────────────────────
 BG = "#0b0e17"
-LAND = "#171b26"
-COAST = "#5b6780"
-BORDER = "#7c8aa8"
+# Land outside the data used to be #171b26 — all but black, so the states a
+# reader locates themselves by were invisible wherever the field was empty.
+LAND = "#272d3c"
+COAST = "#7f8ca6"
+BORDER = "#9aa7c2"
+
+# The frame. Total pixels are held at what the old letterboxed 1280x760 file
+# cost, so the storage budget does not move; the figure's SHAPE is derived from
+# the projected extent at render time, so all of them are map.
+DPI = 100
+TARGET_PX = 1280 * 760
+EXTENT = [-122.5, -71.5, 22.5, 50.5]
 
 
 @dataclass
@@ -480,11 +491,42 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
         # regardless of ordering, so it only needs the -180..180 mapping.
         lons = np.where(lons > 180, lons - 360, lons)
 
-    fig = plt.figure(figsize=(12.8, 7.6), dpi=100)
+    # ── the frame ────────────────────────────────────────────────────────────
+    # The old figure was 12.8x7.6 with the axes laid out normally, and the map
+    # is not that shape. A GeoAxes holds its data aspect, so the drawing sat
+    # letterboxed in the middle: roughly 880x550 of map inside a 1280x760 file,
+    # with 45% of every frame spent on black margin. That is most of why these
+    # looked soft next to other sites' — and it compounded on the regional
+    # presets, which crop a box out of that already-small map and blow it back
+    # up to full width.
+    #
+    # So the axes is pinned to the whole figure and the FIGURE is resized to the
+    # projected extent's own aspect. Total pixels are held at roughly what they
+    # were, which keeps the storage budget exactly where it was; they are simply
+    # all map now — about 2.4x the resolution over the same bytes.
+    proj = ccrs.LambertConformal(
+        central_longitude=-97.5, central_latitude=38.5, standard_parallels=(38.5, 38.5))
+    fig = plt.figure(figsize=(12.0, 8.0), dpi=DPI)
     fig.patch.set_facecolor(BG)
-    ax = plt.axes(projection=ccrs.LambertConformal(
-        central_longitude=-97.5, central_latitude=38.5, standard_parallels=(38.5, 38.5)))
-    ax.set_extent([-121, -73, 22.5, 50.5], crs=ccrs.PlateCarree())
+    ax = fig.add_axes([0, 0, 1, 1], projection=proj)
+    ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
+
+    x0, x1, y0, y1 = ax.get_extent(crs=proj)
+    aspect = (x1 - x0) / (y1 - y0)
+    w_in = math.sqrt(TARGET_PX * aspect) / DPI
+    fig.set_size_inches(w_in, w_in / aspect)
+
+    # "auto" after the limits are set, not before. A GeoAxes defaults to an
+    # equal aspect with adjustable="box", which means matplotlib is free to
+    # shrink the axes inside its position to honour that aspect — and a
+    # letterboxed axes is exactly what the viewer's region crops cannot see.
+    # The figure has already been sized to the extent's own aspect, so "auto"
+    # distorts nothing; what it buys is the guarantee that the image bounds ARE
+    # the projected extent, to the pixel. That is what lets the client compute a
+    # region rect from the projection instead of from constants somebody
+    # measured off a screenshot once.
+    ax.set_aspect("auto")
+
     ax.set_facecolor(BG)
     ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor=LAND, zorder=0)
     ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor=BG, zorder=0)
@@ -503,31 +545,32 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     cmap = CMAPS[p.cmap].resampled(nbins).copy()
     cmap.set_bad(alpha=0.0)          # NaN -> fully transparent
     norm = BoundaryNorm(p.levels, ncolors=nbins, extend=extend)
-    mesh = ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
+    ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
                          transform=ccrs.PlateCarree(), shading="auto", zorder=1)
 
-    ax.add_feature(cfeature.STATES.with_scale("50m"), edgecolor=BORDER, linewidth=0.55, zorder=2)
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), edgecolor=COAST, linewidth=0.65, zorder=2)
-    ax.add_feature(cfeature.BORDERS.with_scale("50m"), edgecolor=COAST, linewidth=0.65, zorder=2)
+    ax.add_feature(cfeature.STATES.with_scale("50m"), edgecolor=BORDER, linewidth=0.7, zorder=2)
+    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
+    ax.add_feature(cfeature.BORDERS.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
     ax.spines["geo"].set_visible(False)
 
+    # The caption rides ON the map rather than in a band above it, so it costs
+    # no map height. There is no colour bar any more either: the viewer already
+    # receives every level and colour in the run manifest and draws the ramp in
+    # HTML, which is sharp at any pixel ratio instead of being baked in at one.
     valid = cycle + timedelta(hours=fhr)
     ax.set_title("")
-    fig.text(0.012, 0.955, f"{model.upper()}  {p.label.upper()}", color="#ffffff",
-             fontsize=17, fontweight="bold", ha="left", va="center")
-    fig.text(0.012, 0.918,
-             f"{cycle:%HZ %b %d} run  ·  F{fhr:03d}  ·  valid {valid:%a %b %d %H:%MZ}",
-             color="#aab4c8", fontsize=10.5, ha="left", va="center")
-    fig.text(0.988, 0.955, "VIP.SSWX.SPACE", color="#8e7ad6", fontsize=11,
-             fontweight="bold", ha="right", va="center")
+    shadow = [patheffects.withStroke(linewidth=3.2, foreground="#05060d")]
+    ax.text(0.012, 0.962, f"{model.upper()}  {p.label.upper()}", transform=ax.transAxes,
+            color="#ffffff", fontsize=15, fontweight="bold", ha="left", va="center",
+            path_effects=shadow, zorder=5)
+    ax.text(0.012, 0.925,
+            f"{cycle:%HZ %b %d} run  ·  F{fhr:03d}  ·  valid {valid:%a %b %d %H:%MZ}  ·  {p.unit}",
+            transform=ax.transAxes, color="#c3ccdd", fontsize=9.5, ha="left", va="center",
+            path_effects=shadow, zorder=5)
+    ax.text(0.988, 0.962, "VIP.SSWX.SPACE", transform=ax.transAxes, color="#cbb7d8",
+            fontsize=10, fontweight="bold", ha="right", va="center",
+            path_effects=shadow, zorder=5)
 
-    cb = fig.colorbar(mesh, ax=ax, orientation="horizontal", pad=0.035,
-                      fraction=0.045, aspect=60, ticks=p.levels)
-    cb.set_label(p.unit, color="#aab4c8", fontsize=9)
-    cb.ax.tick_params(colors="#aab4c8", labelsize=8)
-    cb.outline.set_edgecolor("#2a3446")
-
-    fig.subplots_adjust(left=0.01, right=0.99, top=0.90, bottom=0.06)
     fig.savefig(out, facecolor=BG, edgecolor="none")
     plt.close(fig)
     quantise(out)

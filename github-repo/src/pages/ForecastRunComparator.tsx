@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REGIONS, regionSourceRect, regionAspect } from "../lib/modelProjection";
+import { REGIONS, regionSourceRect, regionAspect, plateFor, type Plate } from "../lib/modelProjection";
 import { Transport } from "../components/models/Transport";
 import { ROYAL, HEADING } from "../lib/royal";
 import { ModuleShell } from "../components/ModuleShell";
@@ -191,6 +191,14 @@ export default function ForecastRunComparator({ location }: Props) {
   // browser re-decode and re-lay-out mid-loop.
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
+  /**
+   * The plate the container should be shaped to.
+   *
+   * Read off the frame on screen rather than assumed, so the box does not jump
+   * when the first newly-rendered run replaces the last letterboxed one.
+   */
+  const [plate, setPlate] = useState<Plate>(() => plateFor());
+
   /** What is currently on the canvas, so a repaint that changes nothing is free. */
   const painted = useRef<{ url?: string; w: number; h: number; region: string }>({ w: 0, h: 0, region: "" });
 
@@ -219,7 +227,13 @@ export default function ForecastRunComparator({ location }: Props) {
     ctx.fillRect(0, 0, w, h);
     if (!img || !img.width) { painted.current.url = undefined; return; }
 
-    const r = regionSourceRect(region);
+    const framePlate = plateFor(img.width, img.height);
+    setPlate((prev) => (prev === framePlate ? prev : framePlate));
+
+    // Which plate this frame is drawn on comes from the frame itself. Storage
+    // holds both shapes while retention rolls the old ones off, and a frame
+    // knows its own geometry better than any constant we could keep in step.
+    const r = regionSourceRect(region, framePlate);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(
@@ -470,7 +484,7 @@ export default function ForecastRunComparator({ location }: Props) {
 
         <div
           className="relative bg-[#0b0e17] overflow-hidden"
-          style={{ minHeight: 220, aspectRatio: String(regionAspect(region)) }}
+          style={{ minHeight: 220, aspectRatio: String(regionAspect(region, plate)) }}
         >
           {frame ? (
             <>

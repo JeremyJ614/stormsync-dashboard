@@ -32,7 +32,7 @@ export const REGIONS: Region[] = [
   { id: "ne",    label: "Northeast",       lat: [37, 47], lon: [ -82,  -67] },
 ];
 
-function samplePoints(r: Region): [number, number][] {
+export function samplePoints(r: Region): [number, number][] {
   const out: [number, number][] = [];
   const NX = 7, NY = 5;
   for (let i = 0; i < NX; i++) {
@@ -58,7 +58,7 @@ function inRing(pt: [number, number], ring: number[][]): boolean {
   return inside;
 }
 /** First ring is the outer boundary; the rest are holes. */
-function inPolygon(pt: [number, number], poly: number[][][]): boolean {
+export function inPolygon(pt: [number, number], poly: number[][][]): boolean {
   if (!poly.length || !inRing(pt, poly[0])) return false;
   for (let k = 1; k < poly.length; k++) if (inRing(pt, poly[k])) return false;
   return true;
@@ -92,12 +92,12 @@ export interface PatternDay {
   cells: Record<string, DayCell>;
 }
 
-interface Feature {
+export interface GeoFeature {
   properties?: Record<string, string>;
   geometry?: { type?: string; coordinates?: number[][][] | number[][][][] };
 }
 
-function polygonsOf(f: Feature): number[][][][] {
+export function polygonsOf(f: GeoFeature): number[][][][] {
   const g = f.geometry;
   if (g?.type === "Polygon") return [g.coordinates as number[][][]];
   if (g?.type === "MultiPolygon") return g.coordinates as number[][][][];
@@ -109,7 +109,7 @@ function emptyCells(): Record<string, DayCell> {
 }
 
 /** Intersect one SPC product with every region. */
-function assign(features: Feature[], kind: "categorical" | "probabilistic"): { cells: Record<string, DayCell>; lowPred: boolean } {
+function assign(features: GeoFeature[], kind: "categorical" | "probabilistic"): { cells: Record<string, DayCell>; lowPred: boolean } {
   const cells = emptyCells();
   let lowPred = false;
 
@@ -151,11 +151,11 @@ const isoDay = (offset: number) => {
   return d.toISOString().slice(0, 10);
 };
 
-async function getJson(url: string): Promise<Feature[]> {
+async function getJson(url: string): Promise<GeoFeature[]> {
   try {
     const r = await fetch(url);
     if (!r.ok) return [];
-    const d = await r.json() as { features?: Feature[] };
+    const d = await r.json() as { features?: GeoFeature[] };
     return d.features ?? [];
   } catch { return []; }
 }

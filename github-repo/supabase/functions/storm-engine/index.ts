@@ -507,7 +507,7 @@ const BACKFILL_DAYS = 45;
 // filled if missing.
 const RESYNC_DAYS = 21;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-type PeriodId = "week" | "lastmonth" | "thismonth" | "thisyear";
+type PeriodId = "yesterday" | "week" | "lastweek" | "lastmonth" | "thismonth" | "thisyear";
 interface DayCount { report_date: string; tornado: number; hail: number; wind: number }
 interface PeriodAgg {
   id: PeriodId; label: string; start: string; end: string;
@@ -549,8 +549,15 @@ function aggregatePeriods(rows: DayCount[], today: Date): { periods: PeriodAgg[]
   const lastMonthEnd = new Date(Date.UTC(y, m, 0));
   const yearStart = new Date(Date.UTC(y, 0, 1));
   const lm = lastMonthStart.getUTCMonth(), lmy = lastMonthStart.getUTCFullYear();
+  const yesterday = new Date(today); yesterday.setUTCDate(today.getUTCDate() - 1);
+  const lastWeekEnd = new Date(today); lastWeekEnd.setUTCDate(today.getUTCDate() - 7);
+  const lastWeekStart = new Date(today); lastWeekStart.setUTCDate(today.getUTCDate() - 13);
   const defs: { id: PeriodId; label: string; start: string; end: string }[] = [
+    // Yesterday and the week before are what the Weather Patterns recap walks
+    // back through; without them those tabs had figures and no prose.
+    { id: "yesterday", label: "Yesterday", start: isoDate(yesterday), end: isoDate(yesterday) },
     { id: "week", label: "Past 7 days", start: isoDate(weekStart), end: isoDate(today) },
+    { id: "lastweek", label: "The 7 days before that", start: isoDate(lastWeekStart), end: isoDate(lastWeekEnd) },
     { id: "lastmonth", label: `${MONTHS[lm]} ${lmy}`, start: isoDate(lastMonthStart), end: isoDate(lastMonthEnd) },
     { id: "thismonth", label: `${MONTHS[m]} ${y} (so far)`, start: isoDate(thisMonthStart), end: isoDate(today) },
     { id: "thisyear", label: `${y} year-to-date`, start: isoDate(yearStart), end: isoDate(today) },

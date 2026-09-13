@@ -1,5 +1,5 @@
 /**
- * The five subtab bodies: Overview, Atmosphere, Storm Mode, Bust and Yearly.
+ * The five subtab bodies: Overview, Parameters, Storm Mode, Bust and Yearly.
  *
  * They share one rule. Anything the AI wrote is shown as prose and attributed;
  * anything computed is shown as a number with its units and its plain-language
@@ -15,9 +15,9 @@ import {
 import {
   PARAM_GROUPS, fillFor, betterOf, bustBand, compass, hourLabel,
   YEARLY_MEANING, bandFor, SPC_COLOR,
-  type ChaseTarget, type ChaseOutlook, type ParamRow,
+  type ChaseTarget, type ChaseOutlook, type ChaseYearContext, type ParamRow,
 } from "../../lib/chase";
-import { ROYAL, HEADING, EASE } from "../../lib/royal";
+import { ROYAL, HEADING, EASE, SPRING } from "../../lib/royal";
 
 const rise = (i: number, still: boolean) => ({
   initial: still ? { opacity: 0 } : { opacity: 0, y: 14 },
@@ -168,8 +168,27 @@ function Stat({ label, value, unit }: { label: string; value: string; unit: stri
   );
 }
 
-// ─── Atmosphere ──────────────────────────────────────────────────────────────
-export const AtmospherePanel = memo(function AtmospherePanel({
+// ─── Parameters ──────────────────────────────────────────────────────────────
+/**
+ * Parameters — what the air is doing, and what it does to the storm.
+ *
+ * WAS "ATMOSPHERE", AND WAS A TABLE.
+ * Twenty-seven rows in a three-column grid, each with two numbers, two
+ * progress bars and a two-word label, packed at 10 and 13 pixels. It reported
+ * everything and explained nothing: "Loaded" means nothing to anyone who does
+ * not already know what loaded does, and a page that only tells experts what
+ * they already know has no reason to exist.
+ *
+ * So each row now ends in a sentence about the STORM rather than the number —
+ * for a good value and a bad one, because the reason a day busts is usually one
+ * row on this page reading badly with nothing saying why that matters.
+ *
+ * And the two targets share one track instead of owning a bar each. Two bars
+ * side by side make you compare lengths across a gap; two markers on one scale
+ * put the difference in front of you as a distance, which is the entire point
+ * of a comparison. It is also half the ink.
+ */
+export const ParametersPanel = memo(function ParametersPanel({
   targets, color, still,
 }: { targets: ChaseTarget[]; color: string; still: boolean }) {
   const [a, b] = targets;
@@ -185,16 +204,21 @@ export const AtmospherePanel = memo(function AtmospherePanel({
 
       {PARAM_GROUPS.map((g, gi) => (
         <motion.section key={g.title} {...rise(gi, still)}
-          className="rounded-2xl overflow-hidden"
-          style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
-          <div className="px-4 py-3" style={{ borderBottom: `1px solid ${ROYAL.hairline}` }}>
+          className="relative rounded-2xl overflow-hidden"
+          style={{
+            border: `1px solid ${ROYAL.hairline}`,
+            background: "linear-gradient(180deg, rgba(18,18,34,0.72), rgba(10,10,22,0.72))",
+          }}>
+          <span aria-hidden className="absolute inset-x-0 top-0 h-px"
+                style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
+          <div className="px-4 py-3.5" style={{ borderBottom: `1px solid ${ROYAL.hairline}` }}>
             <h3 className="text-sm font-bold" style={{ fontFamily: HEADING, color: ROYAL.text }}>{g.title}</h3>
             <p className="text-[11px] mt-0.5" style={{ color: ROYAL.dim }}>{g.blurb}</p>
           </div>
           <div>
             {g.rows.map((row, ri) => (
               <ParamLine key={row.key as string} row={row} a={a} b={b} color={color}
-                         last={ri === g.rows.length - 1} still={still} />
+                         last={ri === g.rows.length - 1} still={still} index={ri} />
             ))}
           </div>
         </motion.section>
@@ -203,53 +227,107 @@ export const AtmospherePanel = memo(function AtmospherePanel({
   );
 });
 
+const fmtVal = (v: number) =>
+  Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Math.round(v * 100) / 100);
+
 function ParamLine({
-  row, a, b, color, last, still,
-}: { row: ParamRow; a: ChaseTarget; b?: ChaseTarget; color: string; last: boolean; still: boolean }) {
+  row, a, b, color, last, still, index,
+}: {
+  row: ParamRow; a: ChaseTarget; b?: ChaseTarget; color: string;
+  last: boolean; still: boolean; index: number;
+}) {
   const va = a.params[row.key];
   const vb = b ? b.params[row.key] : undefined;
   const win = vb !== undefined ? betterOf(row, va, vb) : -1;
-  const fmt = (v: number) => (Math.abs(v) >= 1000 ? Math.round(v).toLocaleString() : String(Math.round(v * 100) / 100));
+  const effect = row.effect(va);
 
   return (
-    <div className="px-4 py-2.5 grid grid-cols-[1fr_auto] sm:grid-cols-[1.25fr_1fr_1fr] gap-x-3 gap-y-1.5 items-center"
-         style={last ? undefined : { borderBottom: `1px solid ${ROYAL.hairline}` }}>
-      <div className="min-w-0 col-span-2 sm:col-span-1">
-        <div className="text-[13px] font-semibold truncate" style={{ color: ROYAL.text }}>{row.label}</div>
-        {row.unit && <div className="text-[10px]" style={{ color: ROYAL.dim }}>{row.unit}</div>}
+    <div className="px-4 py-3.5" style={last ? undefined : { borderBottom: `1px solid ${ROYAL.hairline}` }}>
+      <div className="flex items-baseline gap-2 flex-wrap">
+        <span className="text-[13px] font-semibold" style={{ color: ROYAL.text }}>{row.label}</span>
+        {row.unit && <span className="text-[10px]" style={{ color: ROYAL.dim }}>{row.unit}</span>}
+        <span className="ml-auto flex items-baseline gap-3 text-[13px] tabular-nums">
+          <Reading v={va} row={row} tone={color} winner={win === 0} />
+          {vb !== undefined && <Reading v={vb} row={row} tone={ROYAL.iris} winner={win === 1} />}
+        </span>
       </div>
 
-      <ParamCell v={va} row={row} tone={color} fmt={fmt} winner={win === 0} still={still} />
-      {b ? <ParamCell v={vb!} row={row} tone={ROYAL.iris} fmt={fmt} winner={win === 1} still={still} />
-         : <div className="hidden sm:block" />}
+      {/* One scale, two markers. */}
+      <Track aFill={fillFor(row, va)} bFill={vb === undefined ? null : fillFor(row, vb)}
+             aTone={color} bTone={ROYAL.iris} still={still} delay={index * 0.04} />
+
+      {effect && (
+        <p className="text-[11.5px] leading-relaxed mt-2 max-w-[68ch]" style={{ color: ROYAL.dim }}>
+          {effect}
+        </p>
+      )}
     </div>
   );
 }
 
-function ParamCell({
-  v, row, tone, fmt, winner, still,
-}: { v: number; row: ParamRow; tone: string; fmt: (n: number) => string; winner: boolean; still: boolean }) {
-  const fill = fillFor(row, v);
+function Reading({
+  v, row, tone, winner,
+}: { v: number; row: ParamRow; tone: string; winner: boolean }) {
   const read = row.read(v);
   return (
-    <div>
-      <div className="flex items-baseline gap-1.5">
-        <span className="text-[15px] font-bold tabular-nums" style={{ color: winner ? tone : ROYAL.text }}>
-          {fmt(v)}
-        </span>
-        {winner && <span className="text-[9px] font-bold uppercase tracking-wider" style={{ color: tone }}>better</span>}
-      </div>
-      <div className="h-1 rounded-full mt-1 overflow-hidden" style={{ background: "rgba(255,255,255,0.07)" }}>
-        <motion.div
-          className="h-full rounded-full"
-          style={{ background: tone, transformOrigin: "left center" }}
-          initial={still ? { scaleX: fill } : { scaleX: 0 }}
-          animate={{ scaleX: fill }}
-          transition={{ duration: still ? 0 : 0.7, ease: EASE }}
-        />
-      </div>
-      {read && <div className="text-[10px] mt-0.5 leading-tight" style={{ color: ROYAL.dim }}>{read}</div>}
+    <span className="inline-flex items-baseline gap-1.5">
+      <span className="font-bold" style={{ color: winner ? tone : ROYAL.text }}>{fmtVal(v)}</span>
+      {read && (
+        <span className="text-[10px] uppercase tracking-[0.14em]"
+              style={{ color: winner ? tone : ROYAL.dim }}>{read}</span>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The shared scale.
+ *
+ * The track is the full range of the parameter; each marker sits where its
+ * target falls on it, and the span between them is shaded so the gap reads as a
+ * quantity rather than as two positions you have to subtract by eye.
+ */
+function Track({
+  aFill, bFill, aTone, bTone, still, delay,
+}: {
+  aFill: number; bFill: number | null; aTone: string; bTone: string;
+  still: boolean; delay: number;
+}) {
+  const lo = bFill === null ? 0 : Math.min(aFill, bFill);
+  const hi = bFill === null ? aFill : Math.max(aFill, bFill);
+  const pc = (f: number) => `${Math.max(0, Math.min(1, f)) * 100}%`;
+
+  return (
+    <div className="relative h-5 mt-2">
+      <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 h-1 rounded-full"
+           style={{ background: "rgba(255,255,255,0.07)" }} />
+      <motion.div
+        className="absolute top-1/2 -translate-y-1/2 h-1 rounded-full"
+        style={{ left: pc(lo), background: `linear-gradient(90deg, ${aTone}55, ${bTone}55)` }}
+        initial={still ? { width: pc(hi - lo) } : { width: 0 }}
+        animate={{ width: pc(hi - lo) }}
+        transition={{ duration: still ? 0 : 0.65, delay: still ? 0 : delay, ease: EASE }}
+      />
+      <Marker fill={aFill} tone={aTone} still={still} delay={delay + 0.08} />
+      {bFill !== null && <Marker fill={bFill} tone={bTone} still={still} delay={delay + 0.14} />}
     </div>
+  );
+}
+
+function Marker({ fill, tone, still, delay }: { fill: number; tone: string; still: boolean; delay: number }) {
+  return (
+    <motion.span
+      className="absolute top-1/2 w-2.5 h-2.5 rounded-full"
+      style={{
+        left: `${Math.max(0, Math.min(1, fill)) * 100}%`,
+        marginLeft: -5, marginTop: -5,
+        background: tone,
+        boxShadow: `0 0 10px -2px ${tone}`,
+      }}
+      initial={still ? { scale: 1, opacity: 1 } : { scale: 0, opacity: 0 }}
+      animate={{ scale: 1, opacity: 1 }}
+      transition={still ? { duration: 0 } : { ...SPRING.pop, delay }}
+    />
   );
 }
 
@@ -466,12 +544,16 @@ function Driver({ label, value, bad, note }: { label: string; value: string; bad
 
 // ─── Yearly ──────────────────────────────────────────────────────────────────
 export const YearlyPanel = memo(function YearlyPanel({
-  o, color, still,
-}: { o: ChaseOutlook; color: string; still: boolean }) {
+  o, liveYear, color, still,
+}: { o: ChaseOutlook; liveYear: ChaseYearContext | null; color: string; still: boolean }) {
   const y = o.yearly;
   const rank = y?.rank ?? 1;
   const meaning = YEARLY_MEANING[rank];
-  const ctx = y?.context;
+  // Live first, the row's stamped copy second. The stored one is a snapshot
+  // from the moment the engine ran and goes stale the instant the historical
+  // backfill writes a day — which is how this panel came to claim sixteen
+  // recorded days while the table held seventy.
+  const ctx = liveYear ?? y?.context;
   const thin = !ctx || !ctx.days_scored;
 
   return (

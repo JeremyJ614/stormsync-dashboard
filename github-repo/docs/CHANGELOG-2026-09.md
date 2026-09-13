@@ -1,7 +1,13 @@
 # StormSync VIP — what changed
 
-Everything done in this engagement, 12–13 September 2026. Twenty-one commits on
+Everything done in this engagement, 12–13 September 2026. Thirty-six commits on
 `claude/sswx-weather-app-redesign-lzbjzz`.
+
+It is organised by what the work *was*, not by the order it happened in:
+modules redesigned, new capability, bugs fixed, deployment, and what is still
+outstanding at the end. The final three-phase round of work is called out
+separately at the bottom, because that is the part most recently delivered and
+the part most likely to be checked first.
 
 ---
 
@@ -71,6 +77,50 @@ thing on a page whose whole purpose is that one press.
 numerals, and the category rail now reports per-category match counts while you
 search instead of showing unchanged totals.
 
+**Personalized Dashboard.** Was a second forecast page — a conditions hero, a
+stat grid, a wind compass, seven-day charts, an NWS office card, a widget-
+arranging drawer — all of it one tap from the Daily Brief, which does that job
+better. A dashboard's question is not "what is the weather"; the app has eight
+answers to that. It is *where should I look today*, across everything the member
+owns. It is now one tile per module, only the modules they have unlocked, and
+**only the modules that can actually report something**: a tile earns its place
+by measuring a number, and a module with nothing to say is absent rather than
+reading "Open the module", which is a navigation menu wearing a dashboard's
+clothes. Tiles are deliberately unequal — most sit quiet, the ones with a real
+figure carry it at display size, the ones worth acting on light their rail — so
+the page can be read without reading a word. Readings come from four shared
+sources rather than forty separate requests.
+
+**SSWXCon dial.** Was a 270° needle on a banded track, which is what a
+speedometer looks like, and a needle sweeping a continuous track reads as a
+*rate*. SSWXCon is not a rate; it is a level on a named scale with an activation
+gate in it. The track is now sixty discrete segments — countable, the way an
+aircraft instrument is read — with the gate drawn on it, and segments below the
+gate are cold while segments above it burn. A 48 against a gate of 60 is a ring
+three-quarters full and entirely cold, which is the correct feeling for it.
+
+**Lightning.** The Live tab was showing a picture of clouds. The header read
+"GOES-19 GLM Flash Extent Density" over a URL that resolved to the GeoColor
+visible-and-infrared image, with a caption underneath explaining which pixels
+were the flashes — of an image that contained none. The tabs are now
+climatology-first, because that is what the module is for; live lightning is a
+secondary tab and is now two real layers on the app's own map: GLM flash extent
+density, and LightningCast v2, which gives the probability of a flash in the
+next sixty minutes and is the part a strike map cannot do. The twelve-bar
+monthly chart became a year drawn as a year — a season is cyclical, and a bar
+chart cuts the ring at an arbitrary point and puts the two ends of the quiet
+season at opposite sides of the frame.
+
+**Tornado Climatology.** Twelve tabs, each a charting-library default under a
+sentence. Twelve tabs is not depth; it is a filing cabinet, and a filing cabinet
+makes the reader do the analysis. Now four, each answering a question somebody
+arrives with — *when*, *where*, *the record*, *anatomy*. The season is a
+ridgeline of the national curve and the six regions that make it up, with the
+rows ordered by the month each region peaks, so the march of the season north
+and west is the reading order rather than six crossing lines and a colour key.
+The record tab draws reports-per-year and deaths-per-year on one shared span,
+because apart they are two charts and together they are the argument.
+
 ---
 
 ## New data and capability
@@ -112,6 +162,43 @@ model involved — that states the day's real concerns with sources and coverage
 targets exist before bed. Added alongside the 04:25Z and 13:35Z runs rather than
 replacing them: at 00:30Z the 00Z global models are still running, so all three
 write the same row and the answer sharpens overnight.
+
+**Severe Weather History goes back a decade.** Three years became ten, with a
+month picker that works across every year at once ("every May on record"), an EF
+filter, and a state filter ordered by how many tornadoes each state actually
+contributed to the period on screen. Pre-2019 years are marked *partial* where
+the damage survey is incomplete, rather than presented as a full count. States
+are attached client-side from a generated 22 kB polygon set in its own chunk, so
+the filter costs nothing to the pages that never open it.
+
+**Foliage outlook.** An SPC-style outlook map and a scroller over the individual
+observations that shows leaf change progressing through the season. A regression
+model and a state choropleth were built for this and then deleted: the
+observation network is too sparse in too many states to support either without
+inventing numbers, and a confident-looking wrong map is worse than no map.
+
+**Weather news you can read in the app.** Six publisher feeds plus an aggregator,
+filtered to weather by keyword, grouped so stories that can actually be read in
+full lead and bare headlines follow, and capped at three per source so one
+prolific publisher cannot take the whole panel.
+
+**Forty GFS parameters.** Up from seventeen, verified against a live index, and
+the renders forced from the branch so they are in the database rather than
+waiting on the nightly schedule.
+
+**Model plate resolution.** The renderer's target raised from 1280×760 to
+1800×1100 of actual map — pixel count is what governs a matplotlib figure's
+detail, not DPI, and the measurement table is in the script's own comment.
+Radar and MRMS overlays now request tiles to zoom 14 instead of 12; past the
+deepest level a service publishes, the browser magnifies a 256px PNG rather than
+fetching a sharper one, so the cap is the honest limit.
+
+**SPC conditional intensity groups.** SPC added CIG1/CIG2/CIG3 in February 2026
+and the hail, wind and tornado intensity layers were classifying them by name
+against the old scheme, which is why level two never drew its own colour and
+came through as a white outline. The palettes are rewritten for the new tiers,
+significant areas are hatched rather than merely outlined, and a quiet day that
+reads "Less Than 2% All Areas" is no longer classified as significant severe.
 
 ---
 
@@ -183,6 +270,54 @@ functions deploy` reads JWT verification from `config.toml` and defaults to *on*
 when the file is missing. There was no `config.toml`, and fifteen of the
 twenty-two functions run with it off on purpose.
 
+**Storm Chasing's backfill was retiring good days.** It looked like it had
+stalled at 17 April. It had not: Open-Meteo quota exhaustion was being recorded
+as a *failure*, and three failures retire a date permanently, so the backfill was
+steadily marking perfectly reconstructable days as dead. Quota is now a distinct
+status that does not count as a strike, and a migration clears the ones already
+mis-marked.
+
+**Terrain was rating every recent day 100/100.** The rewritten terrain algorithm
+was correct; the cache key had no algorithm version in it, so every lookup
+returned a score computed by the *old* algorithm and the new code never ran. The
+key is versioned now and the stale generation is deleted.
+
+**Two unit errors on the dashboard, found by rendering it.** The forecast is
+requested with `precipitation_unit=inch`, so dividing by 25.4 made every
+precipitation figure forty times too small; and a km/h wind fixture was reading
+57 mph where it should have read 16. Neither showed up in a typecheck or a
+build; both showed up in a headless browser with real data injected.
+
+**A foliage map painting over its own control.** The scrubber underneath it was
+being covered because the map div had no `overflow` clip.
+
+**A date bracket printed backwards** — "May 1 2026 → May 31 2017" — because a
+cross-year month query returns its ranges newest-first and the label took the
+first and last rather than the minimum and maximum.
+
+**A partial-survey banner on a period that was not partial**, because the check
+used the archive's floor year rather than the years the selected period actually
+covers.
+
+**An NHC teletype rendered as thirty one-line paragraphs**, because every line
+break in the source was being promoted to a paragraph break.
+
+**Weather news buried what it could actually show.** Sorting by date put
+headline-only wire stories above full articles, one prolific science publisher
+took most of the slots, and off-topic science was coming through unfiltered.
+
+**Tornado climatology was plotting two different units on one page.**
+`regionMonth` holds seventy-four-year totals and `monthlyAvg` holds a per-year
+average; the old module drew both, on separate tabs, with nothing to give it
+away. Putting the national curve directly above the regional ones would have had
+the Plains reading 8,418 tornadoes in a May against a national average of 206.
+The regional totals are now divided by the number of years, and the regions sum
+to the national curve month for month — which is the check that it is right.
+
+**A 1953 tornado was labelled "EF5".** The Enhanced Fujita scale came into force
+in February 2007; everything before it was rated on Fujita's original scale. The
+deadliest-tornado list now carries the scale that was actually in force.
+
 **Smaller ones.** CPC precipitation was drawing through the temperature colour
 ramp; SPC probabilities were printing as "0.15%" because the bands are labelled
 as fractions; CPC's Alaska rings were projecting off-canvas because the
@@ -191,6 +326,50 @@ background animation looped forever instead of settling; Daily Trivia lost the
 answer on reload, so getting one wrong told you nothing; the Daylight arc was
 drawn from UTC minutes while its labels said local time, putting Denver's
 sunrise at half past twelve in the afternoon.
+
+---
+
+## Navigation
+
+The menu style is an account-level choice with fifteen options. Four were worked
+on in the final round.
+
+**Apex** was printing an 8px truncated label on every node, which is not a
+label — the 26px readout above the arc already names whatever is nearest, so the
+per-node labels are gone and focus now defaults to the first entry, so something
+is always named rather than nothing until you touch it.
+
+**Aurora** was printing its section names over the black ridge silhouette. They
+sit clear of the highest peak now.
+
+**Elevator** lagged, and the spring was not the reason. The backdrop carried a
+full-screen `backdrop-filter: blur(16px)` *under an opaque gradient* — nothing
+was ever visible through it, so the blur could not be seen, but the compositor
+still resolved a full-screen blur every frame while two full-height doors
+travelled over the top of it. The floor plates also waited 280ms for the doors
+even on a floor change, when the doors are already open; the stagger was
+uncapped, so the last plate of a long section started half a second after the
+first; and the call button animated `box-shadow` on an infinite loop, which is a
+repaint per frame running whether the menu was open or not. All four fixed. The
+car keeps its spring — it was arriving after everyone had stopped waiting.
+
+**Solari Board and Radar Sweep are replaced** by two new styles:
+
+*Mercury* — a stream of liquid metal runs out of a reservoir and beads, the
+necks between the drops thinning until each one pinches off. That break-up is a
+real thing: a falling stream does it because surface tension costs less in
+spheres than in a cylinder. One spring drives the whole thing; every drop and
+every neck reads that one value and writes a transform, so nothing re-renders
+while it moves, and a landed drop's neck has zero width — the settled menu draws
+nothing at all.
+
+*Vault* — a strongroom. Eight bolts withdraw from the rim, the wheel turns, and
+the door swings open in perspective onto a wall of deposit boxes; a section pulls
+out as a drawer and its modules are the brass tags inside. The wall has a hole in
+it the size of the door, so the strongroom appears through the opening as the
+door comes off its seat. The rim is a repeating conic gradient, which is
+knurling; the face is a finer one, which is what a lathe leaves. Nothing loops,
+and the boxes are reachable while the door is still travelling.
 
 ---
 
@@ -217,15 +396,62 @@ sunrise at half past twelve in the afternoon.
 
 ---
 
+## The final round, in three phases
+
+The last block of work was requested as a numbered list and delivered in three
+phases, each pushed before the next began.
+
+**Phase 1** — Severe Weather History back a decade with month, EF and state
+filters; the foliage outlook map and progress scrubber; and the two Storm
+Chasing bugs above (the backfill retiring good days, and terrain frozen at 100).
+
+**Phase 2** — weather news readable in the app; the Personalized Dashboard
+rebuilt as a wall of live tiles; and SPC's new conditional intensity groups
+drawn properly.
+
+**Phase 3** — the SSWXCon dial rebuilt as a segmented level instrument; forty
+GFS parameters live and the render resolution raised; lightning and tornado
+climatology redesigned; and the navigation work above.
+
+One amendment arrived mid-phase — *show only the widgets that have data, and
+make a few more of them* — and is included: the dashboard now filters to modules
+that can report a real figure, and four more modules were given readings so
+there is more on the wall to read.
+
+**How the visual work was checked.** Everything with a picture in it was
+rendered in headless Chromium at phone width with real upstream data injected
+past the sandbox's network limits, and looked at: the menus shut, mid-swing and
+mid-break-up as well as at rest; the climatology at all four tabs; the dashboard
+with a live forecast. That is how the two dashboard unit errors, the reversed
+date bracket, the foliage map overflow and the false partial-survey banner were
+found — none of them fail a typecheck or a build.
+
+---
+
 ## Still outstanding
 
-- **The chase season is partly reconstructed.** 15 June → today is filled with
-  real data. The rest back to 7 March fills itself automatically as the
-  two-hourly cron works through it — the limit is Open-Meteo's daily quota, not
-  the code.
-- **The day score has no dynamic range.** Across the days reconstructed so far,
-  every score lands between 6.8 and 9.2, median 8.0. The Yearly tab cannot rank
-  anything if every day is an eight. Worth recalibrating once March and April
-  are in and the real spread is visible.
+- **The chase season is still filling in.** The two-hourly backfill works
+  backwards toward 7 March on its own; the limit is Open-Meteo's daily quota,
+  not the code. With the quota-is-not-a-strike fix deployed it will stop
+  retiring days it could have rebuilt, so the remaining gaps should close
+  without further intervention.
+- **The day score was recalibrated** after the first reconstruction showed every
+  day landing between 6.8 and 9.2 — a Yearly tab cannot rank anything if every
+  day is an eight. It separates days now, and the supercell-flavour term was
+  fixed at the same time so an LP classification is actually reachable.
 - **One SQL statement** is still needed to make the terrain cache work:
   `grant select, insert, update, delete on table public.chase_terrain_cache to service_role;`
+- **Two migrations and one deploy are waiting on you** for the Storm Chasing
+  fixes to take effect: deploy `chase-target`, then run
+  `20260913040000_chase_terrain_cache_algo.sql` (drops the stale terrain cache
+  generation) and `20260913050000_chase_quota_not_a_strike.sql` (un-retires the
+  days that were marked failed when they had only hit the API quota). Until both
+  run, terrain keeps returning its old scores and the retired days stay retired.
+- **This branch needs merging to `main`** before the next scheduled render, or
+  the forty GFS parameters will be overwritten — a *scheduled* GitHub Actions run
+  always uses the default branch's copy of the workflow, whatever branch the last
+  manual run was dispatched from.
+- **Direct database access was blocked for this whole engagement** at the
+  assistant's own tool layer, not by any credential. Every route was refused, so
+  nothing here was verified by querying the live database; the SQL above is
+  written to be run by you.

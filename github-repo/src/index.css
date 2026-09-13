@@ -706,3 +706,9 @@ html, body {
   border-color: rgba(217, 183, 117, 0.6) !important;
   box-shadow: 0 0 0 2px rgba(217, 183, 117, 0.22);
 }
+
+/* Daylight Tracker — the year ribbon's columns. Hover and focus only; the
+   selected column carries its own champagne fill from React. */
+.sx-ribbon-col:hover > span { background: rgba(204, 204, 255, 0.3) !important; }
+.sx-ribbon-col[aria-pressed="true"]:hover > span { filter: brightness(1.08); }
+.sx-ribbon-col:focus-visible { box-shadow: 0 0 0 2px rgba(217, 183, 117, 0.35); border-radius: 6px; }

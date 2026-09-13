@@ -1,8 +1,8 @@
 import type { MenuStyle } from "../../lib/menuStyle";
 import type { MenuNav } from "./menus/useMenuNav";
 import { CanvasPushMenu } from "./menus/CanvasPushMenu";
-import { SolariMenu } from "./menus/SolariMenu";
-import { SweepMenu } from "./menus/SweepMenu";
+import { MercuryMenu } from "./menus/MercuryMenu";
+import { VaultMenu } from "./menus/VaultMenu";
 import { StrataMenu } from "./menus/StrataMenu";
 import { SingularityMenu } from "./menus/SingularityMenu";
 import { AuroraMenu } from "./menus/AuroraMenu";
@@ -27,8 +27,8 @@ export function MenuHost({ style, nav }: { style: MenuStyle; nav: MenuNav }) {
   switch (style) {
     case "push":        return <CanvasPushMenu nav={nav} />;
     case "strata":      return <StrataMenu nav={nav} />;
-    case "solari":      return <SolariMenu nav={nav} />;
-    case "sweep":       return <SweepMenu nav={nav} />;
+    case "mercury":     return <MercuryMenu nav={nav} />;
+    case "vault":       return <VaultMenu nav={nav} />;
     case "singularity": return <SingularityMenu nav={nav} />;
     case "aurora":      return <AuroraMenu nav={nav} />;
     case "origami":     return <OrigamiMenu nav={nav} />;

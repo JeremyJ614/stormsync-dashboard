@@ -13,7 +13,7 @@ import { supabase, isSupabaseConfigured } from "./supabase";
 import { logger } from "./logger";
 
 export const MENU_STYLES = [
-  "rail", "push", "strata", "solari", "sweep", "singularity",
+  "rail", "push", "strata", "mercury", "vault", "singularity",
   "aurora", "origami", "geometric", "neon",
   "tessellate", "kinetic", "elevator", "comic", "apex",
 ] as const;
@@ -38,15 +38,15 @@ export const MENU_META: Record<MenuStyle, { label: string; blurb: string; hint: 
     blurb: "A core sample. Layers decompress out of one pile in real depth, lit by a light that travels down the stack, and they parallax as you move.",
     hint: "The calmest of the set and the fastest to scan — theatre in the transition, a plain list at rest.",
   },
-  solari: {
-    label: "Solari Board",
-    blurb: "A split-flap departure board. Every row riffles through the alphabet until it lands, and the whole board re-flips when you pick a section.",
-    hint: "All the theatre is in the transition; what it settles into is a plain list, so it reads the same at 3 modules or 37.",
+  mercury: {
+    label: "Mercury",
+    blurb: "A stream of liquid metal runs out of a reservoir and beads — the necks between the drops thin until each one pinches off on its own.",
+    hint: "The break-up is real behaviour, not a fade: a falling stream does it because surface tension costs less in spheres than in a cylinder.",
   },
-  sweep: {
-    label: "Radar Sweep",
-    blurb: "A PPI scope inside a milled bezel. The beam paints each contact as it crosses it, and every blip flashes once as it is found.",
-    hint: "Built for this app — it reads like the instrument the rest of it is about.",
+  vault: {
+    label: "Vault",
+    blurb: "A strongroom. Eight bolts withdraw from the rim, the wheel turns, and the door swings open in perspective onto a wall of deposit boxes; a section pulls out as a drawer.",
+    hint: "The only style that opens rather than appears. Knurled rim, turned face, brass fronts — all gradients, nothing loops.",
   },
   singularity: {
     label: "Singularity",

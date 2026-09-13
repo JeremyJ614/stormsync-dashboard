@@ -116,7 +116,7 @@ const GENERAL: DefaultEntry[] = [
   {
     title: "Can I change how the menu looks?",
     sections: [
-      S("Fifteen of them", "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a radar scope that sweeps, a departure board that flips, a comic page, a neon street, a black hole, folded paper, a stack of stone."),
+      S("Fifteen of them", "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a vault door that swings open onto a wall of deposit boxes, a stream of liquid metal that beads into drops, a comic page, a neon street, a black hole, folded paper, a lift shaft."),
       S("Where to pick", "New members choose one during the intro guide. After that it is in My Profile, and it changes the moment you tap it."),
       S("If you never choose", "You get whichever menu the app is set to by default, which an admin sets. Picking your own overrides it from then on, and changing the default afterwards does not overwrite a choice you made."),
     ],

@@ -28,6 +28,33 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
  * The indicator above the doors shows where the car is and which way it is
  * going, which also makes the second level legible: on a floor, the panel reads
  * that floor's number and the modules are the doors along the corridor.
+ *
+ * WHY THIS IS FASTER THAN IT WAS
+ * The lift felt like it lagged, and none of the four reasons were the spring:
+ *
+ *   • The backdrop carried `backdrop-filter: blur(16px)` UNDER AN OPAQUE
+ *     GRADIENT. Nothing behind it was ever visible through it, so the blur was
+ *     invisible by construction — but the compositor still resolved a
+ *     full-screen blur of the entire app on every frame, while two full-height
+ *     brushed-metal doors were travelling over the top of it. That was the
+ *     jank. It is gone; the picture is pixel-for-pixel identical.
+ *
+ *   • The floor plates waited 280ms before starting, which is the beat the
+ *     doors need on the way in — but it was also being paid on every floor
+ *     change, when the doors are already open and there is nothing to wait for.
+ *     The delay is now conditional on the doors actually being shut.
+ *
+ *   • The stagger was uncapped, so the last plate of a long section started
+ *     more than half a second after the first. It is capped now, the same way
+ *     the dashboard wall and the SSWXCon ring are.
+ *
+ *   • The call button animated `box-shadow` on an infinite loop, which cannot
+ *     be composited: it repaints, for ever, whether the menu is open or not.
+ *     The glow is now a sibling span with a fixed shadow whose OPACITY is
+ *     animated, which the compositor takes.
+ *
+ * The car keeps its spring. It is the one motion here that is supposed to have
+ * weight; it was simply arriving after everything else had given up waiting.
  */
 const FLOOR_H = 62;
 
@@ -46,12 +73,17 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
   useEffect(() => {
     if (!open) { setParted(false); return; }
     if (calm) { setParted(true); return; }
-    const t = setTimeout(() => setParted(true), 240);
+    const t = setTimeout(() => setParted(true), 110);
     return () => clearTimeout(t);
   }, [open, calm]);
 
   const floors = sections.length;
   const carAt = section ?? 0;
+
+  // The floors are behind the doors on the way in and have to wait for them.
+  // On a floor change the doors are already open, so there is nothing to wait
+  // for and the plates should move the instant the choice is made.
+  const lead = calm || parted ? 0.02 : 0.2;
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
@@ -60,7 +92,8 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
         style={{
           background: `linear-gradient(180deg, #0b0b14, #05050b)`,
           backgroundColor: "#05050b",
-          backdropFilter: "blur(16px)",
+          // No backdrop-filter: this gradient is opaque, so a blur behind it
+          // was a full-screen filter pass per frame that nothing could see.
           pointerEvents: open ? "auto" : "none",
         }}
         initial={false}
@@ -172,7 +205,9 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
                     }}
                     initial={{ top: 3 }}
                     animate={{ top: 3 + carAt * FLOOR_H }}
-                    transition={{ type: "spring", stiffness: 90, damping: 17 }}
+                    // Still a lift: it overshoots a little and settles. Just
+                    // one that reaches the floor while you are still looking.
+                    transition={{ type: "spring", stiffness: 170, damping: 19 }}
                     aria-hidden
                   />
                 )}
@@ -182,7 +217,7 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
                     key={current ? `s${section}` : "top"}
                     initial={calm ? false : { opacity: 0 }}
                     animate={{ opacity: 1 }}
-                    exit={calm ? { opacity: 0 } : { opacity: 0, transition: { duration: 0.12 } }}
+                    exit={calm ? { opacity: 0 } : { opacity: 0, transition: { duration: 0.08 } }}
                   >
                     {entries.map((e, i) => {
                       const Icon = e.icon;
@@ -235,7 +270,11 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
                           initial={calm ? false : { opacity: 0, x: 26 }}
                           animate={{ opacity: 1, x: 0 }}
                           transition={calm ? { duration: 0 } : {
-                            type: "spring", stiffness: 300, damping: 24, delay: 0.28 + i * 0.045,
+                            type: "spring", stiffness: 320, damping: 26,
+                            // `lead` is the wait for the doors, and it is only
+                            // owed once. `stagger` is capped so a long section
+                            // still finishes before the doors do.
+                            delay: lead + Math.min(i * 0.035, 0.34),
                           }}
                         >
                           {e.to ? (
@@ -266,7 +305,7 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
                   }}
                   initial={{ x: 0 }}
                   animate={{ x: parted ? (side ? "100%" : "-100%") : 0 }}
-                  transition={calm ? { duration: 0 } : { duration: 0.62, ease: [0.65, 0, 0.35, 1] }}
+                  transition={calm ? { duration: 0 } : { duration: 0.46, ease: [0.65, 0, 0.35, 1] }}
                   aria-hidden
                 />
               ))}
@@ -301,26 +340,36 @@ export function ElevatorMenu({ nav }: { nav: MenuNav }) {
           boxShadow: "0 10px 26px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,0.05)",
         }}
       >
+        {/* The glow is its own span with a FIXED shadow and an animated
+            opacity. Animating `box-shadow` itself, as this did, is a repaint
+            every frame of an loop that never ends — the one animation in the
+            app that was running even with the menu shut. */}
         <motion.span
-          className="grid place-items-center rounded-full"
+          aria-hidden
+          className="absolute rounded-full pointer-events-none"
+          style={{
+            width: 30, height: 30,
+            boxShadow: open
+              ? "0 0 14px 2px rgba(255,255,255,0.35)"
+              : "0 0 14px 2px rgba(217,183,117,0.55)",
+          }}
+          initial={false}
+          animate={calm ? { opacity: 0 } : { opacity: [0, 1, 0] }}
+          transition={calm ? { duration: 0 } : { duration: 2.4, repeat: Infinity, ease: EASE }}
+        />
+        <span
+          className="relative grid place-items-center rounded-full"
           style={{
             width: 30, height: 30,
             border: `1.5px solid ${open ? "#fff" : ROYAL.gold}`,
             color: open ? "#fff" : ROYAL.gold,
           }}
-          initial={false}
-          animate={calm ? { boxShadow: "none" } : {
-            boxShadow: open
-              ? ["0 0 0 0 rgba(255,255,255,0)", "0 0 14px 2px rgba(255,255,255,0.35)", "0 0 0 0 rgba(255,255,255,0)"]
-              : ["0 0 0 0 rgba(217,183,117,0)", "0 0 14px 2px rgba(217,183,117,0.55)", "0 0 0 0 rgba(217,183,117,0)"],
-          }}
-          transition={calm ? { duration: 0 } : { duration: 2.4, repeat: Infinity, ease: EASE }}
         >
           <motion.span initial={false} animate={{ rotate: open ? 180 : 0 }}
                        transition={calm ? { duration: 0 } : { duration: 0.4, ease: EASE }}>
             <ChevronUp className="w-4 h-4" />
           </motion.span>
-        </motion.span>
+        </span>
       </button>
     </div>
   );

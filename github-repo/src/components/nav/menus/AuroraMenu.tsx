@@ -396,7 +396,20 @@ export function AuroraMenu({ nav }: { nav: MenuNav }) {
             ) : (
               /* ── the curtains ──────────────────────────────────────────── */
               <div className="flex-1 flex items-end min-h-0">
-                <div className="w-full flex" style={{ paddingBottom: "9%" }}>
+                {/*
+                  THE NAMES SIT ABOVE THE RIDGE, not on it.
+                  At 9% they were inside the ridge band — `Ridge` occupies the
+                  bottom 28% of the panel and its highest peak reaches within a
+                  couple of percent of the top of that — so every section name
+                  was printed over a black silhouette with a snow line running
+                  through it. Legible in a screenshot of the sky, not legible on
+                  a phone.
+                  30% clears the tallest peak with room to spare, which puts the
+                  name in the dark sky directly beneath its own curtain: the
+                  light above it is unmistakably the thing being named, which is
+                  what the label was always for.
+                */}
+                <div className="w-full flex" style={{ paddingBottom: "30%" }}>
                   {entries.map((e, i) => {
                     const Icon = e.icon;
                     return (
@@ -410,8 +423,6 @@ export function AuroraMenu({ nav }: { nav: MenuNav }) {
                         className="flex-1 min-w-0 flex flex-col items-center justify-end gap-1.5 h-full pb-1"
                         aria-label={e.label}
                       >
-                        {/* The label rides at the base of its own curtain, so the
-                            light above it is unmistakably the thing being named. */}
                         <motion.span
                           className="w-full min-w-0 flex flex-col items-center gap-1 px-0.5"
                           initial={calm ? false : { opacity: 0, y: 14 }}

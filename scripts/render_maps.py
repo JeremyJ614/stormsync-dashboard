@@ -391,9 +391,23 @@ GFS_PARAMS = [
 # Every entry was read off a live href.tHHz.conus.prob index, thresholds and all.
 PROB_LEVELS = [5, 10, 20, 30, 40, 50, 60, 70, 80, 90]
 
+# A second ladder, for the fields whose real range is nowhere near 0-100%.
+#
+# This is what was wrong with Severe Wind. HREF's only 10 m wind records are
+# SUSTAINED wind, not gust, and a sustained 58 mph over land is close to
+# unheard of: measured against a live 12Z file, the 25.72 m/s neighbourhood
+# probability peaked at 8% over the whole CONUS, on 348 grid points out of
+# 700,790. Against a ladder whose first band is 5% and whose lowest colour is
+# masked below that, an 8% maximum paints a few dozen pixels — which is why the
+# parameter looked broken. It was not broken; it was being drawn on the wrong
+# scale, and the fix is a scale that starts at 1%.
+LOW_PROB_LEVELS = [1, 2, 5, 10, 15, 20, 30, 40, 60]
 
-def prob(key: str, label: str, group: str, match: str, thresh: str) -> Param:
-    return Param(key, label, group, match, "%", "prob", PROB_LEVELS, match_also=thresh)
+
+def prob(key: str, label: str, group: str, match: str, thresh: str,
+         levels: list | None = None) -> Param:
+    return Param(key, label, group, match, "%", "prob",
+                 levels or PROB_LEVELS, match_also=thresh)
 
 
 HREF_PARAMS = [
@@ -412,7 +426,20 @@ HREF_PARAMS = [
     prob("p_srh100", "0-3 km SRH > 100", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >100:"),
     prob("p_srh200", "0-3 km SRH > 200", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >200:"),
     prob("p_srh400", "0-3 km SRH > 400", "Severe Weather", ":HLCY:3000-0 m above ground:", "prob >400:"),
-    prob("p_wind58", "Severe Wind 58 mph", "Severe Weather", ":WIND:10 m above ground:", "prob >25.72:"),
+    # Sustained 10 m wind, which is all HREF publishes — there is no GUST record
+    # in the prob file, nor in the mean or pmmn files (checked against a live
+    # 12Z index, all three). Labelled "sustained" so nobody reads these as gust
+    # probabilities and wonders why they are an order of magnitude below SPC's
+    # wind outlook, which is a gust-report probability.
+    #
+    # 40 mph is here because it is the threshold that actually carries signal on
+    # an ordinary convective day; 58 mph is SPC's severe criterion and stays
+    # because it is the one that matters on the days it lights up. Both are on
+    # the low ladder.
+    prob("p_wind40", "Sustained Wind > 40 mph", "Severe Weather",
+         ":WIND:10 m above ground:", "prob >18.01:", LOW_PROB_LEVELS),
+    prob("p_wind58", "Severe Wind 58 mph (sustained)", "Severe Weather",
+         ":WIND:10 m above ground:", "prob >25.72:", LOW_PROB_LEVELS),
     prob("p_etop30", "Echo Top > 30 kft", "Severe Weather",
          ":RETOP:entire atmosphere (considered as a single layer):", "prob >9144:"),
     prob("p_etop40", "Echo Top > 40 kft", "Severe Weather",
@@ -659,6 +686,58 @@ def canvas():
     return _CANVAS
 
 
+# How many times each cell of a regular lat/lon grid is subdivided before it is
+# drawn. Only the coarse global models need it; see `smooth_grid`.
+UPSAMPLE = {"gfs": 4}
+
+
+def _lerp_axis(x_src: np.ndarray, y: np.ndarray, x_dst: np.ndarray, axis: int) -> np.ndarray:
+    """Linear interpolation of `y` along `axis`, from `x_src` onto `x_dst`.
+
+    `x_src` must be strictly increasing. Vectorised — the per-row Python loop
+    this replaces was four seconds a frame at forty parameters.
+    """
+    i = np.clip(np.searchsorted(x_src, x_dst) - 1, 0, x_src.size - 2)
+    w = (x_dst - x_src[i]) / (x_src[i + 1] - x_src[i])
+    lo = np.take(y, i, axis=axis)
+    hi = np.take(y, i + 1, axis=axis)
+    shape = [1] * y.ndim
+    shape[axis] = w.size
+    return lo + (hi - lo) * w.reshape(shape).astype("float32")
+
+
+def smooth_grid(lons: np.ndarray, lats: np.ndarray, vals: np.ndarray, k: int):
+    """Subdivide a regular lat/lon grid k times in each direction, bilinearly.
+
+    WHY THIS EXISTS, AND WHAT IT IS NOT
+    GFS publishes at 0.25°, which is about 25 km. Over the CONUS extent that is
+    roughly 204 x 112 cells drawn into an 1800 x 1100 frame — so every cell is a
+    flat nine-pixel block, and the map looks like a mosaic next to the HRRR and
+    HREF plates beside it, which are 3 km and land near one pixel per cell.
+
+    Subdividing does NOT invent resolution and is not claimed to: the field is
+    still 0.25° and still says exactly what GFS said. What it removes is the
+    staircase on every band edge, which is an artefact of how we were drawing
+    it rather than anything in the data. Every serious model-graphics site does
+    the same thing — a contour plot of a coarse field is this operation with the
+    interpolation hidden inside the contouring.
+
+    Linear, not cubic, on purpose: cubic overshoots at sharp gradients and can
+    put a value on the map that is outside the range of the four cells around
+    it, which on a reflectivity or CAPE plate is a lie about the maximum.
+    """
+    if k <= 1 or lons.ndim != 1 or lats.ndim != 1:
+        return lons, lats, vals
+    asc = lats[0] < lats[-1]
+    la_src = lats if asc else lats[::-1]
+    v = vals if asc else vals[::-1, :]
+    lo_dst = np.linspace(lons[0], lons[-1], (lons.size - 1) * k + 1, dtype="float32")
+    la_dst = np.linspace(la_src[0], la_src[-1], (la_src.size - 1) * k + 1, dtype="float32")
+    v = _lerp_axis(lons.astype("float32"), v, lo_dst, axis=1)
+    v = _lerp_axis(la_src.astype("float32"), v, la_dst, axis=0)
+    return lo_dst, la_dst, v
+
+
 def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out: str) -> bool:
     name = next((v for v in ds.data_vars), None)
     if name is None:
@@ -684,6 +763,10 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
             lons = lons[keep_x]
             lats = lats[keep_y]
             vals = vals[np.ix_(keep_y, keep_x)]
+        # After the clip and BEFORE the mask: interpolating across a NaN spreads
+        # it, so a field that has had its low end knocked out would grow a
+        # one-cell transparent halo around every edge.
+        lons, lats, vals = smooth_grid(lons, lats, vals, UPSAMPLE.get(model, 1))
     else:
         # HRRR is a 2-D curvilinear CONUS grid; pcolormesh handles 2-D coords
         # regardless of ordering, so it only needs the -180..180 mapping.
@@ -878,14 +961,31 @@ class Supa:
 
 
 # ── run discovery ────────────────────────────────────────────────────────────
-def latest_cycle(model: str, max_back: int = 8) -> datetime | None:
+def latest_cycle(model: str, last_fhr: int, max_back: int = 8) -> datetime | None:
+    """The newest cycle that has FINISHED publishing.
+
+    This used to probe the FIRST forecast hour, and that is why the HRRR viewer
+    spent most of 13 September showing two frames.
+
+    F00 appears within a minute or two of a cycle starting — it is the analysis,
+    there is nothing to integrate — while the last hour of an HRRR run does not
+    land for another forty minutes. Probing F00 therefore said "16Z is ready" at
+    17:03 when 16Z had published exactly F00 and F01; the loop rendered those
+    two, hit a 404 on F02, stopped, and wrote a two-frame manifest OVER a
+    complete one.
+
+    Probing the last hour we actually intend to render is the honest
+    completeness test: if that file exists, everything before it does too. When
+    it does not, we step back a cycle and render the one that finished, which is
+    what a viewer wants anyway — a complete older run beats two frames of a
+    newer one.
+    """
     now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
     step = 6 if model in ("gfs", "href") else 1
     now = now.replace(hour=(now.hour // step) * step)
     for i in range(max_back):
         c = now - timedelta(hours=i * step)
-        probe = FIRST_FHR.get(model, 0)
-        if SESSION.head(grib_url(model, c, probe), timeout=30).status_code == 200:
+        if SESSION.head(grib_url(model, c, last_fhr), timeout=30).status_code == 200:
             return c
     return None
 
@@ -952,24 +1052,40 @@ def main() -> int:
     # HREF's probability files start at F01 and run hourly to F48; GFS is 3-hourly.
     step = a.step if a.model in ("hrrr", "href") else max(a.step, 3)
 
-    cycle = latest_cycle(a.model)
+    first = FIRST_FHR.get(a.model, 0)
+    hours = list(range(first, a.max_fhr + 1, step))
+
+    cycle = latest_cycle(a.model, hours[-1])
     if cycle is None:
-        print(f"no available {a.model} cycle found", file=sys.stderr)
+        print(f"no {a.model} cycle has finished publishing through F{hours[-1]:03d}",
+              file=sys.stderr)
         return 1
     print(f"{a.model.upper()} cycle {cycle:%Y-%m-%d %HZ}  ->  "
           f"F{FIRST_FHR.get(a.model, 0):03d}-F{a.max_fhr:03d} step {step}")
 
     frames: dict[str, list] = {p.key: [] for p in params}
     bytes_pulled = 0
+    missing: list[int] = []
 
-    first = FIRST_FHR.get(a.model, 0)
-    for fhr in range(first, a.max_fhr + 1, step):
+    for fhr in hours:
         gurl = grib_url(a.model, cycle, fhr)
-        try:
-            rows = fetch_index(gurl)
-        except Exception as e:  # noqa: BLE001
-            print(f"  F{fhr:03d}: index unavailable ({e}) — stopping")
-            break
+        # One retry, then skip the hour and keep going. Stopping at the first
+        # gap is what turned a single transient 404 into a two-frame run; a hole
+        # in the middle of an otherwise complete loop is worth far less than the
+        # nineteen frames that stopping threw away.
+        rows = None
+        for attempt in (1, 2):
+            try:
+                rows = fetch_index(gurl)
+                break
+            except Exception as e:  # noqa: BLE001
+                if attempt == 2:
+                    print(f"  F{fhr:03d}: index unavailable ({e}) — skipping this hour")
+                    missing.append(fhr)
+                else:
+                    time.sleep(3)
+        if rows is None:
+            continue
         print(f"  F{fhr:03d}")
         for p in params:
             raw = fetch_record(gurl, rows, p.match, p.match_also)
@@ -1049,9 +1165,24 @@ def main() -> int:
             })
 
     rendered = sum(len(v) for v in frames.values())
-    print(f"rendered {rendered} frames · pulled {bytes_pulled/1048576:.1f} MB of GRIB "
-          f"(full files would have been ~{(a.max_fhr//step + 1) * 140} MB)")
+    done = len(hours) - len(missing)
+    print(f"rendered {rendered} frames over {done}/{len(hours)} forecast hours · "
+          f"pulled {bytes_pulled/1048576:.1f} MB of GRIB "
+          f"(full files would have been ~{len(hours) * 140} MB)")
     if rendered == 0:
+        return 1
+
+    # A short run must never replace a complete one.
+    #
+    # The viewer shows the newest manifest for a model, so writing a manifest is
+    # publishing — and publishing four frames of a cycle that is still uploading
+    # takes the loop away from everyone looking at it. Below 80% coverage this
+    # exits non-zero WITHOUT saving, which leaves the previous complete run in
+    # place and turns a silent regression into a red job somebody can see.
+    if done < 0.8 * len(hours):
+        print(f"only {done}/{len(hours)} forecast hours rendered "
+              f"(missing {missing}); refusing to publish a partial run",
+              file=sys.stderr)
         return 1
 
     row = {

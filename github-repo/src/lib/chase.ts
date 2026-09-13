@@ -156,8 +156,14 @@ export async function fetchChaseOutlook(): Promise<ChaseOutlook | null> {
  * evening was being stamped "Last run ...", which is the one thing a chaser
  * checking the forecast before bed should not be told.
  *
- * The engine rolls the day over at 04:25 UTC, in the small hours of the morning
- * across the United States. The reader's day should roll at the same moment, so
+ * The engine now writes the coming day at 00:30 UTC — half an hour after the
+ * 00Z balloons, so tomorrow's targets exist while it is still this evening. That
+ * is deliberately NOT when the reader's day rolls over: swapping the page to
+ * tomorrow at half past seven in the Plains would take today's target away
+ * mid-chase, with the storms still going. The row is simply there early for
+ * anyone who wants to look ahead.
+ *
+ * The reader's day therefore still rolls in the small hours, so
  * this is the local calendar date with the small hours still counted as the day
  * before — matching the module's own definition of a chase day, which runs from
  * the afternoon through to 2 am.

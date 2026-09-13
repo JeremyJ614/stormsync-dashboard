@@ -66,6 +66,30 @@ FIRST_FHR = {"hrrr": 0, "gfs": 0, "href": 1}
 SESSION = requests.Session()
 SESSION.headers["User-Agent"] = "StormSyncVIP-renderer/1.0"
 
+# Retry every NOAA fetch, because concurrency makes the endpoint push back.
+#
+# Rendering the forecast hours in parallel turned a 20-minute HRRR run into a
+# 10-minute one and then broke it: with four workers, seven of nineteen hours
+# died on `RemoteDisconnected('Remote end closed connection without response')`
+# — the S3 endpoint closing connections under the load, not a missing file. The
+# coverage guard caught it and refused to publish, which is what it is for, but
+# a transient disconnect should never have cost an hour in the first place.
+#
+# `urllib3.Retry` handles it at the adapter, so every index read and every byte
+# range gets it without a retry loop written at each call site. `connect` and
+# `read` cover the disconnects; the status list covers throttling; and the
+# backoff is generous because the thing we are backing off from is our own
+# concurrency — hammering it faster is the one response guaranteed not to work.
+_RETRY = requests.adapters.Retry(
+    total=4, connect=4, read=4, status=3,
+    backoff_factor=1.2,
+    status_forcelist=(429, 500, 502, 503, 504),
+    allowed_methods=frozenset(("GET", "HEAD")),
+    raise_on_status=False,
+)
+SESSION.mount("https://", requests.adapters.HTTPAdapter(
+    max_retries=_RETRY, pool_connections=8, pool_maxsize=8))
+
 # ── styling ──────────────────────────────────────────────────────────────────
 BG = "#0b0e17"
 # Land outside the data used to be #171b26 — all but black, so the states a
@@ -1232,19 +1256,16 @@ def main() -> int:
     bytes_pulled = 0
     missing: list[int] = []
 
-    # Deliberately MORE workers than cores.
+    # One worker per core, and no more.
     #
-    # The standard hosted runner here reports two CPUs, and one worker per core
-    # only bought a 2x speedup — because roughly half of each frame is not CPU
-    # at all. A full HRRR render pulls 632 MB of GRIB in byte ranges and pushes
-    # 437 PNGs back to storage, and a worker blocked on either of those is a
-    # core doing nothing. Oversubscribing lets one worker's upload overlap
-    # another's pcolormesh.
-    #
-    # Capped at four regardless, because every worker is also an uploader and
-    # this project has already lost a finished render to `too_many_connections`
-    # on the storage pool.
-    workers = max(1, min((os.cpu_count() or 2) * 2, len(hours), 4))
+    # Oversubscribing to four on this two-core runner was tried and measured: it
+    # did not go faster, and seven of nineteen HRRR hours came back with the
+    # remote end closing the connection. Half of each frame is I/O, so in
+    # principle there is headroom — but the thing being waited on is a public
+    # NOAA endpoint that pushes back, and there is no version of "be ruder to
+    # the free data source" that ends well. Two workers with retries underneath
+    # (see `_RETRY`) rendered 18/18 HREF hours cleanly.
+    workers = max(1, min(os.cpu_count() or 2, len(hours), 4))
     print(f"  rendering {len(hours)} forecast hours across {workers} workers")
     warm_features()
 

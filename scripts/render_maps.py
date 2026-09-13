@@ -49,6 +49,17 @@ GFS_BUCKET = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
 # HREF has no public S3 mirror — NCEP publishes it on NOMADS only, one GRIB2 per
 # forecast hour with every probability threshold as its own record.
 HREF_BASE = "https://nomads.ncep.noaa.gov/pub/data/nccf/com/href/prod"
+
+# The first forecast hour each model actually publishes.
+#
+# HREF's ensemble *probability* files have no F00 — a probability over a
+# one-hour window cannot exist at the initialisation time — and both the cycle
+# probe and the frame loop below assumed every model starts at zero. The probe
+# HEADed href...prob.f00.grib2, got 404 for all eight candidate cycles, and
+# reported "no available href cycle found"; even past that, the loop opened at
+# F000, failed to read an index, and hit its `break` before rendering a single
+# frame. HREF would have rendered nothing on any schedule.
+FIRST_FHR = {"hrrr": 0, "gfs": 0, "href": 1}
 SESSION = requests.Session()
 SESSION.headers["User-Agent"] = "StormSyncVIP-renderer/1.0"
 
@@ -692,7 +703,8 @@ def latest_cycle(model: str, max_back: int = 8) -> datetime | None:
     now = now.replace(hour=(now.hour // step) * step)
     for i in range(max_back):
         c = now - timedelta(hours=i * step)
-        if SESSION.head(grib_url(model, c, 0), timeout=30).status_code == 200:
+        probe = FIRST_FHR.get(model, 0)
+        if SESSION.head(grib_url(model, c, probe), timeout=30).status_code == 200:
             return c
     return None
 
@@ -763,12 +775,14 @@ def main() -> int:
     if cycle is None:
         print(f"no available {a.model} cycle found", file=sys.stderr)
         return 1
-    print(f"{a.model.upper()} cycle {cycle:%Y-%m-%d %HZ}  ->  F000-F{a.max_fhr:03d} step {step}")
+    print(f"{a.model.upper()} cycle {cycle:%Y-%m-%d %HZ}  ->  "
+          f"F{FIRST_FHR.get(a.model, 0):03d}-F{a.max_fhr:03d} step {step}")
 
     frames: dict[str, list] = {p.key: [] for p in params}
     bytes_pulled = 0
 
-    for fhr in range(0, a.max_fhr + 1, step):
+    first = FIRST_FHR.get(a.model, 0)
+    for fhr in range(first, a.max_fhr + 1, step):
         gurl = grib_url(a.model, cycle, fhr)
         try:
             rows = fetch_index(gurl)

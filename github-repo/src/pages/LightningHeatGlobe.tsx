@@ -5,6 +5,7 @@ import { Zap, RefreshCw, ExternalLink, Globe, MapPin, BarChart3 } from "lucide-r
 import type { Location } from "../hooks/useLocation";
 import { getLightningClimo } from "../lib/lightningClimo";
 import { ClimoPanel } from "../components/lightning/ClimoPanel";
+import { LiveStrikeMap } from "../components/lightning/LiveStrikeMap";
 import { ModuleShell } from "../components/ModuleShell";
 import { ROYAL, EASE, prefersReducedMotion } from "../lib/royal";
 
@@ -28,14 +29,23 @@ const TOP_REGIONS = [
   { region: "Lake Okeechobee, Florida", rate: "~83 flashes / km² / yr", note: "highest in N. America" },
 ];
 
+/*
+ * Climatology first, live second.
+ *
+ * The module opened on a live strike map, which is the thing that is usually
+ * empty: most of the country, most of the time, has no lightning on it, so the
+ * first screen was a blank map. How electric your own patch of the country is
+ * — the answer to "should I expect this" — is true every day of the year, and
+ * it is the half of this module that only this app has bothered to compute.
+ */
 const TABS: { id: Tab; label: string; short: string; icon: typeof MapPin }[] = [
-  { id: "us",     label: "Live U.S. Strikes", short: "Live U.S.",   icon: MapPin },
-  { id: "global", label: "Global Real-Time",  short: "Global",      icon: Globe },
-  { id: "climo",  label: "Climatology",       short: "Climatology", icon: BarChart3 },
+  { id: "climo",  label: "Your Climatology", short: "Climatology", icon: BarChart3 },
+  { id: "us",     label: "Live U.S.",        short: "Live U.S.",   icon: MapPin },
+  { id: "global", label: "Global Real-Time", short: "Global",      icon: Globe },
 ];
 
 export default function LightningHeatGlobe({ location }: Props) {
-  const [tab, setTab] = useState<Tab>("us");
+  const [tab, setTab] = useState<Tab>("climo");
   const still = prefersReducedMotion();
   const [bust, setBust] = useState(() => Date.now());
   const [imgError, setImgError] = useState(false);
@@ -52,13 +62,24 @@ export default function LightningHeatGlobe({ location }: Props) {
     return () => clearInterval(id);
   }, [tab]);
 
-  const glmSrc = `https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/1250x750.jpg?t=${bust}`;
+  /*
+   * The still, and the bug it fixes.
+   *
+   * This was `GOES16/ABI/CONUS/GEOCOLOR/1250x750.jpg`, which 301s to
+   * `GOES19/ABI/CONUS/GEOCOLOR` — the visible-and-infrared picture. Clouds.
+   * The panel header said "GOES-19 GLM Flash Extent Density" and a caption
+   * underneath explained which pixels were the flashes, of an image that had
+   * none in it.
+   *
+   * The real product is under `GLM`, not `ABI`, and it is there: verified as a
+   * 1 MB JPEG. It is kept as the wide CONUS still beneath the interactive map.
+   */
+  const glmSrc = `https://cdn.star.nesdis.noaa.gov/GOES19/GLM/CONUS/EXTENT3/1250x750.jpg?t=${bust}`;
 
   // NCEI is slow and this never changes intra-session, so cache it hard.
   const climo = useQuery({
     queryKey: ["lightning-climo", location.lat.toFixed(2), location.lon.toFixed(2)],
     queryFn: () => getLightningClimo(location.lat, location.lon),
-    enabled: tab === "climo",
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
@@ -105,11 +126,19 @@ export default function LightningHeatGlobe({ location }: Props) {
         className="space-y-5"
       >
       {tab === "us" && (
+        <LiveStrikeMap
+          center={{ lat: location.lat, lon: location.lon }}
+          bust={bust}
+          still={still}
+        />
+      )}
+
+      {tab === "us" && (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm font-semibold">GOES-19 GLM Flash Extent Density — CONUS</span>
+              <span className="text-sm font-semibold">Whole country at once — GLM flash extent density</span>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">

@@ -1,10 +1,11 @@
 import { useMemo } from "react";
 import { motion } from "framer-motion";
 import {
-  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
   ComposedChart, Line, Area, ReferenceLine,
+  XAxis, YAxis, Tooltip, ResponsiveContainer,
 } from "recharts";
 import { CalendarDays, TrendingUp, TrendingDown, Minus, Loader2 } from "lucide-react";
+import { ThunderYear } from "./ThunderYear";
 import { ROYAL, HEADING, EASE } from "../../lib/royal";
 import { climoStats, monthName, type LightningClimo } from "../../lib/lightningClimo";
 
@@ -175,28 +176,17 @@ export function ClimoPanel({
             <CalendarDays className="w-3.5 h-3.5" style={{ color: GOLD }} /> When the thunder happens
           </div>
           <span className="text-[10px]" style={{ color: ROYAL.dim }}>
-            average days per month · the month you are in is outlined
+            average days per month, around the year · the peak month is brightest
           </span>
         </div>
-        <ResponsiveContainer width="100%" height={205}>
-          <BarChart data={monthly} margin={{ top: 8, right: 4, bottom: 0, left: 0 }}>
-            <XAxis dataKey="name" tick={{ fontSize: 10, fill: ROYAL.dim }} axisLine={false} tickLine={false} />
-            <YAxis tick={{ fontSize: 10, fill: ROYAL.dim }} axisLine={false} tickLine={false} width={26} />
-            <Tooltip
-              cursor={{ fill: "rgba(204,204,255,0.06)" }}
-              contentStyle={{ background: ROYAL.ink2, border: `1px solid ${ROYAL.hairline}`, borderRadius: 10, fontSize: 12 }}
-              labelStyle={{ color: ROYAL.text }}
-              formatter={(v: number) => [`${v} days on average`, "Thunder"]} />
-            <Bar dataKey="days" radius={[5, 5, 0, 0]}>
-              {monthly.map((m) => (
-                <Cell key={m.month}
-                  fill={m.month === data.peakMonth ? GOLD : "rgba(251,191,36,0.32)"}
-                  stroke={m.month === s.thisMonth ? "#ffffff" : undefined}
-                  strokeWidth={m.month === s.thisMonth ? 1.4 : 0} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+        {/*
+          A ring, not twelve columns.
+          A season is cyclical — December is next to January — and a column
+          chart cuts the ring at an arbitrary point, putting the two ends of the
+          quiet season at opposite edges of the frame. That is exactly where the
+          shape of a convective season lives. See ThunderYear for the rest.
+        */}
+        <ThunderYear months={data.monthly} calm={calm} peakMonth={data.peakMonth ?? undefined} />
       </section>
 
       {/* ── year to year ─────────────────────────────────────────────────── */}

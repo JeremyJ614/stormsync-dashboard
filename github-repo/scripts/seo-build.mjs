@@ -289,12 +289,19 @@ await writeFile(join(DIST, "llms.txt"),
   + `## Open pages\n\n`
   + indexable.map((p) => `- [${p.title}](${canonical(p.path)}): ${p.description}`).join("\n")
   + `\n\n## What the app does\n\n`
-  + `- SPC convective outlooks, days 1 through 8, with the real risk polygons\n`
+  + `- SPC convective outlooks, days 1 through 8, with the real risk polygons and SPC's conditional intensity tiers\n`
   + `- Live National Weather Service watches and warnings\n`
   + `- Hurricane and tropical tracking from the National Hurricane Center, with an archive\n`
-  + `- Radar, satellite and lightning\n`
+  + `- Radar, GOES satellite and eight MRMS products including rainfall totals from one hour to three days\n`
+  + `- Model maps rendered here from NOAA's own files: HRRR at 3 km, GFS, and HREF, a 21-member ensemble — 84 parameters, four cycles a day, with playback\n`
+  + `- Live lightning from GOES-East's geostationary lightning mapper, plus LightningCast's probability of a flash in the next hour\n`
+  + `- Daily storm-chase targets, scored inside the SPC risk areas on instability, shear, helicity, cloud base, cap and terrain\n`
   + `- A national storm-activity score, and a local severe threat index\n`
-  + `- Thunder-day climatology, tornado climatology and severe weather history\n`
+  + `- National outlooks in one place: WPC rainfall and HeatRisk, CPC 6-10 and 8-14 day, drought, and autumn foliage\n`
+  + `- Winter Center: winter storm severity, snow on the ground, and hour-by-hour precipitation type\n`
+  + `- Thunder-day climatology, 74 years of tornado climatology, and ten years of tornado tracks filterable by month, EF rating and state\n`
+  + `- River and flood gauges, air quality and pollen, fire weather, and roughly 6,500 public traffic cameras\n`
+  + `- Weather news from seven publishers, with the full text readable in the app where the publisher syndicates it\n`
   + `- A daily forecasting game and trivia, scored against real storm reports\n\n`
   + `## Note\n\n`
   + `Most modules require an account. The pages listed above are open to everyone.\n`);

@@ -137,3 +137,25 @@ the same allowance, so they are for "I need this model now", not for topping up.
      job_id := (select jobid from cron.job where jobname = 'chase-backfill-chunk'),
      active := true);
    ```
+
+## Vercel config lives at the REPO ROOT, and only there
+
+There were two `vercel.json` files — one at the repo root and one in
+`github-repo/` — and Vercel reads only the root one, because the project's Root
+Directory is the repo root (that is what makes the root file's
+`cd github-repo && npm run build` the build command at all).
+
+The inner file was therefore dead config, and it was the one carrying the good
+settings. Two things were broken in production as a result:
+
+  · The catch-all rewrite pointed at `/index.html`, so all thirty-nine gated
+    routes were served the HOME PAGE's markup — its title, and a canonical
+    pointing at `/`. `scripts/seo-build.mjs` emits `app.html` as a neutral,
+    `noindex` fallback for exactly this reason, and it was never being used.
+  · The security headers and the sitemap/llms.txt content types and caching
+    were never applied at all. Verified against the live site: no
+    `X-Content-Type-Options`, and `sitemap.xml` served `max-age=0`.
+
+Both are now in the root file and the inner one is deleted. **Do not add a
+`vercel.json` under `github-repo/`** — it will look like it is working and will
+not be read.

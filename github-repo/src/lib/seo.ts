@@ -48,8 +48,9 @@ export const PAGES: PageSeo[] = [
     title: "StormSync Media — Severe Weather Intelligence for Storm Chasers",
     description:
       "Live severe weather tracking built for people who take storms seriously: SPC outlooks, "
-      + "real-time warnings, hurricane tracking, radar and a national storm score, updated from "
-      + "NOAA and the National Weather Service.",
+      + "real-time warnings, HRRR, GFS and HREF ensemble model maps, radar and MRMS, live "
+      + "lightning, daily chase targets and a national storm score — from NOAA and the "
+      + "National Weather Service.",
     index: true,
   },
   {
@@ -146,8 +147,9 @@ export function appSchema() {
     browserRequirements: "Requires a modern browser with JavaScript enabled.",
     description:
       "Live severe weather tracking: SPC convective outlooks, National Weather Service warnings, "
-      + "hurricane and tropical tracking, radar, lightning, a national storm-activity score and a "
-      + "daily forecasting game.",
+      + "HRRR, GFS and HREF ensemble model maps rendered from NOAA's own files, radar and MRMS, "
+      + "GOES lightning, hurricane and tropical tracking, daily storm-chase targets, tornado "
+      + "climatology and a national storm-activity score.",
     offers: [
       { "@type": "Offer", name: "Free", price: "0", priceCurrency: "USD" },
       { "@type": "Offer", name: "Basic", price: "2.99", priceCurrency: "USD" },

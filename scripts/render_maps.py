@@ -1232,11 +1232,19 @@ def main() -> int:
     bytes_pulled = 0
     missing: list[int] = []
 
-    # One worker per core. More than that on a four-vCPU runner only adds
-    # context switching and four more simultaneous uploads for the storage pool
-    # to throttle — and this project has already lost a finished render to
-    # `too_many_connections` once.
-    workers = max(1, min(os.cpu_count() or 2, len(hours), 4))
+    # Deliberately MORE workers than cores.
+    #
+    # The standard hosted runner here reports two CPUs, and one worker per core
+    # only bought a 2x speedup — because roughly half of each frame is not CPU
+    # at all. A full HRRR render pulls 632 MB of GRIB in byte ranges and pushes
+    # 437 PNGs back to storage, and a worker blocked on either of those is a
+    # core doing nothing. Oversubscribing lets one worker's upload overlap
+    # another's pcolormesh.
+    #
+    # Capped at four regardless, because every worker is also an uploader and
+    # this project has already lost a finished render to `too_many_connections`
+    # on the storage pool.
+    workers = max(1, min((os.cpu_count() or 2) * 2, len(hours), 4))
     print(f"  rendering {len(hours)} forecast hours across {workers} workers")
     warm_features()
 

@@ -25,8 +25,10 @@ import io
 import math
 import json
 import os
+import random
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -595,21 +597,49 @@ class Supa:
         self.key = key
         self.h = {"apikey": key, "Authorization": f"Bearer {key}"}
 
+    # Storage answers 429 / SlowDown / too_many_connections when the project's
+    # connection pool is busy — another render running, a backfill hammering the
+    # REST API, or simply a burst of our own uploads. It is a "wait a moment",
+    # not a rejection, and a run that has already spent six minutes pulling GRIB
+    # records and drawing 144 maps should not throw all of it away over one.
+    #
+    # It did exactly that on 13 September: a GFS render died on
+    # `gfs/2026091218/absv500/F033.png` with `too_many_connections` after 33
+    # forecast hours of work, taking the whole job with it.
+    RETRY_STATUS = (409, 423, 429, 500, 502, 503, 504)
+    ATTEMPTS = 5
+
+    def _post(self, what: str, url: str, *, headers: dict, data, timeout: int):
+        last = ""
+        for attempt in range(self.ATTEMPTS):
+            try:
+                r = SESSION.post(url, headers=headers, data=data, timeout=timeout)
+                if r.status_code < 300:
+                    return r
+                last = f"{r.status_code} {r.text[:180]}"
+                if r.status_code not in self.RETRY_STATUS:
+                    break
+            except requests.RequestException as e:
+                last = str(e)[:180]
+            if attempt < self.ATTEMPTS - 1:
+                # 1.5s, 3s, 6s, 12s, jittered so concurrent uploads separate.
+                time.sleep(1.5 * 2 ** attempt + random.random())
+        raise RuntimeError(f"{what}: {last}")
+
     def upload(self, path: str, data: bytes) -> str:
-        u = f"{self.url}/storage/v1/object/model-maps/{path}"
-        r = SESSION.post(u, headers={**self.h, "Content-Type": "image/png",
-                                     "x-upsert": "true"}, data=data, timeout=120)
-        if r.status_code >= 300:
-            raise RuntimeError(f"upload {path}: {r.status_code} {r.text[:180]}")
+        self._post(f"upload {path}",
+                   f"{self.url}/storage/v1/object/model-maps/{path}",
+                   headers={**self.h, "Content-Type": "image/png", "x-upsert": "true"},
+                   data=data, timeout=120)
         return f"{self.url}/storage/v1/object/public/model-maps/{path}"
 
     def save_run(self, row: dict):
-        u = f"{self.url}/rest/v1/model_runs?on_conflict=model,cycle,region"
-        r = SESSION.post(u, headers={**self.h, "Content-Type": "application/json",
-                                     "Prefer": "resolution=merge-duplicates"},
-                         data=json.dumps(row), timeout=60)
-        if r.status_code >= 300:
-            raise RuntimeError(f"save_run: {r.status_code} {r.text[:200]}")
+        # The manifest is the last thing written and the only thing the viewer
+        # reads, so losing it to a busy moment would waste the entire render.
+        self._post("save_run", f"{self.url}/rest/v1/model_runs?on_conflict=model,cycle,region",
+                   headers={**self.h, "Content-Type": "application/json",
+                            "Prefer": "resolution=merge-duplicates"},
+                   data=json.dumps(row), timeout=60)
 
     def _list(self, prefix: str) -> tuple[list[str], list[str]]:
         """

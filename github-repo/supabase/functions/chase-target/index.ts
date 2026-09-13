@@ -1708,7 +1708,21 @@ async function runBackfill(opts: { trigger: string; limit?: number; from?: strin
   // Yesterday, not today: today is the live run's job, and a day that has not
   // happened yet has no archive to reconstruct it from.
   const to = addDays(new Date().toISOString().slice(0, 10), -1);
-  const limit = Math.max(1, Math.min(40, opts.limit ?? cfg.days_per_run ?? 8));
+  /*
+   * Two days, not eight, and the ceiling is the platform rather than politeness.
+   *
+   * A chunk of eight came back `546 WORKER_RESOURCE_LIMIT` — "not having enough
+   * compute resources" — every single time, and because the worker is KILLED
+   * rather than returning, none of the per-day error rows this function writes
+   * on failure ever got written either. From outside it looked like the cron
+   * firing and doing nothing at all, which is exactly how it looked for hours.
+   *
+   * A reconstructed day is roughly forty seconds of work: the SPC archive, five
+   * Open-Meteo requests, terrain for up to ten finalists across three public
+   * services, and two geocodes. Two of those fit inside an edge invocation with
+   * room to spare; eight never could.
+   */
+  const limit = Math.max(1, Math.min(40, opts.limit ?? cfg.days_per_run ?? 2));
 
   const { data: missing, error } = await admin.rpc("chase_missing_dates", {
     p_from: from, p_to: to, p_limit: limit,
@@ -1779,7 +1793,11 @@ Deno.serve(async (req: Request) => {
         from: typeof body.from === "string" ? body.from : undefined,
         // Leave headroom inside the platform's wall clock for the final
         // bookkeeping queries.
-        budgetMs: typeof body.budgetMs === "number" ? body.budgetMs : 115_000,
+        // Well under the platform's own limit rather than close to it. At 115s
+        // the function was still working when the worker was cut off, so the
+        // budget never got the chance to end the pass cleanly — and a pass that
+        // is killed writes no record of why.
+        budgetMs: typeof body.budgetMs === "number" ? body.budgetMs : 80_000,
       });
       return json(out, out.ok ? 200 : 500);
     } catch (e) {

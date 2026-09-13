@@ -80,3 +80,28 @@ begin
       (select command from cron.job where jobname = 'chase-target-early'));
   end if;
 end $$;
+
+-- The backfill chunk was too big for an edge invocation.
+--
+-- Eight days per call came back `546 WORKER_RESOURCE_LIMIT` every time — "not
+-- having enough compute resources". The worker is KILLED rather than returning,
+-- so the per-day error rows `runBackfill` writes on failure never got written
+-- either: from outside, the cron fired every twenty minutes and appeared to do
+-- nothing whatsoever. It looked exactly like a job that was not running.
+--
+-- A reconstructed day is roughly forty seconds of work — the SPC archive, five
+-- Open-Meteo requests, terrain across three public services for up to ten
+-- finalists, and two geocodes. Two fit in an invocation with room; eight never
+-- could.
+--
+-- Two days every half hour is 96 reconstructed days a day, inside the weather
+-- API's daily allowance, and finishes the remaining season overnight. Once the
+-- season is complete the job costs one `chase_missing_dates` query per run.
+update public.app_config
+   set value = jsonb_set(value, '{days_per_run}', '2'::jsonb)
+ where key = 'chase_backfill';
+
+select cron.alter_job(
+  job_id := (select jobid from cron.job where jobname = 'chase-backfill-chunk'),
+  schedule := '*/30 * * * *',
+  active := true);

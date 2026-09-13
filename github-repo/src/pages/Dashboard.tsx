@@ -1,486 +1,167 @@
-import { useState } from "react";
+/**
+ * The Dashboard — a wall of the modules you actually own.
+ *
+ * REBUILT, and mostly by deletion. What was here was a second forecast page:
+ * a conditions hero, a stat grid, a wind compass, seven-day temperature and
+ * precipitation charts, an NWS office card, a widget-arranging drawer. All of
+ * it good, none of it a dashboard, and all of it one tap from the Daily Brief,
+ * which does the same job better and is the module built for it.
+ *
+ * A dashboard's question is not "what is the weather" — the app has eight
+ * answers to that. It is WHERE SHOULD I LOOK TODAY, across everything the
+ * member has. So the page is now exactly that and nothing else: one tile per
+ * module, only the modules they have unlocked, each carrying a live figure
+ * where the shared data can supply one.
+ *
+ * Two properties do the work:
+ *
+ *   • Tiles are unequal. Most sit quiet. The ones with something to say carry
+ *     it at display size, and the ones worth acting on light their rail. You
+ *     should be able to open this and know where to look without reading.
+ *
+ *   • Every reading comes from data this page already fetched — one Open-Meteo
+ *     request and one NWS alerts request for the member's location. Forty tiles
+ *     fetching their own module's data would be forty requests to open a page
+ *     nobody has asked a question of yet. Where the shared data cannot answer,
+ *     the tile says "Open the module" rather than showing an invented number;
+ *     the reasoning is in `lib/dashboardModules.ts`.
+ *
+ * Locked modules are absent rather than shown greyed. The sidebar is where a
+ * member discovers what they could buy — it deliberately shows locked rows —
+ * and duplicating that here would turn a working instrument into a shop.
+ */
+import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { motion } from "framer-motion";
+import { LayoutGrid, AlertTriangle, MapPin } from "lucide-react";
+import { useOpenMeteo, useNWSAlerts } from "../hooks/useWeatherQuery";
+import { useAuth, hasModuleAccess } from "../hooks/useAuth";
 import { hourIndexNow } from "../lib/currentHour";
-import { motion, AnimatePresence, LayoutGroup } from "framer-motion";
-import { useOpenMeteo, useNWSAlerts, useNWSPoints } from "../hooks/useWeatherQuery";
 import type { Location } from "../hooks/useLocation";
-import { StatSkeleton, ChartSkeleton, AlertSkeleton } from "../components/WeatherSkeleton";
-import { WMO_DESCRIPTIONS, WEATHER_ICONS } from "../config";
-import {
-  cToF, getWindDirection, msToMph, visibilityDescription,
-  computeSRHFromProfile, compute06kmShear, computeSWTI,
-} from "../utils/weatherCalc";
-import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, BarChart, Bar } from "recharts";
-import { AlertTriangle, ArrowDown, ArrowUp, Wind, Droplets, Thermometer, Eye, Gauge, Cloud, EyeOff, Plus, Settings2, RotateCcw, Check, Sunrise, Sunset } from "lucide-react";
-import { format, parseISO } from "date-fns";
-import { DASHBOARD_WIDGETS, WIDGET_LABELS, getLayout, saveLayout, type WidgetId, type DashboardLayout } from "../lib/dashboardLayout";
-import {
-  CloudCoverWidget, VisibilityWidget, HumidityPressureWidget, AqiWidget,
-  SswxconWidget, IngredientsWidget, TimingWidget, MoonWidget, MosquitoWidget,
-  WindWidget, WIDGET_CSS,
-} from "../components/DashboardWidgets";
-import { ConditionsHero } from "../components/dashboard/ConditionsHero";
-import { CountUp } from "../components/dashboard/CountUp";
-import { ROYAL, HEADING, EASE, panelStyle, topRule } from "../lib/royal";
+import { ModuleShell } from "../components/ModuleShell";
+import { ModuleTile } from "../components/dashboard/ModuleTile";
+import { MODULE_TILES, TILE_SECTIONS, type TileContext } from "../lib/dashboardModules";
+import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
-function StatCard({ label, value, unit, icon: Icon, sub, numeric }: {
-  label: string; value: string | number; unit?: string; icon: React.ElementType;
-  sub?: string; numeric?: number | null;
-}) {
-  return (
-    <motion.div
-      whileHover={{ y: -2 }}
-      transition={{ type: "spring", stiffness: 400, damping: 26 }}
-      className="relative rounded-xl p-3.5 overflow-hidden group"
-      style={panelStyle}
-    >
-      {/* Gold rail that lights up on hover. */}
-      <span className="absolute left-0 top-0 bottom-0 w-[2px] opacity-40 group-hover:opacity-100 transition-opacity"
-            style={{ background: ROYAL.gold }} />
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-[9.5px] font-medium uppercase tracking-[0.16em]" style={{ color: ROYAL.dim }}>{label}</span>
-        <Icon className="w-3.5 h-3.5" style={{ color: ROYAL.gold, opacity: 0.75 }} />
-      </div>
-      <div className="flex items-baseline gap-1">
-        <span className="text-2xl font-bold tabular-nums" style={{ fontFamily: HEADING, color: ROYAL.text }}>
-          {numeric != null ? <CountUp value={numeric} /> : value}
-        </span>
-        {unit && <span className="text-[11px]" style={{ color: ROYAL.dim }}>{unit}</span>}
-      </div>
-      {sub && <div className="text-[10.5px] mt-0.5" style={{ color: ROYAL.dim }}>{sub}</div>}
-    </motion.div>
-  );
-}
-
-function WindCompass({ deg }: { deg: number }) {
-  // Red arm points the way the wind is coming FROM; the blue tail shows where it's headed.
-  return (
-    <svg width="84" height="84" viewBox="0 0 100 100" className="shrink-0">
-      <circle cx="50" cy="50" r="46" fill="none" stroke="hsl(var(--border))" strokeWidth="2" />
-      {["N", "E", "S", "W"].map((d, i) => {
-        const a = ((i * 90 - 90) * Math.PI) / 180;
-        return <text key={d} x={50 + 38 * Math.cos(a)} y={50 + 38 * Math.sin(a) + 3} textAnchor="middle" fontSize="10" fill="#9ca3af">{d}</text>;
-      })}
-      <g transform={`rotate(${deg} 50 50)`}>
-        <polygon points="50,16 44,52 56,52" fill={ROYAL.gold} />
-        <polygon points="50,84 44,48 56,48" fill={ROYAL.iris} opacity={0.55} />
-      </g>
-      <circle cx="50" cy="50" r="4" fill={ROYAL.text} />
-    </svg>
-  );
-}
-
-function AlertBanner({ alerts }: { alerts: ReturnType<typeof useNWSAlerts>["data"] }) {
-  if (!alerts?.length) return null;
-  const severeColors: Record<string, string> = {
-    Extreme: "border-red-500 bg-red-500/10 text-red-300",
-    Severe: "border-orange-500 bg-orange-500/10 text-orange-300",
-    Moderate: "border-yellow-500 bg-yellow-500/10 text-yellow-300",
-    Minor: "border-blue-500 bg-blue-500/10 text-blue-300",
-  };
-  return (
-    <div className="space-y-2">
-      {alerts.slice(0, 5).map((a) => {
-        const cls = severeColors[a.properties.severity] ?? "border-muted bg-muted/10 text-muted-foreground";
-        return (
-          <div key={a.properties.id} className={`border rounded-lg p-3 ${cls}`}>
-            <div className="flex items-center gap-2 font-semibold text-sm"><AlertTriangle className="w-4 h-4" />{a.properties.event}</div>
-            <div className="text-xs mt-1 opacity-80">{a.properties.headline}</div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-function AlertFeedDown({ onRetry }: { onRetry: () => void }) {
-  return (
-    <div className="border border-yellow-500/40 bg-yellow-500/10 text-yellow-200 rounded-lg p-3 flex items-start gap-2">
-      <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-      <div className="text-xs leading-relaxed">
-        <span className="font-semibold block text-sm mb-0.5">Alerts could not be checked</span>
-        We could not reach the Weather Service just now, so this is not an all-clear.
-        <button onClick={onRetry} className="ml-1 underline underline-offset-2 hover:text-yellow-100">Try again</button>
-      </div>
-    </div>
-  );
-}
-
 export default function Dashboard({ location }: Props) {
-  const { data: weather, isLoading, error } = useOpenMeteo(location);
-  const { data: alerts, isLoading: alertsLoading, isError: alertsFailed, refetch: refetchAlerts } = useNWSAlerts(location);
-  const { data: nwsPoints } = useNWSPoints(location);
+  const { user } = useAuth();
+  const still = prefersReducedMotion();
+  const wx = useOpenMeteo(location);
+  const alertsQ = useNWSAlerts(location);
 
-  const [layout, setLayout] = useState<DashboardLayout>(getLayout);
-  const [editing, setEditing] = useState(false);
+  // Only what they own. `hasModuleAccess` is the same gate the router uses, so
+  // a tile can never open something the member would be refused.
+  const mine = useMemo(
+    () => MODULE_TILES.filter((t) => hasModuleAccess(user, t.path)),
+    [user],
+  );
 
-  function update(next: DashboardLayout) { saveLayout(next); setLayout(next); }
+  const ctx: TileContext = useMemo(() => ({
+    wx: wx.data ?? null,
+    alerts: (alertsQ.data ?? []) as TileContext["alerts"],
+    // `hourIndexNow` takes the whole response, not the time array — it needs
+    // `utc_offset_seconds` to compare against local time rather than UTC, which
+    // is the difference between "now" and "now, seven hours ago".
+    hour: wx.data?.hourly?.time?.length ? hourIndexNow(wx.data) : -1,
+    now: new Date(),
+  }), [wx.data, alertsQ.data]);
 
-  /**
-   * Move a widget one place, the way the admin panel's editor does.
-   *
-   * This used to be HTML5 drag-and-drop, and on a phone that is not a reorder
-   * control at all: `draggable` needs a real drag, which touch does not
-   * generate, so the gesture either did nothing or resolved against whichever
-   * tile the browser decided the pointer was over. That is the "tiles moved to
-   * random places". The churn around it came from the grid — tiles span one
-   * column or four, so a reorder changes every tile's box at once and each one
-   * animates independently.
-   *
-   * The ordering maths was sound; the input method was not. Two arrows per tile
-   * is what the admin panel's editor uses, it works with a thumb, and one press
-   * moves one place with nothing to interpret.
-   */
-  function nudge(id: WidgetId, dir: -1 | 1) {
-    const shown = layout.order.filter((w) => !layout.hidden.includes(w));
-    const vi = shown.indexOf(id);
-    const target = shown[vi + dir];
-    if (vi < 0 || target === undefined) return;
+  // Read once per render pass rather than inside each tile, so the ordering
+  // below and the tile itself cannot disagree about what a module says.
+  const readings = useMemo(
+    () => new Map(mine.map((t) => [t.path, t.read ? (t.read(ctx) ?? null) : null])),
+    [mine, ctx],
+  );
 
-    const order = [...layout.order];
-    const a = order.indexOf(id), b = order.indexOf(target);
-    if (a < 0 || b < 0) return;
-    // A straight swap with the next visible neighbour. Hidden widgets sitting
-    // between the two keep their place, which is what makes the visible list
-    // move by exactly one.
-    [order[a], order[b]] = [order[b], order[a]];
-    update({ ...layout, order });
-  }
-  const hide = (id: WidgetId) => update({ ...layout, hidden: [...layout.hidden, id] });
-  const show = (id: WidgetId) => update({ ...layout, hidden: layout.hidden.filter((w) => w !== id) });
-  const reset = () => update({ order: [...DASHBOARD_WIDGETS], hidden: [] });
+  const live = useMemo(
+    () => [...readings.values()].filter((r) => r && r.tone && r.tone !== "quiet").length,
+    [readings],
+  );
 
-  if (error) {
-    return (
-      <div className="p-6 text-center text-muted-foreground">
-        <AlertTriangle className="w-8 h-8 mx-auto mb-2 text-destructive" />
-        <p>Could not load weather data. Check your connection and try again.</p>
-      </div>
-    );
-  }
+  const sections = useMemo(
+    () => TILE_SECTIONS
+      .map((label) => ({ label, tiles: mine.filter((t) => t.section === label) }))
+      .filter((s) => s.tiles.length > 0),
+    [mine],
+  );
 
-  const cur = weather?.current;
-  const hourly = weather?.hourly;
-  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
-  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
-  const nowHr = hourIndexNow(weather);
-  const tempF = cur ? Math.round(cToF(cur.temperature_2m)) : null;
-  const feelsF = cur ? Math.round(cToF(cur.apparent_temperature)) : null;
-  const windMph = cur ? Math.round(msToMph(cur.wind_speed_10m)) : null;
-  const gustMph = cur ? Math.round(msToMph(cur.wind_gusts_10m)) : null;
-  const windDir = cur ? getWindDirection(cur.wind_direction_10m) : "";
-  const vis = cur ? visibilityDescription(cur.visibility ?? 16000) : "";
-  const wmoCode = cur?.weather_code ?? 0;
-  const wmoDesc = WMO_DESCRIPTIONS[wmoCode] ?? "Unknown";
-  const emoji = WEATHER_ICONS[wmoCode] ?? "🌡️";
+  let n = 0;   // running index across sections, so the stagger reads as one sweep
 
-  const hourlyChart = hourly?.time?.slice(0, 24).map((t: string, i: number) => ({
-    time: format(parseISO(t), "ha"),
-    temp: hourly.temperature_2m ? Math.round(cToF(hourly.temperature_2m[i])) : 0,
-    precip: hourly.precipitation_probability ? hourly.precipitation_probability[i] : 0,
-  })) ?? [];
-
-  const srh = hourly && hourly.wind_speed_10m && hourly.wind_speed_925hPa
-    ? computeSRHFromProfile(
-        hourly.wind_speed_10m[nowHr], hourly.wind_direction_10m[nowHr],
-        hourly.wind_speed_925hPa[nowHr], hourly.wind_direction_925hPa[nowHr],
-        hourly.wind_speed_850hPa[nowHr], hourly.wind_direction_850hPa[nowHr],
-        hourly.wind_speed_700hPa[nowHr], hourly.wind_direction_700hPa[nowHr],
-        hourly.wind_speed_500hPa[nowHr], hourly.wind_direction_500hPa[nowHr],
-      ) : null;
-  const shear06 = hourly && hourly.wind_speed_10m && hourly.wind_speed_500hPa
-    ? compute06kmShear(hourly.wind_speed_10m[nowHr], hourly.wind_direction_10m[nowHr], hourly.wind_speed_500hPa[nowHr], hourly.wind_direction_500hPa[nowHr]) : null;
-  const swti = srh !== null && shear06 !== null && hourly?.cape
-    ? computeSWTI({ cape: hourly.cape[nowHr] ?? 0, srh, shear06km: shear06, liftedIndex: hourly.lifted_index?.[0] ?? 0, dewPointC: hourly.dew_point_2m?.[0] ?? 10 }) : null;
-
-  const daily = weather?.daily;
-  const dCode = (i: number) => (daily?.weather_code?.[i] as number) ?? 0;
-  const todayHi = daily?.temperature_2m_max ? Math.round(cToF(daily.temperature_2m_max[0] as number)) : null;
-  const todayLo = daily?.temperature_2m_min ? Math.round(cToF(daily.temperature_2m_min[0] as number)) : null;
-  const todayPop = (daily?.precipitation_probability_max?.[0] as number) ?? 0;
-  const sunrise = daily?.sunrise?.[0] as string | undefined;
-  const sunset = daily?.sunset?.[0] as string | undefined;
-  const sevenDay = (daily?.time as string[] | undefined)?.slice(0, 7).map((t, i) => ({
-    day: i === 0 ? "Today" : format(parseISO(t), "EEE"),
-    hi: daily!.temperature_2m_max ? Math.round(cToF(daily!.temperature_2m_max[i] as number)) : 0,
-    lo: daily!.temperature_2m_min ? Math.round(cToF(daily!.temperature_2m_min[i] as number)) : 0,
-    code: dCode(i),
-    pop: (daily!.precipitation_probability_max?.[i] as number) ?? 0,
-  })) ?? [];
-
-  const TOOLTIP = { background: "hsl(232 20% 10%)", border: "1px solid hsl(232 18% 16%)", borderRadius: 8, fontSize: 12 };
-
-  // Each widget's inner content (null = nothing to show right now).
-  const content: Record<WidgetId, React.ReactNode> = {
-    hero: (
-      <ConditionsHero
-        tempF={tempF} feelsF={feelsF}
-        condition={wmoDesc} place={location.name} glyph={emoji}
-        hiF={todayHi} loF={todayLo}
-        windMph={windMph} windDir={windDir}
-        humidity={cur?.relative_humidity_2m ?? null}
-        loading={isLoading}
-      />
-    ),
-    alerts: alertsLoading
-      ? <AlertSkeleton />
-      : alertsFailed
-        // An empty alerts slot on the dashboard reads as "nothing is out for
-        // you". When the feed is down we have not checked, so say that rather
-        // than render nothing and let the silence make the claim.
-        ? <AlertFeedDown onRetry={() => refetchAlerts()} />
-        : (alerts?.length ? <AlertBanner alerts={alerts} /> : null),
-    stats: (
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3">
-        {isLoading ? Array.from({ length: 6 }).map((_, i) => <StatSkeleton key={i} />) : (
-          <>
-            <StatCard label="Wind" value={`${windMph} ${windDir}`} unit="mph" icon={Wind} sub={`Gusts ${gustMph} mph`} />
-            <StatCard label="Humidity" value={cur?.relative_humidity_2m ?? 0} numeric={cur?.relative_humidity_2m ?? 0} unit="%" icon={Droplets} />
-            <StatCard label="Dew Point" value={`${Math.round(cToF(cur?.dew_point_2m ?? 0))}°`} unit="F" icon={Thermometer} />
-            <StatCard label="Pressure" value={Math.round(cur?.surface_pressure ?? 0)} numeric={Math.round(cur?.surface_pressure ?? 0)} unit="hPa" icon={Gauge} />
-            <StatCard label="Visibility" value={vis} icon={Eye} />
-            <StatCard label="Cloud Cover" value={cur?.cloud_cover ?? 0} numeric={cur?.cloud_cover ?? 0} unit="%" icon={Cloud} />
-          </>
-        )}
-      </div>
-    ),
-    today: daily ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Today — {location.name}</h3>
-        <div className="flex items-center gap-4">
-          <div className="text-5xl">{WEATHER_ICONS[dCode(0)] ?? "🌡️"}</div>
-          <div className="flex items-baseline gap-4">
-            <div><span className="text-3xl font-bold">{isLoading ? "—" : `${todayHi}°`}</span><span className="text-xs text-muted-foreground ml-1">High</span></div>
-            <div><span className="text-2xl font-semibold text-muted-foreground">{isLoading ? "—" : `${todayLo}°`}</span><span className="text-xs text-muted-foreground ml-1">Low</span></div>
-          </div>
+  return (
+    <ModuleShell
+      eyebrow="StormSync · Your modules"
+      title="Dashboard"
+      subtitle={`Every module you have, reading live where it can. ${location.name}.`}
+      wide
+      status={
+        <div className="flex items-center gap-2 flex-wrap text-[11px]" style={{ color: ROYAL.dim }}>
+          <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+                style={{ border: `1px solid ${ROYAL.hairline}` }}>
+            <LayoutGrid className="w-3 h-3" /> {mine.length} modules
+          </span>
+          {live > 0 && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+                  style={{ border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.gold }}>
+              <AlertTriangle className="w-3 h-3" /> {live} worth a look
+            </span>
+          )}
+          <span className="flex items-center gap-1.5 ml-auto">
+            <MapPin className="w-3 h-3" />
+            {wx.isLoading ? "reading conditions…"
+              : wx.isError ? "conditions unavailable — tiles show names only"
+              : location.name}
+          </span>
         </div>
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Droplets className="w-3.5 h-3.5 text-blue-400" /> {todayPop}% chance of precip · {WMO_DESCRIPTIONS[dCode(0)] ?? "—"}
+      }
+    >
+      {mine.length === 0 ? (
+        <div className="rounded-2xl px-6 py-14 text-center"
+             style={{ border: `1px solid ${ROYAL.hairline}`, background: ROYAL.panel }}>
+          <LayoutGrid className="w-7 h-7 mx-auto mb-3" style={{ color: ROYAL.goldSoft }} />
+          <h2 className="text-base font-semibold" style={{ fontFamily: HEADING, color: ROYAL.text }}>
+            Nothing unlocked yet
+          </h2>
+          <p className="mt-1.5 text-sm max-w-sm mx-auto leading-relaxed" style={{ color: ROYAL.dim }}>
+            Your modules appear here as tiles the moment they are part of your plan. The sidebar shows
+            everything the app can do in the meantime.
+          </p>
         </div>
-      </div>
-    ) : null,
-    sevenDay: sevenDay.length ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>7-Day Forecast</h3>
-        <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
-          {sevenDay.map((d) => (
-            <div key={d.day} className="flex flex-col items-center gap-1 rounded-lg bg-muted/20 py-2">
-              <span className="text-[11px] text-muted-foreground font-medium">{d.day}</span>
-              <span className="text-2xl">{WEATHER_ICONS[d.code] ?? "🌡️"}</span>
-              <span className="text-xs"><span className="font-bold">{d.hi}°</span> <span className="text-muted-foreground">{d.lo}°</span></span>
-              {d.pop > 0 && <span className="text-[10px] text-blue-400">{d.pop}%</span>}
-            </div>
+      ) : (
+        <div className="space-y-5">
+          {sections.map((s, si) => (
+            <section key={s.label} className="space-y-2">
+              <motion.div
+                initial={still ? { opacity: 0 } : { opacity: 0, x: -6 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: still ? 0.2 : 0.4, delay: si * 0.05, ease: EASE }}
+                className="flex items-center gap-2.5"
+              >
+                <span className="text-[10px] uppercase tracking-[0.26em] shrink-0"
+                      style={{ color: ROYAL.gold }}>{s.label}</span>
+                <span aria-hidden className="flex-1 h-px"
+                      style={{ background: `linear-gradient(90deg, ${ROYAL.goldSoft}, transparent)` }} />
+                <span className="text-[10px] tabular-nums shrink-0" style={{ color: ROYAL.dim }}>
+                  {s.tiles.length}
+                </span>
+              </motion.div>
+
+              <div className="grid gap-2.5 grid-cols-2 md:grid-cols-3 xl:grid-cols-4">
+                {s.tiles.map((t) => (
+                  <ModuleTile
+                    key={t.path}
+                    tile={t}
+                    reading={readings.get(t.path) ?? null}
+                    still={still}
+                    index={n++}
+                  />
+                ))}
+              </div>
+            </section>
           ))}
         </div>
-      </div>
-    ) : null,
-    sunMoon: (sunrise && sunset) ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Sunrise & Sunset</h3>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="flex items-center gap-3 rounded-lg bg-muted/20 p-3">
-            <Sunrise className="w-6 h-6 text-amber-400 shrink-0" />
-            <div><div className="text-xs text-muted-foreground">Sunrise</div><div className="text-lg font-bold">{format(parseISO(sunrise), "h:mm a")}</div></div>
-          </div>
-          <div className="flex items-center gap-3 rounded-lg bg-muted/20 p-3">
-            <Sunset className="w-6 h-6 text-orange-400 shrink-0" />
-            <div><div className="text-xs text-muted-foreground">Sunset</div><div className="text-lg font-bold">{format(parseISO(sunset), "h:mm a")}</div></div>
-          </div>
-        </div>
-      </div>
-    ) : null,
-    windCompass: cur ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Wind</h3>
-        <div className="flex items-center gap-5">
-          <WindCompass deg={cur.wind_direction_10m} />
-          <div>
-            <div className="text-3xl font-bold">{isLoading ? "—" : windMph} <span className="text-base font-normal text-muted-foreground">mph</span></div>
-            <div className="text-sm text-muted-foreground">From the {windDir} ({Math.round(cur.wind_direction_10m)}°)</div>
-            <div className="text-xs text-muted-foreground mt-1">Gusting {gustMph} mph</div>
-          </div>
-        </div>
-      </div>
-    ) : null,
-    swti: swti ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>Storm Threat Index (SWTI)</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-          <div className="text-center"><div className="text-2xl font-bold" style={{ color: swti.color }}>{swti.score}</div><div className="text-xs text-muted-foreground">Score / 100</div></div>
-          <div className="text-center"><div className="text-sm font-semibold" style={{ color: swti.color }}>{swti.label}</div><div className="text-xs text-muted-foreground">Tornado Risk</div></div>
-          <div className="text-center"><div className="text-sm font-semibold capitalize">{swti.hailRisk}</div><div className="text-xs text-muted-foreground">Hail Risk</div></div>
-          <div className="text-center"><div className="text-sm font-semibold capitalize">{swti.windRisk}</div><div className="text-xs text-muted-foreground">Wind Risk</div></div>
-        </div>
-        <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
-          <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">CAPE</div><div className="font-medium">{Math.round(hourly?.cape?.[nowHr] ?? 0)} J/kg</div></div>
-          <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">0-3km SRH</div><div className="font-medium">{srh !== null ? Math.round(srh) : "—"} m²/s²</div></div>
-          <div className="bg-muted/30 rounded p-2"><div className="text-muted-foreground">0-6km Shear</div><div className="font-medium">{shear06 !== null ? Math.round(shear06) : "—"} kts</div></div>
-        </div>
-      </div>
-    ) : null,
-    tempChart: (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>24-Hour Temperature Trend</h3>
-        {isLoading ? <ChartSkeleton /> : (
-          <ResponsiveContainer width="100%" height={180}>
-            <AreaChart data={hourlyChart}>
-              <defs><linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={ROYAL.gold} stopOpacity={0.34} /><stop offset="95%" stopColor={ROYAL.gold} stopOpacity={0} /></linearGradient></defs>
-              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} unit="°" />
-              <Tooltip contentStyle={TOOLTIP} formatter={(v) => [`${v}°F`, "Temp"]} />
-              <Area type="monotone" dataKey="temp" stroke={ROYAL.gold} strokeWidth={2} fill="url(#tempGrad)" dot={false} />
-            </AreaChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    ),
-    precipChart: (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-3 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>24-Hour Precip Probability</h3>
-        {isLoading ? <ChartSkeleton /> : (
-          <ResponsiveContainer width="100%" height={180}>
-            <BarChart data={hourlyChart}>
-              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#6b7280" }} tickLine={false} axisLine={false} unit="%" domain={[0, 100]} />
-              <Tooltip contentStyle={TOOLTIP} formatter={(v) => [`${v}%`, "Precip Prob"]} />
-              <Bar dataKey="precip" fill={ROYAL.iris} radius={[3, 3, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
-    ),
-    nwsOffice: nwsPoints ? (
-      <div className="relative rounded-xl p-4 overflow-hidden" style={panelStyle}>
-        <span className="absolute inset-x-0 top-0 h-px" style={topRule} />
-        <h3 className="text-[11px] font-semibold mb-2 uppercase tracking-[0.16em]" style={{ fontFamily: HEADING, color: ROYAL.gold }}>NWS Office</h3>
-        <div className="grid grid-cols-2 gap-3 text-sm">
-          <div><span className="text-muted-foreground">Office: </span><span className="font-medium">{nwsPoints.properties.cwa}</span></div>
-          <div><span className="text-muted-foreground">Grid: </span><span className="font-medium">{nwsPoints.properties.gridX}, {nwsPoints.properties.gridY}</span></div>
-          <div><span className="text-muted-foreground">Location: </span><span className="font-medium">{nwsPoints.properties.relativeLocation?.properties?.city}, {nwsPoints.properties.relativeLocation?.properties?.state}</span></div>
-          <div><span className="text-muted-foreground">Timezone: </span><span className="font-medium">{nwsPoints.properties.timeZone}</span></div>
-        </div>
-      </div>
-    ) : null,
-
-    // ── Relaunch mini-widgets ──
-    // These are compact and animated, so they read as a phone-weather-app tile
-    // wall rather than a stack of panels. Each links through to its full module.
-    cloudCover: <CloudCoverWidget wx={weather} />,
-    visibility: <VisibilityWidget wx={weather} />,
-    humidityPressure: <HumidityPressureWidget wx={weather} />,
-    aqi: <AqiWidget location={location} />,
-    sswxcon: <SswxconWidget wx={weather} />,
-    ingredients: <IngredientsWidget wx={weather} />,
-    timing: <TimingWidget wx={weather} />,
-    moon: <MoonWidget />,
-    mosquito: <MosquitoWidget wx={weather} />,
-  };
-
-  // Compact widgets tile two-up on phones and four-up on desktop; the original
-  // full-width panels keep their own row.
-  const COMPACT = new Set<WidgetId>([
-    "cloudCover", "visibility", "humidityPressure", "aqi",
-    "sswxcon", "ingredients", "timing", "moon", "mosquito",
-  ]);
-
-  const visible = layout.order.filter((id) => !layout.hidden.includes(id));
-  const hiddenList = layout.order.filter((id) => layout.hidden.includes(id));
-
-  return (
-    <div className="p-4 md:p-6 space-y-4">
-      <style>{WIDGET_CSS}</style>
-      <div className="flex items-end justify-between gap-3">
-        <div>
-          <div className="text-[10px] uppercase tracking-[0.3em] mb-0.5" style={{ color: ROYAL.gold }}>
-            StormSync VIP
-          </div>
-          <h1 className="text-xl font-bold tracking-[0.02em]" style={{ fontFamily: HEADING, color: ROYAL.text }}>
-            Your Dashboard
-          </h1>
-        </div>
-        <div className="flex items-center gap-2">
-          {editing && <button onClick={reset} className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1.5"><RotateCcw className="w-3.5 h-3.5" /> Reset</button>}
-          <button onClick={() => setEditing(e => !e)}
-            className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${editing ? "bg-primary/15 border-primary/40 text-primary" : "pulse-glow bg-primary/10 border-primary/50 text-primary hover:bg-primary/20"}`}>
-            {editing ? <><Check className="w-3.5 h-3.5" /> Done</> : <><Settings2 className="w-3.5 h-3.5" /> Customize</>}
-          </button>
-        </div>
-      </div>
-
-      {editing && hiddenList.length > 0 && (
-        <div className="bg-muted/20 border border-border rounded-xl p-3">
-          <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-2">Hidden widgets — tap to add back</div>
-          <div className="flex flex-wrap gap-2">
-            {hiddenList.map(id => (
-              <button key={id} onClick={() => show(id)} className="flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-card border border-border hover:border-primary/40 text-muted-foreground hover:text-primary">
-                <Plus className="w-3 h-3" /> {WIDGET_LABELS[id]}
-              </button>
-            ))}
-          </div>
-        </div>
       )}
-
-      {/* A grid rather than a stack: compact tiles sit two-up on phones and
-          four-up on desktop, while the original full-width panels span the row.
-          Ordering is by the arrows on each tile while customising. */}
-      <LayoutGroup id="dashboard">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 items-start">
-        {visible.map((id, idx) => {
-          const inner = content[id];
-          if (inner == null && !editing) return null;
-          const compact = COMPACT.has(id);
-          return (
-            <motion.div
-              key={id}
-              layout
-              // Tiles rise in sequence on first paint, and `layout` means a
-              // re-order during customise animates to its new slot rather than
-              // teleporting there.
-              initial={{ opacity: 0, y: 16 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{
-                layout: { type: "spring", stiffness: 320, damping: 32 },
-                delay: Math.min(idx, 10) * 0.045,
-                duration: 0.45,
-                ease: EASE,
-              }}
-              className={`${compact ? "col-span-1" : "col-span-2 md:col-span-4"} ${
-                editing ? "relative rounded-xl border border-dashed border-primary/30 p-2" : ""}`}
-            >
-              {editing && (
-                <div className="flex items-center justify-between mb-2 px-1 gap-1">
-                  <span className="flex items-center gap-0.5 shrink-0">
-                    <button onClick={() => nudge(id, -1)} disabled={idx === 0}
-                            aria-label={`Move ${WIDGET_LABELS[id]} earlier`}
-                            className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30">
-                      <ArrowUp className="w-4 h-4" />
-                    </button>
-                    <button onClick={() => nudge(id, 1)} disabled={idx === visible.length - 1}
-                            aria-label={`Move ${WIDGET_LABELS[id]} later`}
-                            className="p-1 text-muted-foreground hover:text-primary disabled:opacity-30">
-                      <ArrowDown className="w-4 h-4" />
-                    </button>
-                  </span>
-                  <span className="text-[11px] text-muted-foreground truncate flex-1 min-w-0">
-                    {WIDGET_LABELS[id]}
-                  </span>
-                  <button onClick={() => hide(id)} className="text-muted-foreground hover:text-red-400 flex items-center gap-1 text-[11px] shrink-0"><EyeOff className="w-3.5 h-3.5" /> Hide</button>
-                </div>
-              )}
-              {inner ?? <div className="text-xs text-muted-foreground italic px-2 py-3">Nothing to show here right now.</div>}
-            </motion.div>
-          );
-        })}
-      </div>
-      </LayoutGroup>
-    </div>
+    </ModuleShell>
   );
 }

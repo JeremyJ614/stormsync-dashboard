@@ -53,7 +53,7 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
           if (idx === null) { skipped++; continue; }
           visible++;
           if (idx > maxIdx) maxIdx = idx;
-          const sig = mode === "intensity" && idx === 1;
+          const sig = mode === "intensity" && idx >= 1;
           const g = f.geometry as GeoJSON.Geometry;
           const rings: number[][][][] =
             g?.type === "Polygon" ? [(g as GeoJSON.Polygon).coordinates]
@@ -121,14 +121,33 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
           <UsNationMask id={maskId} />
           <UsStatesBackdrop />
+          {/*
+            The conditional-intensity hatch. Colourless on purpose: it lies
+            over the level colour rather than replacing it, so every tier above
+            the base of an Intensity palette finally reaches the map.
+            Previously these areas were `fill="none"` with a white stroke,
+            which meant the legend advertised colours the poster never printed.
+          */}
+          <defs>
+            <pattern id={`${maskId}-sig`} width={8} height={8} patternUnits="userSpaceOnUse"
+                     patternTransform="rotate(45)">
+              <rect width={8} height={8} fill="none" />
+              <line x1={0} y1={0} x2={0} y2={8} stroke="rgba(10,8,18,0.85)" strokeWidth={2.4} />
+            </pattern>
+          </defs>
           <g mask={`url(#${maskId})`}>
+            {/* Already sorted by level, so each nested contour paints over the
+                one containing it rather than under it. */}
             {polys.map((p, i) => (
-              <path key={i} d={p.d}
-                fill={p.sig ? "none" : palette[p.idx]?.color ?? "#888"}
-                fillOpacity={p.sig ? 0 : 0.6}
-                stroke={p.sig ? "#ffffff" : palette[p.idx]?.color ?? "#888"}
-                strokeWidth={p.sig ? 2.5 : 1}
-                strokeOpacity={0.95} />
+              <g key={i}>
+                <path d={p.d}
+                  fill={palette[p.idx]?.color ?? "#888"}
+                  fillOpacity={p.sig ? 0.88 : 0.6}
+                  stroke={palette[p.idx]?.color ?? "#888"}
+                  strokeWidth={p.sig ? 2.2 : 1}
+                  strokeOpacity={0.95} />
+                {p.sig && <path d={p.d} fill={`url(#${maskId}-sig)`} stroke="none" />}
+              </g>
             ))}
           </g>
           <UsStateLabels />

@@ -683,3 +683,26 @@ html, body {
 @media (max-width: 820px) {
   .royal-glass { background: rgba(14, 14, 27, 0.92); }
 }
+
+
+/*
+ * Daily Trivia — the answer rows.
+ *
+ * Hover and focus live in CSS rather than React state because they are pure
+ * presentation: a row that is still open lifts its hairline to champagne and
+ * warms a shade, which is the only thing telling a member the answers are
+ * pressable at all. Revealed rows are excluded, since they are no longer a
+ * choice.
+ *
+ * The focus ring is not optional. These are the module's only controls, and a
+ * member playing by keyboard needs to see which row they are about to commit.
+ */
+.sx-choice-open:hover {
+  border-color: rgba(217, 183, 117, 0.42) !important;
+  background: rgba(217, 183, 117, 0.045) !important;
+}
+.sx-choice:focus-visible {
+  outline: none;
+  border-color: rgba(217, 183, 117, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(217, 183, 117, 0.22);
+}

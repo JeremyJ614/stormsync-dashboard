@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../lib/maplibreWorker";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";

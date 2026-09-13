@@ -41,8 +41,19 @@ function maplibreWorker(): Plugin {
     configResolved(cfg) { assetsDir = cfg.build.assetsDir || "assets"; },
     generateBundle() {
       for (const f of FILES) {
-        // The name must not be hashed: MapLibre asks for it by literal name.
-        this.emitFile({ type: "asset", fileName: `${assetsDir}/${f}`, source: readFileSync(from(f)) });
+        const source = readFileSync(from(f));
+        // Two copies, for two different failure modes.
+        //
+        // At the assets root, under the literal name, because that is where
+        // MapLibre's own runtime resolver looks if nothing overrides it.
+        this.emitFile({ type: "asset", fileName: `${assetsDir}/${f}`, source });
+        // And under `mlv6/`, which `src/lib/maplibreWorker.ts` points MapLibre
+        // at explicitly. Clients that asked for the root path while it was
+        // still 404ing have an HTML body cached under it by their own service
+        // worker; a path nobody has ever requested cannot be poisoned, so they
+        // recover on their next load rather than when a new service worker
+        // eventually takes over.
+        this.emitFile({ type: "asset", fileName: `${assetsDir}/mlv6/${f}`, source });
       }
     },
     configureServer(server) {

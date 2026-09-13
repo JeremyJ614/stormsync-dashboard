@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 import { FLOOD_STYLE, type GaugeSummary } from "../../lib/riverGauges";

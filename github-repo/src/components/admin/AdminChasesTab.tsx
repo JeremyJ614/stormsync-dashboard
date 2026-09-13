@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
   Check, Crosshair, Loader2, MapPin, Pencil, Plus, Route as RouteIcon, Save, Search,

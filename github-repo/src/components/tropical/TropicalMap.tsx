@@ -9,6 +9,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { STORMSYNC_DARK } from "../../lib/basemap";
 import {

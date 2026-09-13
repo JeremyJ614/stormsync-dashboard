@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { WarningFeature, TornadoFeature } from "../lib/severeHistoryData";
 import { STORMSYNC_DARK } from "../lib/basemap";

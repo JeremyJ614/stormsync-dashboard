@@ -839,3 +839,26 @@ html, body {
 .sx-scrub:focus-visible::-moz-range-thumb {
   box-shadow: 0 0 0 3px rgba(217, 183, 117, 0.35);
 }
+
+/*
+ * A dashboard tile whose source has not landed yet.
+ *
+ * A sweep rather than a pulse: a pulsing block on a wall of twenty tiles reads
+ * as an alarm, and this is the opposite of an alarm. Pure background-position,
+ * so the compositor runs it and React never sees a frame.
+ */
+.sx-tile-wait {
+  background: linear-gradient(90deg,
+    rgba(204, 204, 255, 0.05) 0%,
+    rgba(204, 204, 255, 0.12) 50%,
+    rgba(204, 204, 255, 0.05) 100%);
+  background-size: 200% 100%;
+  animation: sx-tile-wait 1.6s ease-in-out infinite;
+}
+@keyframes sx-tile-wait {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sx-tile-wait { animation: none; }
+}

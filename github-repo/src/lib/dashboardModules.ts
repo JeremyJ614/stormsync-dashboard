@@ -31,6 +31,7 @@
  */
 import type { LucideIcon } from "lucide-react";
 import { NAV_SECTIONS } from "./navModel";
+import { moonIllumination } from "./astro";
 
 /** How much a tile should shout. */
 export type Tone = "quiet" | "notable" | "alert";
@@ -47,13 +48,26 @@ export interface Reading {
   fill?: number;
 }
 
-/** Everything a reading is allowed to look at. */
+/**
+ * Everything a reading is allowed to look at.
+ *
+ * Three shared sources and a clock. `air` and `runs` were added when the wall
+ * was cut down to live tiles only: with the "Open the module" plates gone,
+ * one more request buying three more real readings is a better trade than a
+ * thinner wall. Both are react-query cached, so the modules they belong to
+ * reuse the same response rather than fetching it again.
+ */
 export interface TileContext {
   /** Open-Meteo response for the member's location, or null while loading. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   wx: any;
   /** Active NWS alerts for the point. */
   alerts: { event?: string; severity?: string; headline?: string }[];
+  /** Open-Meteo air quality for the same point — us_aqi and uv_index hourly. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  air: any;
+  /** The most recent rendered model runs, newest first. */
+  runs: { model: string; cycle: string; params: { key: string }[]; maxFhr: number }[];
   /** Index into `hourly` for the current hour, or -1. */
   hour: number;
   now: Date;
@@ -74,6 +88,22 @@ const num = (v: unknown): number | null =>
 
 const hourly = (c: TileContext, key: string): number | null =>
   c.hour < 0 ? null : num(c.wx?.hourly?.[key]?.[c.hour]);
+
+/**
+ * The air-quality series at the current hour.
+ *
+ * It carries its own time axis and does not necessarily start where the
+ * forecast does, so `c.hour` cannot be reused — the index is found by matching
+ * the hour stamp. Getting this wrong is the bug that once had every air-quality
+ * figure in the app reporting the atmosphere as it had been at midnight.
+ */
+function airNow(c: TileContext, key: string): number | null {
+  const t = c.wx?.hourly?.time?.[c.hour];
+  const times = c.air?.hourly?.time;
+  if (typeof t !== "string" || !Array.isArray(times)) return null;
+  const i = times.indexOf(t);
+  return i < 0 ? null : num(c.air?.hourly?.[key]?.[i]);
+}
 
 const daily = (c: TileContext, key: string, day = 0): number | null =>
   num(c.wx?.daily?.[key]?.[day]);
@@ -132,10 +162,17 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
   },
 
   "/aqi": (c) => {
-    // Open-Meteo's air-quality endpoint is a separate request, so the wall does
-    // not have AQI. Cloud cover is not a substitute and nothing is pretended.
-    void c;
-    return null;
+    const aqi = airNow(c, "us_aqi");
+    if (aqi === null) return null;
+    // The EPA's own bands, so the tile and the module agree on the word.
+    const band = aqi <= 50 ? "good" : aqi <= 100 ? "moderate"
+      : aqi <= 150 ? "unhealthy for sensitive groups" : aqi <= 200 ? "unhealthy"
+      : aqi <= 300 ? "very unhealthy" : "hazardous";
+    return {
+      value: String(Math.round(aqi)), unit: "US AQI", note: band,
+      tone: aqi > 150 ? "alert" : aqi > 100 ? "notable" : "quiet",
+      fill: Math.min(1, aqi / 200),
+    };
   },
 
   "/summary": (c) => {
@@ -145,7 +182,16 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     const mins = (Date.parse(set) - Date.parse(rise)) / 60000;
     if (!Number.isFinite(mins)) return null;
     const h = Math.floor(mins / 60), m = Math.round(mins % 60);
-    return { value: `${h}h ${m}m`, note: `sets ${set.slice(11, 16)}` };
+    // Peak UV comes free with the air-quality request, and it is the thing
+    // about daylight that actually changes what somebody does with the day.
+    const uv = airNow(c, "uv_index");
+    return {
+      value: `${h}h ${m}m`,
+      note: uv !== null && uv >= 1
+        ? `sets ${set.slice(11, 16)} · UV ${uv.toFixed(0)} now`
+        : `sets ${set.slice(11, 16)}`,
+      tone: uv !== null && uv >= 8 ? "notable" : "quiet",
+    };
   },
 
   "/sswxcon": (c) => {
@@ -280,6 +326,46 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     return { value: String(dry), unit: dry === 1 ? "dry day" : "dry days", note: "in the next week" };
   },
 
+  "/moon": (c) => {
+    // No request at all: phase is a function of the date. `moonIllumination`
+    // is the same routine the astronomy module runs.
+    const m = moonIllumination(c.now);
+    return {
+      value: `${Math.round(m.fraction * 100)}`, unit: "% lit",
+      note: `${m.name}${m.fraction > 0.9 ? " — a bright night" : m.fraction < 0.1 ? " — dark skies" : ""}`,
+      fill: m.fraction,
+    };
+  },
+
+  "/wpi": (c) => {
+    // The week's temperature swing, from the daily block already in hand. A
+    // pattern change is what this module is about, and a fifty-degree spread
+    // across seven days is one.
+    let hi = -Infinity, lo = Infinity;
+    for (let d = 0; d < 7; d++) {
+      const a = daily(c, "temperature_2m_max", d), b = daily(c, "temperature_2m_min", d);
+      if (a !== null) hi = Math.max(hi, cToF(a));
+      if (b !== null) lo = Math.min(lo, cToF(b));
+    }
+    if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
+    const swing = Math.round(hi - lo);
+    return {
+      value: String(swing), unit: "°F swing",
+      note: `${Math.round(lo)}° to ${Math.round(hi)}° this week`,
+      tone: swing >= 45 ? "notable" : "quiet",
+    };
+  },
+
+  "/comparator": (c) => {
+    const r = c.runs[0];
+    if (!r) return null;
+    const hh = r.cycle.slice(11, 13);
+    return {
+      value: `${r.model.toUpperCase()} ${hh}Z`,
+      note: `${r.params.length} parameters · to F${r.maxFhr}`,
+    };
+  },
+
   "/chasing": (c) => {
     const cape = hourly(c, "cape");
     const gust = hourly(c, "wind_gusts_10m");
@@ -306,6 +392,18 @@ export const MODULE_TILES: ModuleTile[] = NAV_SECTIONS.flatMap((s) =>
   s.items
     // Home and Dashboard are how you got here.
     .filter((i) => i.path !== "/" && i.path !== "/dashboard")
+    // AND ONLY MODULES THAT CAN ACTUALLY SAY SOMETHING.
+    //
+    // The first version put every unlocked module on the wall and let the ones
+    // with no reading show "Open the module". Two thirds of the tiles were that
+    // plate, which is a navigation menu wearing a dashboard's clothes — and the
+    // sidebar is already a better navigation menu. A tile earns its place by
+    // carrying a number.
+    //
+    // The consequence is that adding a module does NOT add a tile until
+    // somebody writes it a reading, which is the right way round: the wall
+    // stays a set of instruments instead of filling up with placeholders.
+    .filter((i) => READ[i.path])
     .map((i) => ({
       path: i.path,
       label: i.label,

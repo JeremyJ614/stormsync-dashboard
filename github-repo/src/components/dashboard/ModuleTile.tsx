@@ -101,12 +101,15 @@ export const ModuleTile = memo(function ModuleTile({ tile, reading, still, index
               )}
             </>
           ) : (
-            /* No reading. The tile says so plainly and stays a way in — the
-               alternative was a dash pretending to be a measurement. */
-            <div className="mt-2.5 flex items-end h-[46px]">
-              <span className="text-[11px] leading-snug" style={{ color: ROYAL.dim, opacity: 0.75 }}>
-                Open the module
-              </span>
+            /*
+             * Waiting, not empty. Only modules with a reading are on the wall
+             * at all now, so a blank tile means its source has not landed yet
+             * — a shimmer says that, where a dash would read as a measurement
+             * of nothing.
+             */
+            <div className="mt-3 space-y-2" aria-label="loading">
+              <span className="block h-[22px] w-1/2 rounded-md sx-tile-wait" />
+              <span className="block h-[10px] w-3/4 rounded-md sx-tile-wait" />
             </div>
           )}
         </div>

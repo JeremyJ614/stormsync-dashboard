@@ -19,12 +19,17 @@
  *     it at display size, and the ones worth acting on light their rail. You
  *     should be able to open this and know where to look without reading.
  *
- *   • Every reading comes from data this page already fetched — one Open-Meteo
- *     request and one NWS alerts request for the member's location. Forty tiles
+ *   • Every tile carries a real figure, and a module with nothing to say is not
+ *     on the wall. The first cut put every unlocked module up and let two
+ *     thirds of them read "Open the module", which is a navigation menu wearing
+ *     a dashboard's clothes — and the sidebar is already a better navigation
+ *     menu. A tile earns its place by measuring something.
+ *
+ *   • The readings come from four shared sources, not forty: the forecast, the
+ *     alerts, one air-quality request and the model-run list. Forty tiles each
  *     fetching their own module's data would be forty requests to open a page
- *     nobody has asked a question of yet. Where the shared data cannot answer,
- *     the tile says "Open the module" rather than showing an invented number;
- *     the reasoning is in `lib/dashboardModules.ts`.
+ *     nobody has asked a question of yet. Nothing is invented where a source
+ *     cannot answer; the reasoning is in `lib/dashboardModules.ts`.
  *
  * Locked modules are absent rather than shown greyed. The sidebar is where a
  * member discovers what they could buy — it deliberately shows locked rows —
@@ -35,6 +40,7 @@ import { useQuery } from "@tanstack/react-query";
 import { motion } from "framer-motion";
 import { LayoutGrid, AlertTriangle, MapPin } from "lucide-react";
 import { useOpenMeteo, useNWSAlerts } from "../hooks/useWeatherQuery";
+import { listRuns } from "../lib/modelRuns";
 import { useAuth, hasModuleAccess } from "../hooks/useAuth";
 import { hourIndexNow } from "../lib/currentHour";
 import type { Location } from "../hooks/useLocation";
@@ -51,6 +57,41 @@ export default function Dashboard({ location }: Props) {
   const wx = useOpenMeteo(location);
   const alertsQ = useNWSAlerts(location);
 
+  /*
+   * Two shared sources beyond the forecast, and no more.
+   *
+   * Air quality buys the AQI tile and the UV clause on daylight; the run list
+   * buys the Model Runs tile. Both are ordinary react-query entries, so the
+   * modules they belong to reuse the cached response rather than fetching it
+   * again when the member opens one. Neither blocks the wall — a tile whose
+   * source has not arrived simply has no reading yet.
+   */
+  const air = useQuery({
+    queryKey: ["dash-air", location.lat.toFixed(3), location.lon.toFixed(3)],
+    queryFn: async () => {
+      const u = new URL("https://air-quality-api.open-meteo.com/v1/air-quality");
+      u.searchParams.set("latitude", location.lat.toFixed(4));
+      u.searchParams.set("longitude", location.lon.toFixed(4));
+      u.searchParams.set("hourly", "us_aqi,uv_index");
+      u.searchParams.set("timezone", "auto");
+      u.searchParams.set("forecast_days", "2");
+      const r = await fetch(u.toString());
+      if (!r.ok) throw new Error(`air quality ${r.status}`);
+      return r.json();
+    },
+    staleTime: 30 * 60 * 1000, retry: 1,
+  });
+
+  const runs = useQuery({
+    queryKey: ["dash-runs"],
+    queryFn: async () => {
+      const all = await Promise.all(
+        (["hrrr", "gfs", "href"] as const).map((m) => listRuns(m, 1).catch(() => [])));
+      return all.flat().sort((a, b) => b.cycle.localeCompare(a.cycle));
+    },
+    staleTime: 15 * 60 * 1000, retry: 1,
+  });
+
   // Only what they own. `hasModuleAccess` is the same gate the router uses, so
   // a tile can never open something the member would be refused.
   const mine = useMemo(
@@ -61,12 +102,14 @@ export default function Dashboard({ location }: Props) {
   const ctx: TileContext = useMemo(() => ({
     wx: wx.data ?? null,
     alerts: (alertsQ.data ?? []) as TileContext["alerts"],
+    air: air.data ?? null,
+    runs: (runs.data ?? []) as TileContext["runs"],
     // `hourIndexNow` takes the whole response, not the time array — it needs
     // `utc_offset_seconds` to compare against local time rather than UTC, which
     // is the difference between "now" and "now, seven hours ago".
     hour: wx.data?.hourly?.time?.length ? hourIndexNow(wx.data) : -1,
     now: new Date(),
-  }), [wx.data, alertsQ.data]);
+  }), [wx.data, alertsQ.data, air.data, runs.data]);
 
   // Read once per render pass rather than inside each tile, so the ordering
   // below and the tile itself cannot disagree about what a module says.

@@ -11,8 +11,10 @@ import { StaticHistoryMap, type LegendRow, type StatBox } from "../components/St
 import { StatBank, type BankRow } from "../components/history/StatBank";
 import {
   fetchWarnings, fetchTornadoTracks, daysBackRange,
-  WARN_TIERS, EF_ORDER, efHistoryColor,
+  periodRange, periodLabel, periodClipped, TOR_YEARS_BACK,
+  WARN_TIERS, EF_ORDER, efHistoryColor, type TorPeriod,
 } from "../lib/severeHistoryData";
+import { PeriodPicker } from "../components/history/PeriodPicker";
 
 /**
  * Severe Weather History.
@@ -55,11 +57,13 @@ const WARN_RANGES = [
   { days: 7, label: "7 days" },
   { days: 30, label: "30 days" },
 ];
+// Tornado spans go to three years because the archive does. The warning list
+// stays short on purpose — IEM keeps weeks of storm-based warnings, not years.
 const TOR_RANGES = [
-  { days: 7, label: "7 days" },
   { days: 30, label: "30 days" },
   { days: 90, label: "90 days" },
   { days: 365, label: "1 year" },
+  { days: 365 * TOR_YEARS_BACK, label: `${TOR_YEARS_BACK} years` },
 ];
 
 const fmt = (iso: string) =>
@@ -68,14 +72,19 @@ const fmt = (iso: string) =>
 export default function SevereWeatherHistory() {
   const [mode, setMode] = useState<Mode>("warnings");
   const [warnDays, setWarnDays] = useState(3);
-  const [torDays, setTorDays] = useState(90);
+  // Tornado history is an archive, not a rolling window, so its period is a
+  // richer thing than a number of days — see `TorPeriod`.
+  const [torPeriod, setTorPeriod] = useState<TorPeriod>({ kind: "days", days: 90 });
   const [now, setNow] = useState(() => Date.now());
 
   // Recompute the range when the user switches, so the poster date stamp is fresh.
-  useEffect(() => { setNow(Date.now()); }, [mode, warnDays, torDays]);
+  useEffect(() => { setNow(Date.now()); }, [mode, warnDays, torPeriod]);
 
   const warnRange = useMemo(() => daysBackRange(warnDays), [warnDays, now]);
-  const torRange = useMemo(() => daysBackRange(torDays), [torDays, now]);
+  const torRange = useMemo(() => periodRange(torPeriod, new Date(now)), [torPeriod, now]);
+  const torKey = torPeriod.kind === "days" ? `d${torPeriod.days}`
+    : torPeriod.kind === "year" ? `y${torPeriod.year}`
+    : `m${torPeriod.year}-${torPeriod.month}`;
 
   const warnings = useQuery({
     queryKey: ["hist-warnings", warnDays, now],
@@ -83,7 +92,7 @@ export default function SevereWeatherHistory() {
     staleTime: 5 * 60 * 1000, retry: 1,
   });
   const tornadoes = useQuery({
-    queryKey: ["hist-tornadoes", torDays, now],
+    queryKey: ["hist-tornadoes", torKey, now],
     queryFn: ({ signal }) => fetchTornadoTracks(torRange.start, torRange.end, signal),
     staleTime: 5 * 60 * 1000, retry: 1,
   });
@@ -202,14 +211,19 @@ export default function SevereWeatherHistory() {
   const active = mode === "warnings" ? warnings : tornadoes;
   const range = mode === "warnings" ? warnRange : torRange;
   const ranges = mode === "warnings" ? WARN_RANGES : TOR_RANGES;
-  // `days` has to be declared before `periodLabel`, which reads it. It was the
-  // other way round, and that is the whole of "Cannot access 'L' before
-  // initialization": a `const` in the temporal dead zone, read by a `.find`
-  // callback that runs immediately, on every render, before the declaration is
-  // reached. The module threw on mount and the error boundary took the page.
-  const days = mode === "warnings" ? warnDays : torDays;
-  const setDays = mode === "warnings" ? setWarnDays : setTorDays;
-  const periodLabel = ranges.find((r) => r.days === days)?.label ?? "";
+  // One period for whichever tab is showing, so everything below — the stat
+  // band's eyebrow, the animation key, the poster heading — reads from one
+  // value rather than each working it out again from `mode`.
+  const period: TorPeriod = mode === "warnings"
+    ? { kind: "days", days: warnDays }
+    : torPeriod;
+  const spanLabel = mode === "warnings"
+    ? (ranges.find((r) => r.days === warnDays)?.label ?? "")
+    : periodLabel(torPeriod);
+  const spanKey = mode === "warnings" ? `w${warnDays}` : torKey;
+  // A year the three-year window only partly covers should say so rather than
+  // presenting eight months as twelve.
+  const clipped = mode === "tornadoes" && periodClipped(torPeriod, new Date(now));
 
   return (
     <ModuleShell
@@ -240,22 +254,17 @@ export default function SevereWeatherHistory() {
 
       <div id="hist-panel" className="space-y-4">
         <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] uppercase tracking-[0.24em] mr-1" style={{ color: ROYAL.dim }}>Period</span>
-          {ranges.map((r) => {
-            const on = days === r.days;
-            return (
-              <button key={r.days} onClick={() => setDays(r.days)}
-                className="relative px-3 py-1.5 rounded-lg text-[11.5px] font-bold transition-colors"
-                style={{ color: on ? "#120f1e" : ROYAL.dim }}>
-                {on && (
-                  <motion.span aria-hidden layoutId="hist-range" className="absolute inset-0 rounded-lg"
-                    transition={still ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 30 }}
-                    style={{ background: ROYAL.gold }} />
-                )}
-                <span className="relative">{r.label}</span>
-              </button>
-            );
-          })}
+          <PeriodPicker
+            spans={ranges}
+            value={period}
+            onChange={(p) => {
+              if (mode === "warnings") { if (p.kind === "days") setWarnDays(p.days); }
+              else setTorPeriod(p);
+            }}
+            archive={mode === "tornadoes"}
+            layoutId={mode === "warnings" ? "hist-range-warn" : "hist-range-tor"}
+            still={still}
+          />
           <span className="ml-auto text-[11px] tabular-nums" style={{ color: ROYAL.dim }}>
             {active.isLoading
               ? <span className="flex items-center gap-1.5"><Loader2 className="w-3 h-3 animate-spin" /> loading…</span>
@@ -268,7 +277,7 @@ export default function SevereWeatherHistory() {
         {/* the headline band */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
-            key={`${mode}-${days}`}
+            key={`${mode}-${spanKey}`}
             initial={still ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={still ? { opacity: 0 } : { opacity: 0, y: -6 }}
@@ -276,7 +285,7 @@ export default function SevereWeatherHistory() {
           >
             <StatBank
               still={still}
-              eyebrow={`${periodLabel} · ${mode === "warnings" ? "warnings" : "tornadoes"}`}
+              eyebrow={`${spanLabel}${clipped ? " (from " + fmt(torRange.start) + ")" : ""} · ${mode === "warnings" ? "warnings" : "tornadoes"}`}
               total={(mode === "warnings" ? warnings.data?.total : tornadoes.data?.total) ?? 0}
               unit={mode === "warnings" ? "warnings issued" : "tornado paths"}
               caption={`${fmt(range.start)} → ${fmt(range.end)}`}
@@ -330,7 +339,7 @@ export default function SevereWeatherHistory() {
             />
           ) : (
             <StaticHistoryMap
-              title={`TORNADO PATHS - PAST ${torDays === 365 ? "YEAR" : `${torDays} DAYS`}`}
+              title={`TORNADO PATHS - ${periodLabel(torPeriod).toUpperCase()}`}
               subtitle={`${fmt(torRange.start)} - ${fmt(torRange.end)}  |  ${tornadoes.data?.total ?? 0} tornado paths`}
               updatedLabel={updatedLabel}
               lines={torLines}

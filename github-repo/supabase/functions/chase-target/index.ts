@@ -446,15 +446,51 @@ async function fetchWeather(
     const url = `${host}/forecast?latitude=${g.map((x) => x.p.lat).join(",")}` +
       `&longitude=${g.map((x) => x.p.lon).join(",")}` +
       `&hourly=${HOURLY}&daily=sunrise,sunset${range}&timezone=auto&wind_speed_unit=ms`;
+    const r = await openMeteo(url);
+    if (!r) continue;
     try {
-      const r = await fetch(url, { headers: { "User-Agent": UA } });
-      if (!r.ok) continue;
       const body = await r.json();
       const arr = Array.isArray(body) ? body : [body];
       g.forEach((x, k) => { if (arr[k]?.hourly) out[x.i] = arr[k] as OMLoc; });
     } catch { /* a dropped chunk costs candidates, not the run */ }
   }
   return out;
+}
+
+/**
+ * Fetch from Open-Meteo, waiting out a throttle instead of dropping the chunk.
+ *
+ * THE BUG THIS FIXES, seen while reconstructing the 2026 season.
+ *
+ * Open-Meteo's free tier caps requests per minute as well as per day, and this
+ * function asks for twenty-five locations and thirty-odd hourly variables at a
+ * time. Running days back to back walks into that cap. The old code treated any
+ * non-OK response as "this chunk had no data" and moved on, so a throttled run
+ * scored nothing, picked nothing, and wrote a row with a day score of zero and
+ * a status of `error` — in eight seconds, looking for all the world like a day
+ * on which America had no weather. Eight consecutive days came out that way
+ * before the pattern was obvious.
+ *
+ * It is not only a backfill problem. The daily run at 04:25Z shares the free
+ * tier with every other module in the app; one busy minute and the Chase Target
+ * page has nothing to show for the day.
+ *
+ * So: a 429 or a 5xx is a wait, not an answer. Anything else is a request that
+ * will not improve on a second try.
+ */
+async function openMeteo(url: string, tries = 4): Promise<Response | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": UA } });
+      if (r.ok) return r;
+      // Free the connection before sleeping on it.
+      await r.body?.cancel().catch(() => {});
+      if (r.status !== 429 && r.status < 500) return null;
+    } catch { /* a network blip gets the same treatment as a throttle */ }
+    // Jitter, because every chunk of a run would otherwise retry in lockstep.
+    if (i < tries - 1) await sleep(1500 * 2 ** i + Math.floor(Math.random() * 500));
+  }
+  return null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

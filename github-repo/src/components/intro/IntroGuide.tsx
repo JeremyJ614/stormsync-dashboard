@@ -55,8 +55,8 @@ const WELCOME: WelcomeCard[] = [
   },
   {
     icon: LayoutDashboard, color: "#ccccff", eyebrow: "Make it yours",
-    title: "The Dashboard is a layout, not a page",
-    body: "Press Customize and drag in the widgets you care about. It saves per device, so your phone can be lean and your desktop can be dense. The Daily Brief does the same job in one screen if you would rather just read it.",
+    title: "The Dashboard tells you where to look",
+    body: "One tile per module, each reading live: temperature with the next twenty-four hours drawn under it, wind on a compass, air quality on its own bands, the moon as a moon. Most tiles sit quiet and the ones worth acting on light up, so you can open it, read nothing, and know where to go. Press Customize to move tiles around or take one off the wall — it saves per device, so your phone can be lean and your desktop dense.",
   },
   {
     icon: ShieldCheck, color: "#ff4d55", eyebrow: "When it matters",
@@ -86,7 +86,7 @@ const WELCOME: WelcomeCard[] = [
   {
     icon: LayoutGrid, color: "#c084fc", eyebrow: "Make it yours",
     title: "Pick how you get around",
-    body: "There are fifteen menus and they are not variations on one idea — a radar scope, a departure board, a comic page, a neon street, a black hole. None of them is the right one, so choose whichever you like. It changes the moment you tap it, and you can change it again whenever you want from My Profile.",
+    body: "There are fifteen menus and they are not variations on one idea — a vault door that swings open onto a wall of deposit boxes, a stream of liquid metal that beads into drops, a comic page, a neon street, a black hole, a lift shaft. None of them is the right one, so choose whichever you like. It changes the moment you tap it, and you can change it again whenever you want from My Profile.",
     action: "menu",
   },
   {

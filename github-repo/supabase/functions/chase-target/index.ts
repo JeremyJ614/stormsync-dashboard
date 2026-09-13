@@ -483,14 +483,32 @@ async function openMeteo(url: string, tries = 4): Promise<Response | null> {
     try {
       const r = await fetch(url, { headers: { "User-Agent": UA } });
       if (r.ok) return r;
-      // Free the connection before sleeping on it.
-      await r.body?.cancel().catch(() => {});
+      const body = await r.text().catch(() => "");
+      // The DAILY cap is not a throttle — it does not clear until midnight UTC,
+      // and retrying is both futile and rude. It has to be told apart from the
+      // per-minute cap, which clears in seconds and shares the same status.
+      if (r.status === 429 && /daily api request limit/i.test(body)) throw new QuotaExhausted();
       if (r.status !== 429 && r.status < 500) return null;
-    } catch { /* a network blip gets the same treatment as a throttle */ }
+    } catch (e) {
+      if (e instanceof QuotaExhausted) throw e;
+      /* a network blip gets the same treatment as a throttle */
+    }
     // Jitter, because every chunk of a run would otherwise retry in lockstep.
     if (i < tries - 1) await sleep(1500 * 2 ** i + Math.floor(Math.random() * 500));
   }
   return null;
+}
+
+/**
+ * Open-Meteo's free tier is out of calls for the UTC day.
+ *
+ * This exists as its own type because it is the one weather failure that must
+ * stop the caller rather than cost it a data point. A backfill that keeps going
+ * writes a run for every remaining date in which nothing scored — see the guard
+ * in `runDay` — and a chunk that keeps going does the same for the next seven.
+ */
+class QuotaExhausted extends Error {
+  constructor() { super("Open-Meteo daily request limit exhausted"); this.name = "QuotaExhausted"; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1316,6 +1334,27 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
       };
     }
 
+    /*
+     * A day nothing scored is a failed run, not a quiet day — refuse to write it.
+     *
+     * `scoreMeteo` cannot return zero for 120 points across a continent; the
+     * only way `scored` comes back empty is that the weather never arrived.
+     * Writing the row anyway produced exactly what reconstructing the 2026
+     * season produced before this guard: fifty-eight rows reading `day_score: 0`
+     * with no targets and no explanation, indistinguishable on the page from a
+     * day on which America had no weather.
+     *
+     * Throwing instead puts the failure in `chase_runs`, where a failure
+     * belongs, and leaves the date missing — so `chase_missing_dates` offers it
+     * again on the next pass instead of counting it as done.
+     */
+    if (!scored.length) {
+      throw new Error(
+        `no candidate scored for ${outlookDate} ` +
+        `(${candidates.length} points from ${gen.source}); weather data did not arrive`,
+      );
+    }
+
     // ── year context, for the Yearly tab ─────────────────────────────────────
     // The year's ledger BEFORE today is written. This is the right thing to
     // hand the model — it is being asked to place today against the rest of the
@@ -1600,6 +1639,7 @@ async function runBackfill(opts: { trigger: string; limit?: number; from?: strin
   const started = Date.now();
   const filled: { date: string; day_score: number | null; status: string }[] = [];
   const failed: { date: string; error: string }[] = [];
+  let quotaSpent = false;
 
   for (const d of dates) {
     // Stop before the platform stops us. A half-finished day is not written at
@@ -1614,6 +1654,9 @@ async function runBackfill(opts: { trigger: string; limit?: number; from?: strin
       await admin.from("chase_runs").insert({
         outlook_date: d, status: "error", trigger: opts.trigger, detail: `backfill: ${msg}`,
       }).then(() => {}, () => {});
+      // The free tier is spent until midnight UTC. Every remaining date in this
+      // chunk would fail the same way, so stop and let the next run have them.
+      if (e instanceof QuotaExhausted) { quotaSpent = true; break; }
     }
   }
 
@@ -1621,6 +1664,10 @@ async function runBackfill(opts: { trigger: string; limit?: number; from?: strin
   return {
     ok: true, from, to,
     filled, failed,
+    // Surfaced rather than buried in `failed`, because "out of quota until
+    // midnight" and "this date cannot be reconstructed" want different answers
+    // from whoever is reading: wait, versus look at it.
+    quota_exhausted: quotaSpent || undefined,
     remaining: Array.isArray(left) ? left.length : null,
     duration_ms: Date.now() - started,
   };

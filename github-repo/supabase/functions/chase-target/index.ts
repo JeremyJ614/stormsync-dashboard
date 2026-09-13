@@ -290,7 +290,15 @@ async function ingestRisk(targetDate: string, historical: boolean): Promise<Risk
     const rank = CAT_RANK[f.label];
     if (rank === undefined) continue;
     if (rank > catMaxRank) { catMaxRank = rank; catMax = f.label; }
-    areas.push({ label: f.label, kind: "cat", weight: rank * 12, polys: f.polys });
+    // A floor of 3, because `CAT_RANK["TSTM"]` is 0 and a weight of zero is
+    // indistinguishable from "not in a risk area at all" to the grid below.
+    // On 20 and 21 April 2026 SPC's Day 1 held nothing but a general-thunder
+    // area covering most of the country, every gridded point inside it scored
+    // weight 0, `generateCandidates` returned an empty list, and the day could
+    // not be reconstructed at all. A general-thunderstorm day is a weak chase
+    // day, not an absent one — and the best target in the country that day is
+    // somewhere inside that polygon.
+    areas.push({ label: f.label, kind: "cat", weight: Math.max(rank * 12, 3), polys: f.polys });
   }
   const probs: Record<string, number> = { torn: 0, hail: 0, wind: 0 };
   const addProb = (kind: "torn" | "hail" | "wind", list: { label: string; polys: Poly[] }[], scale: number) => {
@@ -332,21 +340,23 @@ function snap(v: number, step: number): number { return Math.round(v / step) * s
  * need the same spacing as a marginal blob over one. The cap on total points is
  * what keeps the Open-Meteo bill (in requests, not dollars) bounded.
  */
+/** Nothing to aim at: sweep the country coarsely and answer honestly. */
+function nationalSweep(): { list: Candidate[]; step: number; source: string } {
+  const step = 1.5;
+  const list: Candidate[] = [];
+  for (let lat = CONUS.y0; lat <= CONUS.y1; lat += step) {
+    for (let lon = CONUS.x0; lon <= CONUS.x1; lon += step) {
+      list.push({ lat: round(lat, 2), lon: round(lon, 2), spcWeight: 0, spcCat: null, tornProb: 0, hailProb: 0, windProb: 0 });
+    }
+  }
+  return { list, step, source: "national-fallback" };
+}
+
 function generateCandidates(areas: RiskArea[]): { list: Candidate[]; step: number; source: string } {
   const meaningful = areas.filter((a) => !(a.kind === "cat" && a.label === "TSTM"));
   const usable = meaningful.length ? meaningful : areas;
 
-  if (!usable.length) {
-    // Nothing anywhere. Answer honestly with a coarse national sweep.
-    const step = 1.5;
-    const list: Candidate[] = [];
-    for (let lat = CONUS.y0; lat <= CONUS.y1; lat += step) {
-      for (let lon = CONUS.x0; lon <= CONUS.x1; lon += step) {
-        list.push({ lat: round(lat, 2), lon: round(lon, 2), spcWeight: 0, spcCat: null, tornProb: 0, hailProb: 0, windProb: 0 });
-      }
-    }
-    return { list, step, source: "national-fallback" };
-  }
+  if (!usable.length) return nationalSweep();
 
   const [bx0, by0, bx1, by1] = bboxOf(usable.flatMap((a) => a.polys));
   const span = Math.max(bx1 - bx0, by1 - by0);
@@ -381,6 +391,11 @@ function generateCandidates(areas: RiskArea[]): { list: Candidate[]; step: numbe
   }
 
   const list = [...byKey.values()].sort((a, b) => b.spcWeight - a.spcWeight);
+  // Belt and braces. Whatever the polygons look like — entirely offshore, or
+  // smaller than the grid step, or all zero-weight — this function must never
+  // hand back an empty list, because an empty list is indistinguishable
+  // downstream from "the weather service did not answer".
+  if (!list.length) return nationalSweep();
   return { list, step, source: "spc-polygons" };
 }
 

@@ -70,10 +70,23 @@ function Bars({ v, tint }: { v: Extract<Visual, { kind: "bars" }>; tint: string 
   const w = 100 / p.length;
   return (
     <svg width="100%" height={H} viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+      {/* The baseline is what makes a quiet day read as a quiet day.
+          Without it, twenty-four hours of 1% precipitation probability is a row
+          of half-pixel marks floating in space, which looks like a chart that
+          failed rather than a day with nothing in it. With a rule under them it
+          is obviously an axis, and the marks are obviously sitting on it. */}
+      <line x1="0" y1="99.2" x2="100" y2="99.2" stroke={c} strokeWidth={1}
+            vectorEffect="non-scaling-stroke" opacity={0.38} />
+      {/* A zero draws NOTHING, rather than a minimum-height stub.
+          A whole day of zero precipitation probability rendered as a row of
+          faint one-pixel dashes, which reads as a broken chart rather than as a
+          quiet day — and the tile's own note already says it is quiet. The floor
+          exists so that a real 1% is visible, not so that 0% is. */}
       {p.map((n, i) => {
-        const h = Math.max(1.5, (Math.max(0, n) / max) * 100);
+        if (n <= 0) return null;
+        const h = Math.max(2.5, (n / max) * 100);
         return <rect key={i} x={i * w + w * 0.14} width={w * 0.72} y={100 - h} height={h}
-                     fill={c} opacity={n > 0 ? 0.9 : 0.25} />;
+                     fill={c} opacity={0.9} />;
       })}
     </svg>
   );

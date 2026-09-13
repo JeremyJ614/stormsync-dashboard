@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ArrowUpRight, ChevronLeft, ChevronRight, EyeOff, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, EyeOff, Plus } from "lucide-react";
 import { ROYAL, HEADING, SPRING } from "../../lib/royal";
 import type { ModuleTile as Tile, Reading, Tone } from "../../lib/dashboardModules";
 import { TileVisual } from "./TileVisual";
@@ -77,14 +77,30 @@ export const ModuleTile = memo(function ModuleTile({
       <span aria-hidden className="absolute left-0 top-0 bottom-0 w-[2px] transition-opacity"
             style={{ background: tone.rail, opacity: reading?.tone && reading.tone !== "quiet" ? 1 : 0.5 }} />
 
-      <div className="flex items-center gap-1.5">
-        <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: tone.ink, opacity: 0.85 }} />
-        <span className="text-[9.5px] uppercase tracking-[0.18em] font-semibold truncate"
-              style={{ color: ROYAL.dim }}>{tile.label}</span>
-        {!editing && (
-          <ArrowUpRight className="w-3 h-3 ml-auto shrink-0 opacity-0 group-hover:opacity-70 transition-opacity"
-                        style={{ color: ROYAL.gold }} />
-        )}
+      {/* Two lines, not one with an ellipsis.
+          At two tiles across on a phone a single 9.5px tracked line fits about
+          thirteen characters, so "Daily Briefing", "Atmosphere Ingredients" and
+          "Warnings & Reports" all arrived as "DAILY BRIE…". A tile whose name is
+          cut off is a tile you have to open to identify, which is the one thing
+          this page exists to avoid. The row has a floor so tiles with a
+          one-line name still align with their neighbours.
+
+          The hover arrow that used to sit at the end of this row is gone. It
+          was eighteen pixels of a touch screen's width spent on an affordance
+          touch screens cannot show, and losing it is the difference between
+          "THUNDERSTORM PROBABILITY" fitting on two lines and breaking across
+          the middle of its first word. The whole tile is the link. */}
+      <div className="flex items-start gap-1.5" style={{ minHeight: 24 }}>
+        <Icon className="w-3.5 h-3.5 shrink-0 mt-[1px]" style={{ color: tone.ink, opacity: 0.85 }} />
+        <span
+          className="min-w-0 text-[9.5px] uppercase tracking-[0.1em] font-semibold leading-[1.25] overflow-hidden"
+          style={{
+            color: ROYAL.dim,
+            display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical",
+          }}
+        >
+          {tile.label}
+        </span>
       </div>
 
       {hasFigure ? (

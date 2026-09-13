@@ -199,12 +199,41 @@ export default function Dashboard({ location }: Props) {
               <AlertTriangle className="w-3 h-3" /> {live} worth a look
             </span>
           )}
-          <span className="flex items-center gap-1.5 ml-auto">
+          {hidden.length > 0 && !editing && (
+            <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg"
+                  style={{ border: `1px solid ${ROYAL.hairline}` }}>
+              {hidden.length} off the wall
+            </span>
+          )}
+          <span className="hidden sm:flex items-center gap-1.5">
             <MapPin className="w-3 h-3" />
             {wx.isLoading ? "reading conditions…"
               : wx.isError ? "conditions unavailable — tiles show names only"
               : location.name}
           </span>
+
+          <button
+            onClick={() => setEditing((v) => !v)}
+            className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg font-semibold transition-colors"
+            style={{
+              border: `1px solid ${editing ? ROYAL.goldSoft : ROYAL.hairline}`,
+              background: editing ? ROYAL.goldFaint : "transparent",
+              color: editing ? ROYAL.gold : ROYAL.dim,
+            }}
+          >
+            {editing ? <Check className="w-3 h-3" /> : <SlidersHorizontal className="w-3 h-3" />}
+            {editing ? "Done" : "Customize"}
+          </button>
+
+          {editing && (prefs.order.length > 0 || prefs.hidden.length > 0) && (
+            <button
+              onClick={() => { clearPrefs(user?.id ?? null); setPrefs({ order: [], hidden: [] }); }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg transition-colors"
+              style={{ border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
+            >
+              <RotateCcw className="w-3 h-3" /> Reset
+            </button>
+          )}
         </div>
       }
     >
@@ -247,11 +276,49 @@ export default function Dashboard({ location }: Props) {
                     reading={readings.get(t.path) ?? null}
                     still={still}
                     index={n++}
+                    editing={editing}
+                    onMove={(d) => reorder(t.path, d)}
+                    onHide={() => apply({ ...prefs, hidden: [...prefs.hidden, t.path] })}
                   />
                 ))}
               </div>
             </section>
           ))}
+
+          {/* What they have taken off, offered back. Only while customising:
+              a permanent shelf of things you chose not to see is the shop this
+              page is deliberately not. */}
+          <AnimatePresence initial={false}>
+            {editing && hidden.length > 0 && (
+              <motion.section
+                initial={still ? { opacity: 0 } : { opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
+                className="space-y-2 overflow-hidden"
+              >
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[10px] uppercase tracking-[0.26em] shrink-0"
+                        style={{ color: ROYAL.dim }}>Off the wall</span>
+                  <span aria-hidden className="flex-1 h-px" style={{ background: ROYAL.hairline }} />
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {hidden.map((t) => (
+                    <HiddenChip key={t.path} tile={t}
+                      onShow={() => apply({ ...prefs, hidden: prefs.hidden.filter((x) => x !== t.path) })} />
+                  ))}
+                </div>
+              </motion.section>
+            )}
+          </AnimatePresence>
+
+          {editing && (
+            <p className="text-[11px] leading-relaxed pt-1" style={{ color: ROYAL.dim }}>
+              Arrows move a tile within its section; the eye takes it off the wall. Your arrangement is
+              saved on this device — a module you have not seen yet arrives in its default place rather
+              than hidden.
+            </p>
+          )}
         </div>
       )}
     </ModuleShell>

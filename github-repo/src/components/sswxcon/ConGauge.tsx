@@ -1,50 +1,56 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion, useMotionValue, useTransform, animate } from "framer-motion";
 import { ROYAL, HEADING, EASE } from "../../lib/royal";
 
 /**
  * The SSWXCon instrument.
  *
- * A 270° dial rather than a bar, because the thing being shown is a level on a
- * named scale and a dial is what a level on a scale looks like. Three rings do
- * the work: a banded track showing where the thresholds sit, a lit arc for the
- * current reading, and a needle. The activation threshold is marked on the
- * track, so how close the country is to it is legible without reading a number.
+ * REDESIGNED. What was here was a 270° needle dial: a banded track, a lit arc
+ * and a pointer on a hub. It worked, and it was the wrong instrument. A needle
+ * sweeping a continuous track is what a speedometer looks like, and it reads as
+ * a RATE — how fast, how much. SSWXCon is not a rate. It is a level on a named
+ * scale with a gate in it, and the two questions anyone actually brings to this
+ * page are "which level" and "are we past activation".
  *
- * Drawn in SVG and animated through two motion values — the arc's length and
- * the needle's rotation — so the whole thing costs two interpolations rather
- * than a repainting canvas. The count-up subscribes to a motion value instead
- * of setting state per frame, which keeps it off the React render path.
+ * So the track is now sixty discrete segments and the gate is drawn on it.
+ * Discrete segments read as a level because they can be counted, the way an
+ * aircraft or reactor instrument is read; and the moment the lit segments cross
+ * the gate the whole ring changes character, which is a state change you can
+ * see from across a room. The needle is gone: with countable segments it was
+ * duplicating the reading, and a hub that has to be fought into position (see
+ * the note this replaced, about `transform-box` overrides) for information the
+ * ring already carries is a poor trade.
+ *
+ * SEGMENTS BELOW THE GATE ARE COOL AND ABOVE IT ARE HOT. That is the whole
+ * design. A score of 48 against a gate of 60 shows a ring three-quarters full
+ * and entirely cold, which is the correct feeling for it; at 62 a handful of
+ * segments burn and the number has not moved much at all.
+ *
+ * MOTION
+ * The lighting sweep is a per-segment CSS transition delay, not an animation
+ * loop and not a per-frame React render: sixty elements each with one delayed
+ * opacity transition, which the compositor handles and which stops by itself.
+ * This app has been slowed to a crawl once already by a splash screen animating
+ * for ever, and an instrument that runs a loop while somebody reads a warning
+ * is the same mistake in a smaller box. The numeral counts up through a motion
+ * value with a single subscription, so it stays off the render path too.
  */
-const BANDS = [
-  { to: 30,  color: "#4ade80" },
-  { to: 50,  color: "#fbbf24" },
-  { to: 70,  color: "#f97316" },
-  { to: 90,  color: "#ef4444" },
-  { to: 120, color: "#cc2222" },
-  { to: 150, color: "#e03030" },
-  { to: 250, color: "#ff3333" },
-];
 
-const R = 108;              // track radius
-const CX = 140, CY = 132;
-const SWEEP = 270;          // degrees
+/** Where the named levels change, for the tick marks. */
+const BAND_EDGES = [30, 50, 70, 90, 120, 150];
+
+const SEGMENTS = 60;
+const R_OUT = 108;          // outer end of a segment
+const R_IN = 92;            // inner end
+const CX = 140, CY = 134;
+const SWEEP = 274;          // degrees of arc the scale occupies
 // Bearings, not screen angles: 0 is straight up, 90 right, 180 down, 270 left.
-// The dial starts at bottom-left and sweeps clockwise through the top to
-// bottom-right, leaving the gap under the reading where the label sits.
-const START = 225;
-const NEEDLE = R - 18;      // needle length from the hub
-const TIP = 3;              // radius of the dot on its end
+// Starting at 223 leaves a gap at the bottom, under the reading, where the
+// level name sits.
+const START = 223;
 
 const rad = (deg: number) => ((deg - 90) * Math.PI) / 180;
 const pt = (deg: number, r: number) => ({ x: CX + r * Math.cos(rad(deg)), y: CY + r * Math.sin(rad(deg)) });
-
-/** Arc path from a to b degrees at radius r. */
-function arcPath(a: number, b: number, r: number): string {
-  const s = pt(a, r), e = pt(b, r);
-  const large = Math.abs(b - a) > 180 ? 1 : 0;
-  return `M ${s.x} ${s.y} A ${r} ${r} 0 ${large} 1 ${e.x} ${e.y}`;
-}
 
 export function ConGauge({
   score, max, threshold, color, label, calm,
@@ -53,7 +59,18 @@ export function ConGauge({
   color: string; label: string; calm: boolean;
 }) {
   const pct = Math.max(0, Math.min(1, score / max));
-  const angle = START + SWEEP * pct;
+  const gate = Math.max(0, Math.min(1, threshold / max));
+  const live = Math.round(pct * SEGMENTS);
+  const gateSeg = Math.round(gate * SEGMENTS);
+  const over = score >= threshold;
+
+  // One frame of "all dark", then the sweep runs itself through CSS delays.
+  const [lit, setLit] = useState(calm);
+  useEffect(() => {
+    if (calm) { setLit(true); return; }
+    const t = requestAnimationFrame(() => setLit(true));
+    return () => cancelAnimationFrame(t);
+  }, [calm]);
 
   // Count-up without a re-render per frame.
   const mv = useMotionValue(0);
@@ -61,109 +78,120 @@ export function ConGauge({
   const [text, setText] = useState("0.0");
   useEffect(() => {
     const unsub = shown.on("change", (v) => setText(v));
-    const controls = animate(mv, score, calm ? { duration: 0 } : { duration: 1.1, ease: EASE });
+    const controls = animate(mv, score, calm ? { duration: 0 } : { duration: 1.2, ease: EASE });
     return () => { unsub(); controls.stop(); };
   }, [score, calm, mv, shown]);
 
-  const trackLen = useRef<number>(0);
+  const segments = useMemo(() => Array.from({ length: SEGMENTS }, (_, i) => {
+    const a = START + (SWEEP * (i + 0.5)) / SEGMENTS;
+    const o = pt(a, R_OUT), n = pt(a, R_IN);
+    return { i, a, x1: n.x, y1: n.y, x2: o.x, y2: o.y, hot: i >= gateSeg };
+  }), [gateSeg]);
+
+  const delta = Math.abs(score - threshold);
 
   return (
     <div className="relative w-full grid place-items-center" style={{ minHeight: 250 }}>
-      <svg width="280" height="250" viewBox="0 0 280 250" fill="none" role="img"
-           aria-label={`SSWXCon score ${score.toFixed(1)} of ${max}, level ${label}`}>
+      <svg width="280" height="252" viewBox="0 0 280 252" fill="none" role="img"
+           aria-label={`SSWXCon ${score.toFixed(1)} of ${max}, level ${label}, activation ${threshold}`}>
         <defs>
-          <filter id="con-glow" x="-60%" y="-60%" width="220%" height="220%">
-            <feGaussianBlur stdDeviation="5" result="b" />
+          <filter id="con-burn" x="-70%" y="-70%" width="240%" height="240%">
+            <feGaussianBlur stdDeviation="3.5" result="b" />
             <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
           </filter>
         </defs>
 
-        {/* Banded track — where the named levels actually sit. */}
-        {BANDS.map((b, i) => {
-          const from = i === 0 ? 0 : BANDS[i - 1].to;
-          const a = START + SWEEP * Math.min(1, from / max);
-          const z = START + SWEEP * Math.min(1, b.to / max);
-          if (z <= a) return null;
-          return (
-            <path key={b.to} d={arcPath(a, z, R)} stroke={b.color} strokeWidth={7}
-                  strokeLinecap="butt" opacity={0.2} />
-          );
-        })}
+        {/* The ring. Every segment is drawn; only the reached ones are lit, and
+            only the ones past the gate are hot. */}
+        <g strokeLinecap="round">
+          {segments.map((s) => {
+            const on = lit && s.i < live;
+            /*
+             * Three states, and they have to separate at a glance — this was
+             * the one thing wrong with the first cut. Lit-but-cool at 55% white
+             * against unlit at 13% looked like one grey mass from a normal
+             * viewing distance, so the reading itself disappeared and only the
+             * handful of burning segments registered.
+             *
+             * Now: dark, periwinkle, and the level colour. The middle state
+             * carries the app's own accent rather than a grey, which makes it
+             * unmistakably ON while still reading as cold.
+             */
+            const stroke = !on ? "rgba(204,204,255,0.09)"
+              : s.hot ? color
+              : ROYAL.iris;
+            return (
+              <line
+                key={s.i}
+                x1={s.x1} y1={s.y1} x2={s.x2} y2={s.y2}
+                stroke={stroke}
+                strokeOpacity={!on ? 1 : s.hot ? 1 : 0.8}
+                strokeWidth={!on ? 3.5 : s.hot ? 6 : 4.5}
+                filter={on && s.hot ? "url(#con-burn)" : undefined}
+                style={calm ? undefined : {
+                  transition: "stroke 260ms ease, stroke-width 260ms ease, stroke-opacity 260ms ease",
+                  // The sweep. Capped so a full ring still finishes inside a
+                  // second rather than crawling round for two.
+                  transitionDelay: `${Math.min(s.i * 13, 780)}ms`,
+                }}
+              />
+            );
+          })}
+        </g>
 
-        {/* Ticks every 25 points, longer at each band edge. */}
-        {Array.from({ length: Math.floor(max / 25) + 1 }, (_, i) => i * 25).map((v) => {
-          const a = START + SWEEP * (v / max);
-          const edge = BANDS.some((b) => Math.abs(b.to - v) < 12.5);
-          const o = pt(a, R + 6), inn = pt(a, R + (edge ? 14 : 10));
-          return <line key={v} x1={o.x} y1={o.y} x2={inn.x} y2={inn.y}
-                       stroke={edge ? ROYAL.gold : ROYAL.hairline} strokeWidth={edge ? 1.6 : 1} opacity={edge ? 0.8 : 0.5} />;
-        })}
-
-        {/* Activation threshold — the number that decides whether this is an event. */}
+        {/* The gate. The single most important mark on the instrument: below it
+            this is weather, above it it is an event. */}
         {(() => {
-          const a = START + SWEEP * Math.min(1, threshold / max);
-          const o = pt(a, R - 12), i2 = pt(a, R + 16);
+          const a = START + SWEEP * gate;
+          const o = pt(a, R_IN - 9), i2 = pt(a, R_OUT + 9);
+          const t = pt(a, R_OUT + 21);
           return (
             <g>
-              <line x1={o.x} y1={o.y} x2={i2.x} y2={i2.y} stroke={ROYAL.gold} strokeWidth={2} strokeDasharray="3 2" />
-              <text x={pt(a, R + 27).x} y={pt(a, R + 27).y} fill={ROYAL.gold} fontSize="8"
-                    textAnchor="middle" dominantBaseline="middle" letterSpacing="1.2">ACT</text>
+              <line x1={o.x} y1={o.y} x2={i2.x} y2={i2.y}
+                    stroke={ROYAL.gold} strokeWidth={2.2} strokeLinecap="round" />
+              <text x={t.x} y={t.y} fill={ROYAL.gold} fontSize="7.5" letterSpacing="1.6"
+                    textAnchor="middle" dominantBaseline="middle">ACT</text>
             </g>
           );
         })()}
 
+        {/* Band edges, as hairline ticks outside the ring — where the names
+            change, for anyone reading the ladder further down the page. */}
+        {BAND_EDGES.filter((v) => v < max).map((v) => {
+          const a = START + SWEEP * (v / max);
+          const o = pt(a, R_OUT + 3), n = pt(a, R_OUT + 8);
+          return <line key={v} x1={o.x} y1={o.y} x2={n.x} y2={n.y}
+                       stroke={ROYAL.hairline} strokeWidth={1.4} />;
+        })}
+
         {/* The reading. */}
-        <motion.path
-          ref={(el) => { if (el) trackLen.current = el.getTotalLength(); }}
-          d={arcPath(START, Math.max(START + 0.01, angle), R)}
-          stroke={color} strokeWidth={9} strokeLinecap="round"
-          filter="url(#con-glow)"
-          initial={false}
-          animate={{ pathLength: 1, opacity: 1 }}
-          transition={calm ? { duration: 0 } : { duration: 1.1, ease: EASE }}
-        />
+        <text x={CX} y={CY - 40} textAnchor="middle" fill={ROYAL.dim} fontSize="8.5" letterSpacing="3.4">SSWXCON</text>
+        <text x={CX} y={CY + 16} textAnchor="middle" fill={color} fontSize="46" fontWeight="800"
+              fontFamily={HEADING} style={{ letterSpacing: "-1px" }}>{text}</text>
+        <text x={CX} y={CY + 36} textAnchor="middle" fill={ROYAL.dim} fontSize="8.5" letterSpacing="1.6">
+          OF {max}
+        </text>
 
-        {/* Needle.
-            Two things had to be true for this to sit on the hub, and neither is
-            obvious. Motion writes its own transform-box:fill-box and
-            transform-origin:50% 50% onto an animated SVG group, overriding any
-            origin given in style — measured at `46.5px 3px`, the centre of the
-            needle's own bounding box. So the needle pivoted about its middle and
-            its tail swung off the hub by a distance that changed with the score.
-
-            Rather than fight the override, this makes 50% 50% the right answer:
-            an outer translate puts the hub at the group's origin, and an
-            unpainted circle sized to enclose the whole needle forces the bounding
-            box to be symmetric about it. Its centre is then exactly the hub.
-            The circle must cover the tip too — at just NEEDLE it fell 3u short
-            and left a wobble of up to 3u. */}
-        <g transform={`translate(${CX} ${CY})`}>
-          <motion.g
-            initial={false}
-            animate={{ rotate: angle - 90 }}
-            transition={calm ? { duration: 0 } : { type: "spring", stiffness: 60, damping: 14 }}
-          >
-            <circle cx={0} cy={0} r={NEEDLE + TIP} fill="none" stroke="none" />
-            <line x1={0} y1={0} x2={NEEDLE} y2={0} stroke={color} strokeWidth={2.5} strokeLinecap="round" />
-            <circle cx={NEEDLE} cy={0} r={TIP} fill={color} />
-          </motion.g>
-        </g>
-        <circle cx={CX} cy={CY} r={9} fill={ROYAL.ink} stroke={color} strokeWidth={2} />
-
-        {/* Reading. */}
-        <text x={CX} y={CY - 34} textAnchor="middle" fill={ROYAL.dim} fontSize="9" letterSpacing="3.2">SSWXCON</text>
-        <text x={CX} y={CY + 46} textAnchor="middle" fill={color} fontSize="34" fontWeight="800"
-              fontFamily={HEADING} style={{ letterSpacing: "-0.5px" }}>{text}</text>
-        <text x={CX} y={CY + 64} textAnchor="middle" fill={ROYAL.dim} fontSize="9" letterSpacing="1.6">
-          OF {max} · ACT {threshold}
+        {/* The delta, which is the operational sentence: not "how big" but
+            "how far from the line". */}
+        <text x={CX} y={CY + 58} textAnchor="middle" fontSize="9.5" letterSpacing="0.6"
+              fill={over ? color : ROYAL.dim}>
+          {delta < 0.05
+            ? "at activation"
+            : `${delta.toFixed(1)} ${over ? "above" : "below"} activation`}
         </text>
       </svg>
 
       {/* Level name, under the dial. */}
-      <div className="-mt-1 px-5 py-1.5 rounded-full text-sm font-black tracking-[0.22em] uppercase"
-           style={{ color, background: `${color}18`, border: `1px solid ${color}55` }}>
+      <motion.div
+        initial={calm ? false : { opacity: 0, y: 6 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: calm ? 0 : 0.45, delay: calm ? 0 : 0.5, ease: EASE }}
+        className="-mt-2 px-5 py-1.5 rounded-full text-sm font-black tracking-[0.22em] uppercase"
+        style={{ color, background: `${color}18`, border: `1px solid ${color}55` }}
+      >
         {label}
-      </div>
+      </motion.div>
     </div>
   );
 }

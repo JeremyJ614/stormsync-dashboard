@@ -378,9 +378,16 @@ export default function ForecastRunComparator({ location }: Props) {
       {/* Views */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-card border border-border rounded-xl p-1.5">
         {([
+          // The grid each one is RENDERED from, which is the honest answer to
+          // "why is GFS softer". "13 km" was wrong and was the source of the
+          // question: that is roughly the GFS's native spectral resolution, but
+          // the public GRIB product this reads is `pgrb2.0p25` — a quarter
+          // degree, about 25 km at these latitudes, so eight times coarser than
+          // HRRR in each direction and sixty-odd times fewer points over the
+          // same ground. No amount of rendering recovers that.
           { id: "hrrr", label: "HRRR · 3 km" },
-          { id: "gfs", label: "GFS · 13 km" },
-          { id: "href", label: "HREF · ensemble" },
+          { id: "gfs", label: "GFS · 0.25° (~25 km)" },
+          { id: "href", label: "HREF · 3 km ensemble" },
           { id: "nowcast", label: "Nowcast · 15 min" },
         ] as const).map((v) => (
           <button key={v.id} onClick={() => setView(v.id)}

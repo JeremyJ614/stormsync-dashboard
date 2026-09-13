@@ -102,10 +102,10 @@ const LAYERS: RadarLayer[] = [
   // ── Radar ────────────────────────────────────────────────────────────────
   { id: "n0q", label: "Base Reflectivity", group: "radar", source: "iem", code: "nexrad-n0q-900913",
     desc: "National NEXRAD base reflectivity mosaic — the standard 'where is it raining and how hard' view.",
-    legend: REFLECTIVITY_LEGEND, maxZoom: 12 },
+    legend: REFLECTIVITY_LEGEND, maxZoom: 14 },
   { id: "n0r", label: "Legacy Reflectivity", group: "radar", source: "iem", code: "nexrad-n0r-900913",
     desc: "Legacy 8-bit reflectivity mosaic. Coarser than base reflectivity but often updates when N0Q lags.",
-    legend: REFLECTIVITY_LEGEND, maxZoom: 12 },
+    legend: REFLECTIVITY_LEGEND, maxZoom: 14 },
   { id: "nexrdhr", label: "Hybrid-Scan Reflectivity", group: "radar", source: "realearth", code: "nexrdhr",
     desc: "Lowest usable radar bin at every point — the closest look at what is actually reaching the ground.",
     legend: REFLECTIVITY_LEGEND },
@@ -336,7 +336,23 @@ export default function RadarMap({ location }: Props) {
     id: `product-${layer.id}`,
     url: tileUrl(layer, bust),
     opacity,
-    maxZoom: layer.maxZoom ?? 12,
+    /*
+     * 14, not 12 — the one resolution knob that was actually on our side.
+     *
+     * A raster source's `maxZoom` is the deepest level MapLibre will REQUEST.
+     * Past it the last tile is stretched by the browser, so zooming in stopped
+     * fetching sharper imagery at z12 and started magnifying a 256px PNG
+     * instead. That soft, smeared look at close range was the cap, not the
+     * services: probed against the live pyramids over Oklahoma City, both IEM
+     * and RealEarth return real tiles at z13 and z14.
+     *
+     * What this does NOT do is add meteorological detail. MRMS is a 1 km grid
+     * and the NEXRAD composites are about the same, so z12 already oversamples
+     * the data — this removes the browser's upscaling, nothing more. Tile
+     * traffic is unchanged: a viewport needs the same dozen tiles at any zoom,
+     * they are just different ones.
+     */
+    maxZoom: layer.maxZoom ?? 14,
     tileSize: layer.source === "nws-image" ? 512 : 256,
     underLabels: true,
   }], [layer, bust, opacity]);

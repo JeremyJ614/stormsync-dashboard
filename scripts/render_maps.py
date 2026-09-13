@@ -73,11 +73,31 @@ LAND = "#272d3c"
 COAST = "#7f8ca6"
 BORDER = "#9aa7c2"
 
-# The frame. Total pixels are held at what the old letterboxed 1280x760 file
-# cost, so the storage budget does not move; the figure's SHAPE is derived from
-# the projected extent at render time, so all of them are map.
+# The frame.
+#
+# TARGET_PX, not DPI, is the resolution knob. Total pixels are pinned here and
+# the figure's inch-size is then derived from the projected extent's aspect
+# (see `canvas`), so DPI only changes how large a point-sized stroke lands —
+# it cannot add a single pixel. Raising DPI to sharpen the maps is the obvious
+# move and it does nothing.
+#
+# Held at the old letterboxed 1280x760 budget through the letterboxing fix, and
+# now raised. Measured on a banded field quantised the way these frames are:
+#
+#     0.96 MP (1200x800)   14.2 kB
+#     1.98 MP (1800x1100)  21.9 kB    x1.54
+#     2.16 MP (1800x1200)  22.9 kB    x1.61
+#
+# So twice the pixels costs about half again as many bytes — banded imagery
+# compresses on its bands, not its area. Storage has taken a project offline
+# here before (see the retention note), so that 1.54x is a deliberate,
+# measured spend rather than a round number.
+#
+# Note what this does NOT fix: a coarse model still looks coarse. More pixels
+# sharpen the EDGES of GFS's 0.25-degree cells; they cannot put detail inside
+# one. See the grid spacings in the viewer's own model labels.
 DPI = 100
-TARGET_PX = 1280 * 760
+TARGET_PX = 1800 * 1100
 EXTENT = [-122.5, -71.5, 22.5, 50.5]
 
 

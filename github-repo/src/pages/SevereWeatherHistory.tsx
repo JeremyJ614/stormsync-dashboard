@@ -202,9 +202,14 @@ export default function SevereWeatherHistory() {
   const active = mode === "warnings" ? warnings : tornadoes;
   const range = mode === "warnings" ? warnRange : torRange;
   const ranges = mode === "warnings" ? WARN_RANGES : TOR_RANGES;
-  const periodLabel = ranges.find((r) => r.days === days)?.label ?? "";
+  // `days` has to be declared before `periodLabel`, which reads it. It was the
+  // other way round, and that is the whole of "Cannot access 'L' before
+  // initialization": a `const` in the temporal dead zone, read by a `.find`
+  // callback that runs immediately, on every render, before the declaration is
+  // reached. The module threw on mount and the error boundary took the page.
   const days = mode === "warnings" ? warnDays : torDays;
   const setDays = mode === "warnings" ? setWarnDays : setTorDays;
+  const periodLabel = ranges.find((r) => r.days === days)?.label ?? "";
 
   return (
     <ModuleShell

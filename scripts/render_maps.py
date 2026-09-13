@@ -713,22 +713,64 @@ def canvas():
 
 # How many times each cell of a regular lat/lon grid is subdivided before it is
 # drawn. Only the coarse global models need it; see `smooth_grid`.
-UPSAMPLE = {"gfs": 4}
+# EIGHT, not four, and the number is chosen rather than guessed.
+#
+# GFS is 0.25°, which over the CONUS extent is about 204 x 112 cells. The frame
+# is 1800 x 1100. At 4x that is 813 x 445 — still a little over two output
+# pixels per sample, so band edges kept a faint stair. At 8x it is 1625 x 889,
+# which is roughly one interpolated value per output pixel and matches HRRR's
+# 3 km grid spacing almost exactly. Past that there is nothing left to gain:
+# the display is already finer than the screen.
+UPSAMPLE = {"gfs": 8}
 
 
-def _lerp_axis(x_src: np.ndarray, y: np.ndarray, x_dst: np.ndarray, axis: int) -> np.ndarray:
-    """Linear interpolation of `y` along `axis`, from `x_src` onto `x_dst`.
+def _interp_axis(x_src: np.ndarray, y: np.ndarray, x_dst: np.ndarray, axis: int) -> np.ndarray:
+    """Resample `y` along `axis` from `x_src` onto `x_dst`, smoothly and safely.
 
-    `x_src` must be strictly increasing. Vectorised — the per-row Python loop
-    this replaces was four seconds a frame at forty parameters.
+    CATMULL-ROM, THEN CLAMPED, and both halves matter.
+
+    Linear interpolation cannot overshoot, which is why it was used first, but
+    it leaves a visible crease at every sample: the first derivative jumps at
+    each grid point, and on a 25 km field blown up eight times those creases
+    are exactly the "blocky" look this is meant to remove. A cubic is smooth
+    through the samples and looks like the 3 km plates beside it.
+
+    The reason cubics are normally wrong for weather fields is that they
+    overshoot near a sharp gradient — a Catmull-Rom through 0, 0, 60, 60 dBZ
+    peaks above 60, and a reflectivity plate showing a maximum the model never
+    produced is a lie, not a smoothing artefact. So every interpolated value is
+    clamped to the range of the two samples it sits between. That keeps the
+    smoothness everywhere the field is smooth and degrades to linear exactly
+    where the data is steep, which is the only place the overshoot could have
+    happened.
+
+    `x_src` must be strictly increasing. Vectorised: this runs on 1.4 M points
+    a frame and a Python loop would cost more than the render.
     """
-    i = np.clip(np.searchsorted(x_src, x_dst) - 1, 0, x_src.size - 2)
-    w = (x_dst - x_src[i]) / (x_src[i + 1] - x_src[i])
-    lo = np.take(y, i, axis=axis)
-    hi = np.take(y, i + 1, axis=axis)
+    n = x_src.size
+    i = np.clip(np.searchsorted(x_src, x_dst) - 1, 0, n - 2)
+    t = ((x_dst - x_src[i]) / (x_src[i + 1] - x_src[i])).astype("float32")
+
+    # The four samples the cubic runs through, with the ends repeated so the
+    # first and last intervals do not reach outside the grid.
+    p0 = np.take(y, np.clip(i - 1, 0, n - 1), axis=axis)
+    p1 = np.take(y, i, axis=axis)
+    p2 = np.take(y, i + 1, axis=axis)
+    p3 = np.take(y, np.clip(i + 2, 0, n - 1), axis=axis)
+
     shape = [1] * y.ndim
-    shape[axis] = w.size
-    return lo + (hi - lo) * w.reshape(shape).astype("float32")
+    shape[axis] = t.size
+    t = t.reshape(shape)
+    t2 = t * t
+    t3 = t2 * t
+    out = 0.5 * ((2 * p1)
+                 + (-p0 + p2) * t
+                 + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2
+                 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3)
+
+    lo = np.minimum(p1, p2)
+    hi = np.maximum(p1, p2)
+    return np.clip(out, lo, hi).astype("float32")
 
 
 def smooth_grid(lons: np.ndarray, lats: np.ndarray, vals: np.ndarray, k: int):
@@ -747,9 +789,8 @@ def smooth_grid(lons: np.ndarray, lats: np.ndarray, vals: np.ndarray, k: int):
     the same thing — a contour plot of a coarse field is this operation with the
     interpolation hidden inside the contouring.
 
-    Linear, not cubic, on purpose: cubic overshoots at sharp gradients and can
-    put a value on the map that is outside the range of the four cells around
-    it, which on a reflectivity or CAPE plate is a lie about the maximum.
+    The interpolation is a clamped Catmull-Rom — see `_interp_axis` for why the
+    clamp is not optional.
     """
     if k <= 1 or lons.ndim != 1 or lats.ndim != 1:
         return lons, lats, vals
@@ -758,8 +799,8 @@ def smooth_grid(lons: np.ndarray, lats: np.ndarray, vals: np.ndarray, k: int):
     v = vals if asc else vals[::-1, :]
     lo_dst = np.linspace(lons[0], lons[-1], (lons.size - 1) * k + 1, dtype="float32")
     la_dst = np.linspace(la_src[0], la_src[-1], (la_src.size - 1) * k + 1, dtype="float32")
-    v = _lerp_axis(lons.astype("float32"), v, lo_dst, axis=1)
-    v = _lerp_axis(la_src.astype("float32"), v, la_dst, axis=0)
+    v = _interp_axis(lons.astype("float32"), v, lo_dst, axis=1)
+    v = _interp_axis(la_src.astype("float32"), v, la_dst, axis=0)
     return lo_dst, la_dst, v
 
 

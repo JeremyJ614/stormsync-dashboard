@@ -1,0 +1,21 @@
+-- Let the engine use the terrain cache it writes.
+--
+-- `20260912010000_chase_early_rollover_and_terrain.sql` created
+-- `chase_terrain_cache`, enabled RLS on it, and revoked every privilege from
+-- anon and authenticated — correct, because a member has no business reading
+-- service working data. What it never did was grant anything to `service_role`,
+-- and a revoke on the table does not restore the schema default.
+--
+-- So every read the edge function made came back
+--   42501: permission denied for table chase_terrain_cache
+-- which `terrainFor` swallows on purpose ("cache is an optimisation"). The cache
+-- was therefore a no-op from the day it shipped, silently: nothing failed,
+-- nothing logged, and every terrain measurement was taken again from scratch.
+--
+-- That costs about seven requests to three public elevation and land-cover
+-- services per location. Across a season-long backfill it is roughly twelve
+-- thousand requests for ground that has not moved since the last ice age.
+--
+-- RLS stays on and no policy is added: `service_role` bypasses row-level
+-- security, so this grant opens the table to the engine and to nobody else.
+grant select, insert, update, delete on table public.chase_terrain_cache to service_role;

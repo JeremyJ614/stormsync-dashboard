@@ -810,7 +810,10 @@ const FIPS: Record<string, string> = {
  * town. The county is still useful. Bare coordinates mean something broke, and
  * the page shows them rather than inventing a place name.
  */
-async function reverseName(lat: number, lon: number): Promise<{ name: string; state: string }> {
+async function reverseName(
+  lat: number,
+  lon: number,
+): Promise<{ name: string; state: string; inUs: boolean }> {
   try {
     const url = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates` +
       `?x=${lon}&y=${lat}&benchmark=Public_AR_Current&vintage=Current_Current` +
@@ -820,7 +823,9 @@ async function reverseName(lat: number, lon: number): Promise<{ name: string; st
       const b = await r.json() as { result?: { geographies?: Record<string, { NAME?: string; STATE?: string }[]> } };
       const g = b.result?.geographies ?? {};
       const hit = g["Incorporated Places"]?.[0] ?? g["Census Designated Places"]?.[0] ?? g["Counties"]?.[0];
-      if (hit?.NAME) return { name: hit.NAME, state: FIPS[hit.STATE ?? ""] ?? "" };
+      // A Census answer is itself proof of country: the service covers United
+      // States soil and nothing else.
+      if (hit?.NAME) return { name: hit.NAME, state: FIPS[hit.STATE ?? ""] ?? "", inUs: true };
     }
   } catch { /* fall through to Nominatim */ }
 
@@ -829,12 +834,18 @@ async function reverseName(lat: number, lon: number): Promise<{ name: string; st
       `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
       { headers: { "User-Agent": UA, Accept: "application/json" } },
     );
-    if (!r.ok) return { name: "", state: "" };
+    if (!r.ok) return { name: "", state: "", inUs: true };
     const b = await r.json() as { address?: Record<string, string>; name?: string };
     const a = b.address ?? {};
     const name = a.city || a.town || a.village || a.hamlet || a.county || b.name || "";
-    return { name, state: a["ISO3166-2-lvl4"]?.replace("US-", "") ?? "" };
-  } catch { return { name: "", state: "" }; }
+    // `inUs` is false only when a service positively says somewhere else. An
+    // outage must never empty the board — an unnamed target still beats none.
+    const country = (a.country_code ?? "").toLowerCase();
+    return {
+      name, state: a["ISO3166-2-lvl4"]?.replace("US-", "") ?? "",
+      inUs: country === "" || country === "us",
+    };
+  } catch { return { name: "", state: "", inUs: true }; }
 }
 
 /** Two targets closer than this are one chase, not two. */
@@ -1197,26 +1208,43 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
     });
     finalists.sort((a, b) => b.total - a.total);
 
+    // Name the finalists so the AI has somewhere to point — and, on the way,
+    // throw out the ones that are not in this country.
+    //
+    // The candidate grid is clipped to a CONUS bounding BOX, and a box drawn
+    // around the lower 48 necessarily contains southern Ontario and the Mexican
+    // bank of the Rio Grande. SPC's polygons reach across both borders, so
+    // those points are scored like any other. Reconstructing 7 March 2026 put
+    // "Southwestern Ontario" on the board as the day's second-best target on
+    // 40 J/kg of CAPE: not a chase, and not a country this module covers.
+    //
+    // The geocoder already knows the answer, so the border test is free. Naming
+    // therefore moves AHEAD of the pick and walks further down the ranked list
+    // whenever a point is rejected, instead of shipping a short board.
+    //
+    // The backfill still only names what it ships — six geocodes a day across a
+    // season is six hundred requests to the Census for names nobody will read.
+    const want = skipAi ? 2 : 6;
+    const named: Scored[] = [];
+    for (const s of finalists) {
+      if (named.length >= want) break;
+      const n = await reverseName(s.cand.lat, s.cand.lon);
+      await sleep(120);
+      if (!n.inUs) continue;
+      s.name = n.name; s.state = n.state;
+      named.push(s);
+    }
+
     // Two dots in one county is not two targets.
     const picks: Scored[] = [];
-    for (const s of finalists) {
+    for (const s of named) {
       if (picks.length >= 2) break;
       if (picks.every((p) => kmBetween(p.cand, s.cand) >= MIN_SEPARATION_KM)) picks.push(s);
     }
-    while (picks.length < 2 && finalists.length > picks.length) {
-      const next = finalists.find((f) => !picks.includes(f));
+    while (picks.length < 2 && named.length > picks.length) {
+      const next = named.find((f) => !picks.includes(f));
       if (!next) break;
       picks.push(next);
-    }
-
-    // Name the finalists so the AI has somewhere to point. The backfill only
-    // needs the two that ship — six geocodes a day across a season is six
-    // hundred requests to the Census for names nobody will ever read.
-    const named = finalists.slice(0, skipAi ? 2 : 6);
-    for (const s of named) {
-      const n = await reverseName(s.cand.lat, s.cand.lon);
-      s.name = n.name; s.state = n.state;
-      await sleep(120);
     }
 
     const dayScoreRaw = picks.length

@@ -59,6 +59,12 @@ alter table public.chase_terrain_cache enable row level security;
 -- a member has no reason to read it. RLS with no policy denies everyone else.
 revoke all on table public.chase_terrain_cache from anon, authenticated;
 
+-- The revoke above does not leave service_role alone: without this grant the
+-- engine's own cache reads come back 42501 and every measurement is retaken.
+-- (Shipped as a separate migration for databases that already ran this one —
+-- see 20260913010000_chase_terrain_cache_grant.sql.)
+grant select, insert, update, delete on table public.chase_terrain_cache to service_role;
+
 create index if not exists chase_terrain_cache_measured_idx
   on public.chase_terrain_cache (measured_at desc);
 

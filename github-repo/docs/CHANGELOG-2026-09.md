@@ -428,6 +428,78 @@ found — none of them fail a typecheck or a build.
 
 ---
 
+## The round after that — model maps, the dashboard again, and the advertising
+
+**The HRRR viewer was showing two frames.** Not a rendering fault: the renderer
+decided a cycle was ready by asking for its FIRST forecast hour. F00 is the
+analysis and appears a minute or two after a cycle starts, while the last hour
+of an HRRR run does not land for another forty — so at 17:03 it saw 16Z's F00,
+rendered the two hours that existed, hit a 404 on the third, stopped, and wrote
+a two-frame manifest over a complete one. It now asks for the LAST hour it
+intends to render, skips a gap instead of stopping at it, and refuses to publish
+at all below 80% coverage, because writing a manifest is publishing. The next
+run came back "437 frames over 19/19 forecast hours".
+
+**GFS looked like a mosaic.** It is 0.25°, about 25 km, which over the CONUS
+extent is roughly 204x112 cells drawn into an 1800x1100 frame — every cell a
+flat nine-pixel block, beside 3 km HRRR and HREF plates. The grid is now
+subdivided four times bilinearly before it is drawn. That does not invent
+resolution and is not claimed to; it removes a staircase that was an artefact of
+how we drew it. Linear rather than cubic on purpose, because cubic overshoots
+and can put a value on a reflectivity plate that is outside the range of the
+four cells around it.
+
+**HREF's severe wind map was never showing anything**, and it was not broken.
+HREF publishes no gust record at all — checked against a live index, in the
+prob, mean and pmmn files — so its only 10 m wind is SUSTAINED wind, and a
+sustained 58 mph over land is close to unheard of. Decoding that record gives a
+CONUS maximum of 8%, on 348 grid points out of 700,790, against a scale whose
+first band was 5%. It has its own scale starting at 1% now, a 40 mph companion
+that carries real signal on an ordinary day, and a label that says "sustained".
+
+**And the bill that came with all of it.** A full HRRR render measured
+twenty-one minutes. Four cycles a day across three models is about 6,000 Actions
+minutes a month against a private repository's free 2,000 — the renders would
+have stopped around the tenth of every month with nothing in the log to say why.
+Forecast hours now render in a process pool. Oversubscribing it was tried and
+measured and failed: four workers on the two-core runner lost seven of nineteen
+hours to the S3 endpoint closing connections, which the coverage guard caught.
+The lasting fix was retries on every NOAA fetch, which the upload path had and
+the download path never did.
+
+**The Dashboard is arrangeable again**, which the rebuild had dropped along with
+the widgets it arranged. Arrows move a tile within its section and the eye takes
+it off the wall; the arrangement saves per member per device, and a module
+nobody has seen yet arrives in its default place rather than hidden. Every tile
+whose data has a shape now draws it — sparklines, hourly columns, a real wind
+compass, banded scales for AQI and UV, and a moon with a true elliptical
+terminator rather than a bar measuring how lit it is.
+
+**The FAQ and the Intro Guide describe the app that exists.** Both generate from
+one file, so most of this was one edit. Four things were wrong rather than
+merely old: the Dashboard card described dragging widgets that no longer exist,
+the menu card offered two styles retired this round, SSWXCon's scale was written
+backwards, and AI Knowledge Battle had no entry at all. Three new FAQ entries
+cover the news feeds, how the model maps work and why GFS looks softer, and how
+to arrange the dashboard.
+
+**The advertising side had a live bug.** There were two `vercel.json` files and
+Vercel reads only the root one — so the file carrying the good settings was
+never read. The catch-all rewrite pointed at `index.html`, meaning all
+thirty-nine gated routes were served the home page's title and a canonical
+pointing at "/", which is the exact duplicate-content signature the SEO work
+exists to remove; `seo-build.mjs` emits a neutral `app.html` for precisely this
+and it had never once been used. The security headers and the sitemap caching
+were not applied at all, confirmed with `curl -I` against the live site. Both
+fixed in the root file, the inner one deleted, and a note in DEPLOYING.md saying
+not to add one back. Alongside that: FAQPage structured data now ships in the
+HTML crawlers read rather than only in the DOM after React mounts, the Open
+Graph image dimensions were declared 1200x630 when the file is 1280x720, and
+llms.txt now lists what the app actually does rather than the fifth of it that
+was true a year ago.
+
+---
+
 ## Still outstanding
 
 - **The chase season is still filling in.** The two-hourly backfill works
@@ -450,7 +522,21 @@ found — none of them fail a typecheck or a build.
 - **This branch needs merging to `main`** before the next scheduled render, or
   the forty GFS parameters will be overwritten — a *scheduled* GitHub Actions run
   always uses the default branch's copy of the workflow, whatever branch the last
-  manual run was dispatched from.
+  manual run was dispatched from. Every fix in the round above is in the same
+  position: none of it is running in production until the merge happens.
+- **The model-map render budget is a spend decision, and it is yours.** With the
+  render parallelised, a day of four HRRR, four GFS and four HREF cycles lands
+  near the free 2,000 Actions minutes a month rather than three times over it,
+  but it is not comfortably clear of it. Either buy Actions minutes (Linux runs
+  about $0.008 a minute, so the gap is a few dollars) or drop a cycle from the
+  cron in `.github/workflows/render-model-maps.yml`. HREF is the cheapest to
+  halve: its probabilities move slowly, which is why its frames are already
+  two-hourly.
+- **Nothing is verified with Google or Bing.** There is no Search Console
+  property, no Bing Webmaster property and no analytics of any kind — confirmed
+  by checking the HTML and the DNS TXT records for both domains. Everything
+  needed to be indexed well is in place and nobody has told the search engines
+  the site is there.
 - **Direct database access was blocked for this whole engagement** at the
   assistant's own tool layer, not by any credential. Every route was refused, so
   nothing here was verified by querying the live database; the SQL above is

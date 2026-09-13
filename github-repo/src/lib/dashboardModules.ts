@@ -32,6 +32,7 @@
 import type { LucideIcon } from "lucide-react";
 import { NAV_SECTIONS } from "./navModel";
 import { moonIllumination } from "./astro";
+import type { Visual } from "../components/dashboard/TileVisual";
 
 /** How much a tile should shout. */
 export type Tone = "quiet" | "notable" | "alert";
@@ -46,6 +47,16 @@ export interface Reading {
   tone?: Tone;
   /** 0-1, for tiles that draw a meter. Omitted means no meter. */
   fill?: number;
+  /**
+   * A small drawing, where the shared data holds a series or an angle.
+   *
+   * A number tells you the value and nothing about the SHAPE, which is most of
+   * what a glance is for: 74°F says nothing about whether the afternoon falls
+   * off a cliff, and 60% says nothing about whether the storm is at four
+   * o'clock or spread across the evening. Where a visual is present it replaces
+   * the meter, because two bars saying the same thing is one bar too many.
+   */
+  visual?: Visual;
 }
 
 /**
@@ -124,6 +135,26 @@ function peak(c: TileContext, key: string, n: number): { value: number; at: numb
   return best;
 }
 
+/**
+ * The next `n` hours of an hourly field, from now.
+ *
+ * Returns null rather than a short array when the block cannot supply the whole
+ * window: a sparkline over four hours drawn in the same box as one over
+ * twenty-four is a different chart wearing the same clothes, and nobody reading
+ * a wall of them would notice the axis had changed under them.
+ */
+function series(c: TileContext, key: string, n: number): number[] | null {
+  const arr = c.wx?.hourly?.[key];
+  if (!Array.isArray(arr) || c.hour < 0 || c.hour + n > arr.length) return null;
+  const out: number[] = [];
+  for (let i = c.hour; i < c.hour + n; i++) {
+    const v = num(arr[i]);
+    if (v === null) return null;
+    out.push(v);
+  }
+  return out;
+}
+
 /** "in 3h" / "now", from an hourly index. */
 function whenFrom(c: TileContext, idx: number): string {
   const d = idx - c.hour;
@@ -142,10 +173,12 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     const hi = daily(c, "temperature_2m_max");
     const lo = daily(c, "temperature_2m_min");
     if (t === null) return null;
+    const next = series(c, "temperature_2m", 24);
     return {
       value: String(Math.round(cToF(t))), unit: "°F",
       note: hi !== null && lo !== null
         ? `${Math.round(cToF(hi))}° / ${Math.round(cToF(lo))}° today` : undefined,
+      visual: next ? { kind: "line", points: next.map(cToF) } : undefined,
     };
   },
 
@@ -171,7 +204,15 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     return {
       value: String(Math.round(aqi)), unit: "US AQI", note: band,
       tone: aqi > 150 ? "alert" : aqi > 100 ? "notable" : "quiet",
-      fill: Math.min(1, aqi / 200),
+      // The EPA's own band edges, so the bar says which band rather than only
+      // how far along an unlabelled scale the needle has travelled.
+      visual: {
+        kind: "gauge", value: aqi, max: 300,
+        bands: [
+          { at: 50, c: "#00e400" }, { at: 100, c: "#ffff00" }, { at: 150, c: "#ff7e00" },
+          { at: 200, c: "#ff0000" }, { at: 300, c: "#8f3f97" },
+        ],
+      },
     };
   },
 
@@ -191,6 +232,13 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
         ? `sets ${set.slice(11, 16)} · UV ${uv.toFixed(0)} now`
         : `sets ${set.slice(11, 16)}`,
       tone: uv !== null && uv >= 8 ? "notable" : "quiet",
+      // WHO's own UV bands. Length of day is the headline; what to do about the
+      // sun in it is the part that changes anybody's afternoon.
+      visual: uv === null ? undefined : {
+        kind: "gauge", value: uv, max: 12,
+        bands: [{ at: 3, c: "#2fa36b" }, { at: 6, c: "#f2e33c" }, { at: 8, c: "#f5a623" },
+                { at: 11, c: "#c0392b" }, { at: 12, c: "#8e2de2" }],
+      },
     };
   },
 
@@ -201,10 +249,13 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     // The module's own bands: instability alone is not a score, so this is
     // labelled as what it is — the CAPE the score is partly built from.
     const tone: Tone = cape >= 2500 ? "alert" : cape >= 1000 ? "notable" : "quiet";
+    const next = series(c, "cape", 24);
     return {
       value: String(Math.round(cape)), unit: "J/kg",
       note: li !== null ? `lifted index ${li.toFixed(1)}` : "surface CAPE",
-      tone, fill: Math.min(1, cape / 4000),
+      tone,
+      visual: next ? { kind: "line", points: next } : undefined,
+      fill: next ? undefined : Math.min(1, cape / 4000),
     };
   },
 
@@ -223,20 +274,29 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
   "/thunder": (c) => {
     const p = peak(c, "precipitation_probability", 12);
     if (!p) return null;
+    const next = series(c, "precipitation_probability", 24);
     return {
       value: String(Math.round(p.value)), unit: "%",
       note: `peak ${whenFrom(c, p.at)}`,
       tone: p.value >= 60 ? "notable" : "quiet",
-      fill: p.value / 100,
+      visual: next ? { kind: "bars", points: next, max: 100 } : undefined,
+      fill: next ? undefined : p.value / 100,
     };
   },
 
   "/timing": (c) => {
     const p = peak(c, "precipitation_probability", 24);
-    if (!p || p.value < 30) return { value: "Nothing", note: "no storm to time today", tone: "quiet" };
+    const next = series(c, "precipitation_probability", 24);
+    if (!p || p.value < 30) {
+      return {
+        value: "Nothing", note: "no storm to time today", tone: "quiet",
+        visual: next ? { kind: "bars", points: next, max: 100 } : undefined,
+      };
+    }
     return {
       value: whenFrom(c, p.at), note: `${Math.round(p.value)}% chance at the peak`,
       tone: p.value >= 60 ? "notable" : "quiet",
+      visual: next ? { kind: "bars", points: next, max: 100 } : undefined,
     };
   },
 
@@ -246,10 +306,13 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     if (cape === null || gust === null) return null;
     // Deliberately not the module's index — that needs a wind profile this page
     // does not fetch. Two of its inputs, labelled as its inputs.
+    const dir = hourly(c, "wind_direction_10m");
     return {
       value: `${Math.round(msToMph(gust))}`, unit: "mph gust",
       note: `with ${Math.round(cape)} J/kg`,
       tone: gust >= 22 && cape >= 1000 ? "notable" : "quiet",
+      visual: dir === null ? undefined
+        : { kind: "compass", deg: dir, label: `from ${Math.round(dir)}°` },
     };
   },
 
@@ -305,17 +368,23 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
       value: String(score), unit: "/100",
       note: score >= 66 ? "biting weather" : score >= 33 ? "some about" : "quiet tonight",
       tone: score >= 66 ? "notable" : "quiet",
-      fill: score / 100,
+      visual: {
+        kind: "gauge", value: score, max: 100,
+        bands: [{ at: 33, c: "#2fa36b" }, { at: 66, c: "#f2c14e" }, { at: 100, c: "#c0392b" }],
+      },
     };
   },
 
   "/rotation": (c) => {
     const p = peak(c, "precipitation", 6);
     if (!p) return null;
+    const next = series(c, "precipitation", 12);
+    const vis: Reading["visual"] = next ? { kind: "bars", points: next } : undefined;
     // Inches already — see `/rivers`.
     return p.value >= 0.01
-      ? { value: p.value.toFixed(2), unit: "in/h", note: `heaviest ${whenFrom(c, p.at)}`, tone: p.value >= 0.25 ? "notable" : "quiet" }
-      : { value: "Dry", note: "no rain in the next six hours", tone: "quiet" };
+      ? { value: p.value.toFixed(2), unit: "in/h", note: `heaviest ${whenFrom(c, p.at)}`,
+          tone: p.value >= 0.25 ? "notable" : "quiet", visual: vis }
+      : { value: "Dry", note: "no rain in the next six hours", tone: "quiet", visual: vis };
   },
 
   "/hazards": (c) => {
@@ -333,7 +402,9 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     return {
       value: `${Math.round(m.fraction * 100)}`, unit: "% lit",
       note: `${m.name}${m.fraction > 0.9 ? " — a bright night" : m.fraction < 0.1 ? " — dark skies" : ""}`,
-      fill: m.fraction,
+      // A disc with a real terminator, rather than a bar measuring how lit it
+      // is. A bar is the wrong instrument for a thing that has a picture.
+      visual: { kind: "moon", illum: m.fraction, waxing: m.waxing },
     };
   },
 
@@ -349,10 +420,18 @@ const READ: Record<string, (c: TileContext) => Reading | null> = {
     }
     if (!Number.isFinite(hi) || !Number.isFinite(lo)) return null;
     const swing = Math.round(hi - lo);
+    const highs: number[] = [];
+    for (let d = 0; d < 7; d++) {
+      const a = daily(c, "temperature_2m_max", d);
+      if (a !== null) highs.push(cToF(a));
+    }
     return {
       value: String(swing), unit: "°F swing",
       note: `${Math.round(lo)}° to ${Math.round(hi)}° this week`,
       tone: swing >= 45 ? "notable" : "quiet",
+      // The seven highs, because a swing of forty says nothing about whether
+      // the change is a front on Thursday or a slow slide all week.
+      visual: highs.length === 7 ? { kind: "line", points: highs } : undefined,
     };
   },
 

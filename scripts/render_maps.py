@@ -29,6 +29,7 @@ import random
 import sys
 import tempfile
 import time
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
@@ -960,6 +961,170 @@ class Supa:
             print(f"  purged {len(stale)} stale {model} manifest rows")
 
 
+
+# ── one forecast hour, start to finish ───────────────────────────────────────
+#
+# WHY THIS IS ITS OWN FUNCTION
+# A full HRRR run is 23 parameters over 19 forecast hours, and measured on a
+# GitHub runner that is 437 frames in twenty-one minutes. Four of those a day,
+# plus GFS and HREF, is roughly 6,000 Actions minutes a month against a private
+# repository's free 2,000 — the render would simply stop somewhere around the
+# tenth of the month, and nothing in the log would say why. Growing the
+# parameter list from eight to sixty-one and doubling the frame size is what
+# bought that bill; this is what pays it.
+#
+# The work is embarrassingly parallel by forecast hour: each hour reads its own
+# index, pulls its own records and writes its own frames, and nothing crosses
+# between them.
+#
+# PROCESSES, NOT THREADS, and the three things that make that safe:
+#   · matplotlib is not thread-safe, and the canvas here is deliberately reused
+#     between frames because rebuilding the cartopy furniture is most of the
+#     cost of a frame. One canvas per PROCESS keeps that saving without sharing
+#     anything.
+#   · every temp path is already unique — `NamedTemporaryFile` for the GRIB
+#     record, `{model}_{key}_{fhr}` for the PNG — and cfgrib is told to write no
+#     index file at all, so there is nothing for two workers to collide over.
+#   · `requests.Session` is module state, so each process gets its own.
+#
+# The one thing that is NOT safe in parallel is the first cartopy call, which
+# downloads the Natural Earth shapefiles into a shared cache. The parent warms
+# that cache before the pool starts; see `warm_features`.
+def render_hour(job: tuple) -> tuple[int, dict, int, bool]:
+    """One forecast hour. Never raises — see the note above `_render_hour`."""
+    fhr = job[2]
+    try:
+        return _render_hour(job)
+    except Exception as e:  # noqa: BLE001
+        # A pool worker that raises takes the whole map down with it, and one
+        # bad hour is not worth nineteen. The hour comes back marked missing and
+        # the coverage guard in `main` decides whether the run still stands.
+        print(f"  F{fhr:03d}: failed ({e})", file=sys.stderr)
+        return fhr, {}, 0, False
+
+
+def _render_hour(job: tuple) -> tuple[int, dict, int, bool]:
+    model, cycle, fhr, params, url, key = job
+    supa = Supa(url, key) if url and key else None
+    frames: dict[str, list] = {}
+    bytes_pulled = 0
+
+    gurl = grib_url(model, cycle, fhr)
+    # One retry, then skip the hour and keep going. Stopping at the first
+    # gap is what turned a single transient 404 into a two-frame run; a hole
+    # in the middle of an otherwise complete loop is worth far less than the
+    # nineteen frames that stopping threw away.
+    rows = None
+    for attempt in (1, 2):
+        try:
+            rows = fetch_index(gurl)
+            break
+        except Exception as e:  # noqa: BLE001
+            if attempt == 2:
+                print(f"  F{fhr:03d}: index unavailable ({e}) — skipping this hour")
+            else:
+                time.sleep(3)
+    if rows is None:
+        # The hour is reported missing rather than raised: one gap must not take
+        # the other eighteen hours down with it. `main` decides whether enough
+        # of the run survived to be worth publishing.
+        return fhr, {}, 0, False
+    print(f"  F{fhr:03d}")
+    for p in params:
+        raw = fetch_record(gurl, rows, p.match, p.match_also)
+        if not raw:
+            print(f"    - {p.key}: not in index")
+            continue
+        bytes_pulled += len(raw)
+        ds = open_grib(raw)
+        if ds is None:
+            continue
+
+        # Parameters built from more than one record. A missing companion is
+        # a skip, never a silent fall-back to the primary field on its own —
+        # half of a shear vector plotted as if it were the shear would be
+        # wrong everywhere the wind is not due west.
+        if p.combine:
+            parts = []
+            ok = True
+            for m in p.extra:
+                r2 = fetch_record(gurl, rows, m)
+                d2 = open_grib(r2) if r2 else None
+                v2 = values_of(d2) if d2 is not None else None
+                if v2 is None:
+                    print(f"    - {p.key}: companion record missing ({m})")
+                    ok = False
+                    break
+                bytes_pulled += len(r2)
+                parts.append(v2)
+            if not ok:
+                continue
+            base = values_of(ds)
+            if base is None:
+                continue
+            if p.combine == "mag":
+                combined = np.hypot(base, parts[0])
+            elif p.combine == "vecdiff":
+                # match = u0, extra = [v0, u1, v1]
+                v0, u1, v1 = parts
+                combined = np.hypot(u1 - base, v1 - v0)
+            elif p.combine == "thetae":
+                # match = TMP, extra = [DPT, PRES]
+                td, pres = parts
+                combined = bolton_theta_e(base, td, pres)
+            elif p.combine == "lapse":
+                # match = TMP lower, extra = [TMP upper, HGT lower, HGT upper]
+                # °C per kilometre through the layer. GFS publishes no lapse
+                # rate of its own, and 700-500 is the number a chaser reads
+                # to decide whether the cap will break and how hard updrafts
+                # will go once it does — it is four real records, divided.
+                t_up, z_lo, z_up = parts
+                dz = np.maximum(z_up - z_lo, 1.0) / 1000.0
+                combined = (base - t_up) / dz
+            else:
+                print(f"    - {p.key}: unknown combine '{p.combine}'")
+                continue
+            if combined.shape != base.shape:
+                print(f"    - {p.key}: companion grid mismatch "
+                      f"{base.shape} vs {combined.shape}")
+                continue
+            # Rebuilt rather than written in place: a cfgrib array can come
+            # back read-only, and a shallow Dataset.copy() would share it
+            # with the record we just decoded.
+            vname = next(iter(ds.data_vars))
+            ds = ds.assign({vname: (ds[vname].dims, combined)})
+        out = os.path.join(tempfile.gettempdir(), f"{model}_{p.key}_{fhr:03d}.png")
+        if not render(ds, p, model, cycle, fhr, out):
+            continue
+        path = f"{model}/{cycle:%Y%m%d%H}/{p.key}/F{fhr:03d}.png"
+        if supa:
+            with open(out, "rb") as fh:
+                supa.upload(path, fh.read())
+        os.unlink(out)
+        frames.setdefault(p.key, []).append({
+            "fhr": fhr,
+            "valid": (cycle + timedelta(hours=fhr)).isoformat(),
+            "path": path,
+        })
+    return fhr, frames, bytes_pulled, True
+
+
+def warm_features() -> None:
+    """Pull the Natural Earth shapefiles into cartopy's cache, in the parent.
+
+    Four workers each discovering a missing shapefile at the same moment is four
+    concurrent downloads into one directory, and the loser of that race reads a
+    half-written zip. Doing it here costs about ten seconds once and makes every
+    worker's first canvas a local read.
+    """
+    for f in (cfeature.LAND, cfeature.OCEAN, cfeature.STATES,
+              cfeature.COASTLINE, cfeature.BORDERS):
+        try:
+            list(f.with_scale("50m").geometries())
+        except Exception as e:  # noqa: BLE001
+            print(f"  ! could not pre-cache a map feature: {e}", file=sys.stderr)
+
+
 # ── run discovery ────────────────────────────────────────────────────────────
 def latest_cycle(model: str, last_fhr: int, max_back: int = 8) -> datetime | None:
     """The newest cycle that has FINISHED publishing.
@@ -1067,102 +1232,30 @@ def main() -> int:
     bytes_pulled = 0
     missing: list[int] = []
 
-    for fhr in hours:
-        gurl = grib_url(a.model, cycle, fhr)
-        # One retry, then skip the hour and keep going. Stopping at the first
-        # gap is what turned a single transient 404 into a two-frame run; a hole
-        # in the middle of an otherwise complete loop is worth far less than the
-        # nineteen frames that stopping threw away.
-        rows = None
-        for attempt in (1, 2):
-            try:
-                rows = fetch_index(gurl)
-                break
-            except Exception as e:  # noqa: BLE001
-                if attempt == 2:
-                    print(f"  F{fhr:03d}: index unavailable ({e}) — skipping this hour")
-                    missing.append(fhr)
-                else:
-                    time.sleep(3)
-        if rows is None:
-            continue
-        print(f"  F{fhr:03d}")
-        for p in params:
-            raw = fetch_record(gurl, rows, p.match, p.match_also)
-            if not raw:
-                print(f"    - {p.key}: not in index")
-                continue
-            bytes_pulled += len(raw)
-            ds = open_grib(raw)
-            if ds is None:
-                continue
+    # One worker per core. More than that on a four-vCPU runner only adds
+    # context switching and four more simultaneous uploads for the storage pool
+    # to throttle — and this project has already lost a finished render to
+    # `too_many_connections` once.
+    workers = max(1, min(os.cpu_count() or 2, len(hours), 4))
+    print(f"  rendering {len(hours)} forecast hours across {workers} workers")
+    warm_features()
 
-            # Parameters built from more than one record. A missing companion is
-            # a skip, never a silent fall-back to the primary field on its own —
-            # half of a shear vector plotted as if it were the shear would be
-            # wrong everywhere the wind is not due west.
-            if p.combine:
-                parts = []
-                ok = True
-                for m in p.extra:
-                    r2 = fetch_record(gurl, rows, m)
-                    d2 = open_grib(r2) if r2 else None
-                    v2 = values_of(d2) if d2 is not None else None
-                    if v2 is None:
-                        print(f"    - {p.key}: companion record missing ({m})")
-                        ok = False
-                        break
-                    bytes_pulled += len(r2)
-                    parts.append(v2)
-                if not ok:
-                    continue
-                base = values_of(ds)
-                if base is None:
-                    continue
-                if p.combine == "mag":
-                    combined = np.hypot(base, parts[0])
-                elif p.combine == "vecdiff":
-                    # match = u0, extra = [v0, u1, v1]
-                    v0, u1, v1 = parts
-                    combined = np.hypot(u1 - base, v1 - v0)
-                elif p.combine == "thetae":
-                    # match = TMP, extra = [DPT, PRES]
-                    td, pres = parts
-                    combined = bolton_theta_e(base, td, pres)
-                elif p.combine == "lapse":
-                    # match = TMP lower, extra = [TMP upper, HGT lower, HGT upper]
-                    # °C per kilometre through the layer. GFS publishes no lapse
-                    # rate of its own, and 700-500 is the number a chaser reads
-                    # to decide whether the cap will break and how hard updrafts
-                    # will go once it does — it is four real records, divided.
-                    t_up, z_lo, z_up = parts
-                    dz = np.maximum(z_up - z_lo, 1.0) / 1000.0
-                    combined = (base - t_up) / dz
-                else:
-                    print(f"    - {p.key}: unknown combine '{p.combine}'")
-                    continue
-                if combined.shape != base.shape:
-                    print(f"    - {p.key}: companion grid mismatch "
-                          f"{base.shape} vs {combined.shape}")
-                    continue
-                # Rebuilt rather than written in place: a cfgrib array can come
-                # back read-only, and a shallow Dataset.copy() would share it
-                # with the record we just decoded.
-                vname = next(iter(ds.data_vars))
-                ds = ds.assign({vname: (ds[vname].dims, combined)})
-            out = os.path.join(tempfile.gettempdir(), f"{a.model}_{p.key}_{fhr:03d}.png")
-            if not render(ds, p, a.model, cycle, fhr, out):
-                continue
-            path = f"{a.model}/{cycle:%Y%m%d%H}/{p.key}/F{fhr:03d}.png"
-            if supa:
-                with open(out, "rb") as fh:
-                    supa.upload(path, fh.read())
-            os.unlink(out)
-            frames[p.key].append({
-                "fhr": fhr,
-                "valid": (cycle + timedelta(hours=fhr)).isoformat(),
-                "path": path,
-            })
+    jobs = [(a.model, cycle, fhr, params, url, key) for fhr in hours]
+    began = time.time()
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        for fhr, got, pulled, ok in pool.map(render_hour, jobs):
+            bytes_pulled += pulled
+            if not ok:
+                missing.append(fhr)
+            for k, v in got.items():
+                frames.setdefault(k, []).extend(v)
+
+    # Frames arrive in whatever order the workers finished. The viewer sorts by
+    # forecast hour itself, but the manifest is also read by people, and a run
+    # whose hours are shuffled looks broken when it is not.
+    for v in frames.values():
+        v.sort(key=lambda f: f["fhr"])
+    print(f"  {time.time() - began:.0f}s of render time")
 
     rendered = sum(len(v) for v in frames.values())
     done = len(hours) - len(missing)

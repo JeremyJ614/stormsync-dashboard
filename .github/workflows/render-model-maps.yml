@@ -2,10 +2,21 @@ name: Render model maps
 
 # Phase 4 — HRRR/GFS map frames for the Model Runs viewer.
 #
-# CADENCE IS DELIBERATE. This repo is private, so GitHub Actions gives 2,000 free
-# minutes/month. A run costs roughly 7 minutes (index + byte-range pulls, ~144
-# renders, upload). Four runs a day is ~840 min/month (42% of the allowance);
-# hourly would be ~5,000 min/month and blow through it in under two weeks.
+# CADENCE IS DELIBERATE, AND THE BUDGET HAS MOVED. This repo is private, so
+# GitHub Actions gives 2,000 free minutes/month.
+#
+# When this was written a run was ~7 minutes and four a day was 42% of the
+# allowance. The parameter list has since gone from 20 to 84 across three models
+# and the frames are twice the size, and a full serial HRRR render measured
+# TWENTY-ONE minutes on 13 September — about 6,000 min/month for the whole
+# schedule, three times the allowance. That does not fail loudly; it stops
+# rendering somewhere around the tenth of the month.
+#
+# So `render_maps.py` now renders forecast hours in a process pool, one per
+# core, which is where the arithmetic comes back inside the allowance. If it
+# ever creeps out again the cheapest lever is this cron: dropping HREF to twice
+# a day costs almost nothing (ensemble probabilities move slowly, which is why
+# its frames are already two-hourly) and saves the most minutes per parameter.
 #
 # The renderer never downloads whole GRIB files — it reads each file's .idx and
 # issues HTTP Range requests for just the records it needs (measured: 0.21 MB of

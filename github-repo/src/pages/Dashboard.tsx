@@ -34,19 +34,30 @@
  * Locked modules are absent rather than shown greyed. The sidebar is where a
  * member discovers what they could buy — it deliberately shows locked rows —
  * and duplicating that here would turn a working instrument into a shop.
+ *
+ *   • It is arrangeable again. The first rebuild dropped the old layout drawer
+ *     along with the widgets it arranged, and that was a mistake: a dashboard
+ *     is the one page whose whole job is to put what THIS person looks at where
+ *     they look first, and no default order can know that. Customize turns the
+ *     wall into a set of movable plates; the arrangement is per member, per
+ *     device, and a module they have never seen appears in its default place
+ *     rather than arriving hidden.
  */
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { motion } from "framer-motion";
-import { LayoutGrid, AlertTriangle, MapPin } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
+import { LayoutGrid, AlertTriangle, MapPin, SlidersHorizontal, Check, RotateCcw } from "lucide-react";
 import { useOpenMeteo, useNWSAlerts } from "../hooks/useWeatherQuery";
 import { listRuns } from "../lib/modelRuns";
 import { useAuth, hasModuleAccess } from "../hooks/useAuth";
 import { hourIndexNow } from "../lib/currentHour";
 import type { Location } from "../hooks/useLocation";
 import { ModuleShell } from "../components/ModuleShell";
-import { ModuleTile } from "../components/dashboard/ModuleTile";
+import { ModuleTile, HiddenChip } from "../components/dashboard/ModuleTile";
 import { MODULE_TILES, TILE_SECTIONS, type TileContext } from "../lib/dashboardModules";
+import {
+  loadPrefs, savePrefs, clearPrefs, arrange, move, type DashboardPrefs,
+} from "../lib/dashboardPrefs";
 import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
@@ -99,6 +110,35 @@ export default function Dashboard({ location }: Props) {
     [user],
   );
 
+  // The member's arrangement. Read once on mount rather than on every render —
+  // localStorage is synchronous and this page re-renders on every forecast
+  // refresh, and a synchronous read inside a render is how a fast page stops
+  // being one.
+  const [editing, setEditing] = useState(false);
+  const [prefs, setPrefs] = useState<DashboardPrefs>(() => loadPrefs(user?.id ?? null));
+
+  const apply = (next: DashboardPrefs) => {
+    setPrefs(next);
+    savePrefs(user?.id ?? null, next);
+  };
+
+  const { shown, hidden } = useMemo(() => arrange(mine, prefs), [mine, prefs]);
+
+  /*
+   * Reordering works on the FULL arrangement, not on the visible subset.
+   *
+   * If it worked on what is on screen, moving a tile past a hidden one would
+   * silently jump it two places — and then un-hiding that tile would drop it
+   * somewhere the member never put it. So the order is materialised first, with
+   * every tile in it, and the move happens there.
+   */
+  const reorder = (path: string, delta: number) => {
+    const full = [...shown, ...hidden].map((t) => t.path);
+    const current = prefs.order.length ? prefs.order.filter((p) => full.includes(p)) : full;
+    for (const p of full) if (!current.includes(p)) current.push(p);
+    apply({ ...prefs, order: move(current, path, delta) });
+  };
+
   const ctx: TileContext = useMemo(() => ({
     wx: wx.data ?? null,
     alerts: (alertsQ.data ?? []) as TileContext["alerts"],
@@ -123,11 +163,20 @@ export default function Dashboard({ location }: Props) {
     [readings],
   );
 
+  /*
+   * Sections stay, and ordering happens INSIDE them.
+   *
+   * Dropping the headers when somebody customises would mean the page they
+   * arranged is not the page they were looking at, and the headings are most of
+   * what makes twenty tiles scannable. A member cannot move a tile from one
+   * section to another, which is the one cost, and it is worth it: "Severe
+   * Weather" is a real grouping rather than a default somebody has to undo.
+   */
   const sections = useMemo(
     () => TILE_SECTIONS
-      .map((label) => ({ label, tiles: mine.filter((t) => t.section === label) }))
+      .map((label) => ({ label, tiles: shown.filter((t) => t.section === label) }))
       .filter((s) => s.tiles.length > 0),
-    [mine],
+    [shown],
   );
 
   let n = 0;   // running index across sections, so the stagger reads as one sweep

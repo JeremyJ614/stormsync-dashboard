@@ -1761,13 +1761,35 @@ async function runBackfill(opts: { trigger: string; limit?: number; from?: strin
       filled.push({ date: d, day_score: r?.day_score ?? null, status: String(r?.status ?? "?") });
     } catch (e) {
       const msg = String(e instanceof Error ? e.message : e);
+      const quota = e instanceof QuotaExhausted;
       failed.push({ date: d, error: msg });
+      /*
+       * `status` decides whether this date gets a strike, and running out of
+       * quota is not the date's fault.
+       *
+       * `chase_missing_dates` retires a date after three rows of `status =
+       * 'error'`, which exists so the job stops grinding on a Tuesday whose
+       * archive genuinely has a hole in it. But it counted every failure the
+       * same way, and this branch wrote `error` for quota exhaustion too — so
+       * the newest unfilled date, which is always the one the ordering hands
+       * back first, took a strike every time the free tier ran dry. Three days
+       * of that and a perfectly reconstructable date was retired for ever;
+       * then the next one down became "newest unfilled" and began collecting
+       * its own three. The backfill did not stop so much as walk backwards
+       * abandoning good days, which from outside looked exactly like it had
+       * stalled on one date.
+       *
+       * Recorded as `quota` instead: still visible to anyone reading the run
+       * log, invisible to the three-strikes rule, which only ever meant to
+       * count reasons that will still be true tomorrow.
+       */
       await admin.from("chase_runs").insert({
-        outlook_date: d, status: "error", trigger: opts.trigger, detail: `backfill: ${msg}`,
+        outlook_date: d, status: quota ? "quota" : "error",
+        trigger: opts.trigger, detail: `backfill: ${msg}`,
       }).then(() => {}, () => {});
       // The free tier is spent until midnight UTC. Every remaining date in this
       // chunk would fail the same way, so stop and let the next run have them.
-      if (e instanceof QuotaExhausted) { quotaSpent = true; break; }
+      if (quota) { quotaSpent = true; break; }
     }
   }
 

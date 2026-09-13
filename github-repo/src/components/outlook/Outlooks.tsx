@@ -25,13 +25,14 @@ import { SegmentedTabs, type Segment } from "../forecast/SegmentedTabs";
 import { PeriodRail } from "./PeriodRail";
 import { OutlookCanvas } from "./OutlookCanvas";
 import { FallColorsMap, FoliageReportView } from "./Foliage";
+import { FoliageProgress } from "./FoliageProgress";
 import { ROYAL, HEADING, EASE } from "../../lib/royal";
 
 const HOUR = 3_600_000;
 
 /** Products that are not vector polygons from a GIS service. */
 const IMAGE_PRODUCTS = new Set(["wpc-heatrisk"]);
-const FOLIAGE_PRODUCTS = new Set(["other-foliage", "other-colors"]);
+const FOLIAGE_PRODUCTS = new Set(["other-foliage", "other-colors", "other-foliage-progress"]);
 
 /* ── chrome ──────────────────────────────────────────────────────────────── */
 
@@ -214,9 +215,11 @@ export function Outlooks({ group, still }: { group: OutlookGroup; still: boolean
     const f = foliage.data;
     headline = product.id === "other-colors"
       ? `${f.total} sites have turned`
-      : f.states[0]
-        ? `${f.states[0].state} is furthest along`
-        : "Nothing has turned yet";
+      : product.id === "other-foliage-progress"
+        ? `${f.seasonLabel}, scrubbed day by day`
+        : f.states[0]
+          ? `${f.states[0].state} is furthest along`
+          : "Nothing has turned yet";
     meta = [
       { label: "Season", value: f.current ? `${f.seasonLabel}, in progress` : `${f.seasonLabel}, completed` },
       { label: "Since", value: f.seasonStart },
@@ -270,6 +273,8 @@ export function Outlooks({ group, still }: { group: OutlookGroup; still: boolean
                                          message={(foliage.error as Error)?.message ?? "the request failed"} />
             : product.id === "other-colors"
               ? <FallColorsMap report={foliage.data!} still={still} height={MAP_H_PX} />
+            : product.id === "other-foliage-progress"
+              ? <FoliageProgress report={foliage.data!} still={still} height={MAP_H_PX} />
               : <FoliageReportView report={foliage.data!} still={still} />
           ) : isImage ? (
             <div className="relative rounded-2xl overflow-hidden"

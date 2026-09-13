@@ -361,8 +361,32 @@ export async function measure(lat: number, lon: number): Promise<TerrainResult |
  * 20 km box each measurement already averages over.
  */
 export const CELL = 0.05;
+
+/**
+ * Which scorer measured a row — and the reason the last two days were still
+ * reading 100/100 long after the scorer that could produce a 100 was gone.
+ *
+ * The cache was keyed on position alone, and `terrainFor` returned any hit it
+ * found without asking where the number came from. So the FIRST scorer to
+ * measure a cell owned that cell for ever. The old standard-deviation scorer
+ * clamped to 100 almost everywhere east of the Rockies; every cell it reached
+ * kept its 100 through every later deploy, because a cache hit never re-runs
+ * the measurement. Nothing failed and nothing logged — the new scorer simply
+ * never got asked about ground it had already been told the answer for.
+ *
+ * (It stayed hidden longer than it should have because the cache spent its
+ * first weeks as a no-op — the service_role grant was missing, so every read
+ * came back 42501 and every measurement was retaken. The grant migration that
+ * fixed that is what switched this bug on.)
+ *
+ * Bumping this number retires every row the previous scorer wrote: old keys
+ * stop matching, the cells are measured again, and the stale rows age out.
+ * BUMP IT whenever `measure` or `blend` changes in a way that moves scores.
+ */
+export const ALGO = 2;
+
 export function cellKey(lat: number, lon: number): string {
-  return `${Math.round(lat / CELL)}:${Math.round(lon / CELL)}`;
+  return `v${ALGO}:${Math.round(lat / CELL)}:${Math.round(lon / CELL)}`;
 }
 
 export interface TerrainCache {

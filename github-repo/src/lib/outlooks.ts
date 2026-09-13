@@ -191,6 +191,15 @@ export const PRODUCTS: OutlookProduct[] = [
     href: "https://www.usanpn.org/",
     views: [],
   },
+  {
+    id: "other-foliage-progress",
+    group: "other",
+    label: "Season Progress",
+    line: "Scrub the season and watch the turn spread, one observation at a time — every dot is a site on the day its first coloured leaves were recorded.",
+    source: "USA National Phenology Network",
+    href: "https://www.usanpn.org/",
+    views: [],
+  },
 ];
 
 export const GROUPS: { id: OutlookGroup; label: string; blurb: string }[] = [

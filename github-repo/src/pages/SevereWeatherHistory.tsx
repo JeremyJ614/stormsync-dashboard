@@ -11,10 +11,13 @@ import { StaticHistoryMap, type LegendRow, type StatBox } from "../components/St
 import { StatBank, type BankRow } from "../components/history/StatBank";
 import {
   fetchWarnings, fetchTornadoTracks, daysBackRange,
-  periodRange, periodLabel, periodClipped, TOR_YEARS_BACK,
+  periodRanges, periodLabel, periodClipped, periodPartialSurvey,
+  filterTornadoes, countByState, US_STATE_NAMES,
+  TOR_YEARS_BACK, TOR_FULL_SURVEY_YEAR,
   WARN_TIERS, EF_ORDER, efHistoryColor, type TorPeriod,
 } from "../lib/severeHistoryData";
 import { PeriodPicker } from "../components/history/PeriodPicker";
+import { TornadoFilters } from "../components/history/TornadoFilters";
 
 /**
  * Severe Weather History.
@@ -57,12 +60,12 @@ const WARN_RANGES = [
   { days: 7, label: "7 days" },
   { days: 30, label: "30 days" },
 ];
-// Tornado spans go to three years because the archive does. The warning list
-// stays short on purpose — IEM keeps weeks of storm-based warnings, not years.
+// Tornado spans go as deep as the archive window. The warning list stays short
+// on purpose — IEM keeps weeks of storm-based warnings, not years.
 const TOR_RANGES = [
   { days: 30, label: "30 days" },
-  { days: 90, label: "90 days" },
   { days: 365, label: "1 year" },
+  { days: 365 * 3, label: "3 years" },
   { days: 365 * TOR_YEARS_BACK, label: `${TOR_YEARS_BACK} years` },
 ];
 
@@ -74,28 +77,101 @@ export default function SevereWeatherHistory() {
   const [warnDays, setWarnDays] = useState(3);
   // Tornado history is an archive, not a rolling window, so its period is a
   // richer thing than a number of days — see `TorPeriod`.
-  const [torPeriod, setTorPeriod] = useState<TorPeriod>({ kind: "days", days: 90 });
+  const [torPeriod, setTorPeriod] = useState<TorPeriod>({ kind: "days", days: 30 });
+  // Rating and state cuts, applied to the fetched period rather than to the
+  // query. Empty means "everything", which is why both default to empty rather
+  // than to a full list — "no filter" and "all seven ticked" look the same on
+  // screen and are not the same thing when the period changes underneath them.
+  const [efFilter, setEfFilter] = useState<string[]>([]);
+  const [stateFilter, setStateFilter] = useState<string[]>([]);
   const [now, setNow] = useState(() => Date.now());
 
   // Recompute the range when the user switches, so the poster date stamp is fresh.
   useEffect(() => { setNow(Date.now()); }, [mode, warnDays, torPeriod]);
 
   const warnRange = useMemo(() => daysBackRange(warnDays), [warnDays, now]);
-  const torRange = useMemo(() => periodRange(torPeriod, new Date(now)), [torPeriod, now]);
+  const torSpans = useMemo(() => periodRanges(torPeriod, new Date(now)), [torPeriod, now]);
+  // The spans as one bracket, for date stamps and captions. "Every May" really
+  // does run from the first May in the window to the last one, and saying so is
+  // more use than printing ten separate brackets.
+  //
+  // Reduced rather than read off the ends: the cross-year spans arrive
+  // newest-first, because the year list they are built from is, so taking
+  // `[0]` and `[last]` printed the bracket backwards — "May 1 2026 → May 31
+  // 2017".
+  const torRange = useMemo(() => {
+    const iso = new Date(now).toISOString();
+    if (!torSpans.length) return { start: iso, end: iso };
+    return torSpans.reduce(
+      (acc, s) => ({
+        start: s.start < acc.start ? s.start : acc.start,
+        end: s.end > acc.end ? s.end : acc.end,
+      }),
+      { start: torSpans[0].start, end: torSpans[0].end },
+    );
+  }, [torSpans, now]);
   const torKey = torPeriod.kind === "days" ? `d${torPeriod.days}`
     : torPeriod.kind === "year" ? `y${torPeriod.year}`
-    : `m${torPeriod.year}-${torPeriod.month}`;
+    : torPeriod.kind === "month" ? `m${torPeriod.year}-${torPeriod.month}`
+    : `ma${torPeriod.month}`;
 
   const warnings = useQuery({
     queryKey: ["hist-warnings", warnDays, now],
     queryFn: ({ signal }) => fetchWarnings(warnRange.start, warnRange.end, signal),
     staleTime: 5 * 60 * 1000, retry: 1,
   });
-  const tornadoes = useQuery({
+  const torQuery = useQuery({
     queryKey: ["hist-tornadoes", torKey, now],
-    queryFn: ({ signal }) => fetchTornadoTracks(torRange.start, torRange.end, signal),
+    queryFn: ({ signal }) => fetchTornadoTracks(torSpans, signal),
     staleTime: 5 * 60 * 1000, retry: 1,
   });
+
+  /*
+   * The filter chips read the WHOLE period; everything else reads the cut.
+   *
+   * Keeping those two apart is the difference between a filter you can use and
+   * one you have to fight. If the state list were recomputed against the rating
+   * filter, ticking EF4 would change the number next to Kansas, and the only
+   * way to find out what Kansas actually holds would be to untick everything.
+   */
+  const efCounts = torQuery.data?.counts ?? {};
+  const stateCounts = useMemo(
+    () => (torQuery.data ? countByState(torQuery.data) : {}),
+    [torQuery.data],
+  );
+  const torFiltered = useMemo(
+    () => (torQuery.data ? filterTornadoes(torQuery.data, { ef: efFilter, states: stateFilter }) : undefined),
+    [torQuery.data, efFilter, stateFilter],
+  );
+  const tornadoes = {
+    data: torFiltered,
+    isLoading: torQuery.isLoading,
+    isError: torQuery.isError,
+  };
+  const filtered = efFilter.length > 0 || stateFilter.length > 0;
+
+  /*
+   * Drop filter values the new period cannot satisfy.
+   *
+   * Without this, picking EF5 and then switching to thirty days leaves the map
+   * empty and the EF5 chip gone — the row only renders ratings the period
+   * actually holds — so there is nothing left to click to get back. Pruning
+   * keeps as much of the intent as still applies and never strands anyone
+   * behind a filter they cannot see.
+   */
+  useEffect(() => {
+    if (!torQuery.data) return;
+    setEfFilter((prev) => {
+      const next = prev.filter((r) => (efCounts[r] ?? 0) > 0);
+      return next.length === prev.length ? prev : next;
+    });
+    setStateFilter((prev) => {
+      const next = prev.filter((s) => (stateCounts[s] ?? 0) > 0);
+      return next.length === prev.length ? prev : next;
+    });
+    // Runs on each new result; the counts are derived from exactly that.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [torQuery.data]);
 
   const updatedLabel = `Updated: ${new Date(now).toISOString().slice(0, 16).replace("T", " ")} UTC`;
 
@@ -220,10 +296,12 @@ export default function SevereWeatherHistory() {
   const spanLabel = mode === "warnings"
     ? (ranges.find((r) => r.days === warnDays)?.label ?? "")
     : periodLabel(torPeriod);
-  const spanKey = mode === "warnings" ? `w${warnDays}` : torKey;
-  // A year the three-year window only partly covers should say so rather than
-  // presenting eight months as twelve.
+  const spanKey = mode === "warnings" ? `w${warnDays}`
+    : `${torKey}|${efFilter.join(",")}|${stateFilter.join(",")}`;
+  // A year the window only partly covers should say so rather than presenting
+  // eight months as twelve.
   const clipped = mode === "tornadoes" && periodClipped(torPeriod, new Date(now));
+  const partialSurvey = mode === "tornadoes" && periodPartialSurvey(torPeriod, new Date(now));
 
   return (
     <ModuleShell
@@ -274,6 +352,30 @@ export default function SevereWeatherHistory() {
           </span>
         </div>
 
+        {mode === "tornadoes" && torQuery.data && torQuery.data.features.length > 0 && (
+          <TornadoFilters
+            efCounts={efCounts}
+            stateCounts={stateCounts}
+            stateNames={US_STATE_NAMES}
+            ef={efFilter}
+            states={stateFilter}
+            onEf={setEfFilter}
+            onStates={setStateFilter}
+            still={still}
+          />
+        )}
+
+        {mode === "tornadoes" && partialSurvey && (
+          <p className="text-[11px] leading-relaxed rounded-xl px-3 py-2"
+             style={{ background: ROYAL.goldFaint, border: `1px solid ${ROYAL.goldSoft}`, color: ROYAL.dim }}>
+            <strong style={{ color: ROYAL.gold }}>Partial survey.</strong>{" "}
+            This period reaches years before {TOR_FULL_SURVEY_YEAR}, when the Damage Assessment
+            Toolkit was still being adopted — 2016 holds 503 surveyed tracks against 2024's 1,692.
+            Those are real tornadoes, but a smaller number in an earlier year means a smaller survey,
+            not a quieter season. Compare {TOR_FULL_SURVEY_YEAR} onward for like with like.
+          </p>
+        )}
+
         {/* the headline band */}
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
@@ -285,7 +387,14 @@ export default function SevereWeatherHistory() {
           >
             <StatBank
               still={still}
-              eyebrow={`${spanLabel}${clipped ? " (from " + fmt(torRange.start) + ")" : ""} · ${mode === "warnings" ? "warnings" : "tornadoes"}`}
+              // The cut belongs in the eyebrow, not a footnote: a total of 41
+              // beside the heading "10 years" is alarming until you remember
+              // you ticked EF4.
+              eyebrow={`${spanLabel}${clipped ? " (from " + fmt(torRange.start) + ")" : ""} · ${
+                mode === "warnings" ? "warnings"
+                  : filtered ? [efFilter.join("/"), stateFilter.join("/")].filter(Boolean).join(" · ")
+                  : "tornadoes"
+              }`}
               total={(mode === "warnings" ? warnings.data?.total : tornadoes.data?.total) ?? 0}
               unit={mode === "warnings" ? "warnings issued" : "tornado paths"}
               caption={`${fmt(range.start)} → ${fmt(range.end)}`}
@@ -340,7 +449,12 @@ export default function SevereWeatherHistory() {
           ) : (
             <StaticHistoryMap
               title={`TORNADO PATHS - ${periodLabel(torPeriod).toUpperCase()}`}
-              subtitle={`${fmt(torRange.start)} - ${fmt(torRange.end)}  |  ${tornadoes.data?.total ?? 0} tornado paths`}
+              // The poster is the thing that leaves the site, so the cut has to
+              // travel with it. A shared image reading "10 years | 41 tornado
+              // paths" with no mention of EF4 is a wrong fact in someone's feed.
+              subtitle={`${fmt(torRange.start)} - ${fmt(torRange.end)}  |  ${tornadoes.data?.total ?? 0} tornado paths${
+                filtered ? `  |  ${[efFilter.join("/"), stateFilter.join("/")].filter(Boolean).join(", ")}` : ""
+              }`}
               updatedLabel={updatedLabel}
               lines={torLines}
               stats={torStats}

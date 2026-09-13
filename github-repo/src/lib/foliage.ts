@@ -210,6 +210,94 @@ export async function loadFoliage(now = new Date()): Promise<FoliageReport> {
   };
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// The progression map
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * WHY THIS IS NOT A PEAK-TIMING FORECAST, HAVING TRIED TO MAKE ONE
+ *
+ * The maps everyone knows — smokymountains.com, explorefall.com, the Almanac's —
+ * are commercial models, and nothing public reproduces them. Before settling for
+ * something smaller, the obvious sources were tested rather than assumed:
+ *
+ *   • USA-NPN's geoserver publishes 214 gridded layers. Every one is a spring
+ *     index, a growing-degree-day surface, an insect model or a climate field.
+ *     The only layer with "senescence" in its name is red brome, a desert grass.
+ *     There is no gridded fall product.
+ *
+ *   • The observational record was fitted directly. Eleven seasons, 4,390
+ *     usable first-colour dates in the lower 48, regressed on latitude,
+ *     longitude and elevation — the three things that ought to drive it:
+ *
+ *         doy = 298.2 − 1.01·lat − 6.31·elev(km) − 0.13·lon
+ *         R² = 0.02,  MAE = 26 days
+ *
+ *     The signs are right and the fit is worthless. Restricting to one species
+ *     does not rescue it: sugar maple alone is R² = 0.03, MAE = 22 days.
+ *
+ *   • Per-state medians ARE statistically tight — 35 states have twenty or more
+ *     observations and standard errors of one to six days. They are also
+ *     plainly wrong as peak dates: they put New Hampshire on 20 August and
+ *     Massachusetts on 2 September. That is not noise, it is bias. "First
+ *     coloured leaves" fires on the first turning branch on one monitored
+ *     plant, so it is an ONSET signal, weeks early, and skewed by whichever
+ *     species a state's volunteers happen to watch.
+ *
+ * So a peak-timing map is not on the table from public data, and a map that
+ * looked like one would be wrong by three weeks while looking authoritative —
+ * the exact failure this codebase keeps refusing to ship.
+ *
+ * What IS on the table is the real thing the reference maps animate: the turn
+ * spreading across the country. Every site below has a date attached, so the
+ * season can be scrubbed. `foliageAsOf` answers one question — of the turns
+ * reported this season, which had happened by this date — and that is a count,
+ * not a model.
+ */
+
+/**
+ * AND WHY THERE IS NO STATE CHOROPLETH EITHER, HAVING BUILT ONE
+ *
+ * The obvious salvage was to give up on predicting and just replay: shade each
+ * state by the share of its monitored sites that had reported colour by the
+ * scrubbed date. That is a count, not a model, and it was written and run
+ * against the live record before being deleted. Two things killed it.
+ *
+ * It saturates. The denominator can only be sites that reported a first colour
+ * at some point in the season, because that is all the endpoint returns — so
+ * every state reaches 100% and stays there. Run against this season it gives
+ * twenty-one states "fully turned" on 13 September, which is wrong in New
+ * England by about a month.
+ *
+ * Reframing it as a wave — reports landing in the trailing three weeks, so the
+ * measure rises and falls instead of ratcheting — does not survive either. The
+ * peak-activity dates it produces are out of order: Massachusetts 17 August,
+ * New Hampshire 28 August, Vermont 6 September, Minnesota 12 October. Latitude
+ * correlates with the result at −0.40 across 35 states, when fall colour ought
+ * to be almost a function of it.
+ *
+ * The cause is the same in both cases and it is not sample size: a state's
+ * number is set by WHICH SPECIES its volunteers happen to watch. A state whose
+ * observers monitor birch and sumac turns in August; its neighbour watching oak
+ * turns in November. Aggregating to a state paints that choice and calls it
+ * climate.
+ *
+ * So nothing here is aggregated. The scrubber below moves over the individual
+ * observations, and each dot stays what it is: one species, at one place, on
+ * one date. That is the strongest claim this record actually supports, and it
+ * happens to be the thing worth watching anyway.
+ */
+
+/** Every date in the season, for the scrubber. Weekly, then daily near today. */
+export function foliageTimeline(report: FoliageReport): string[] {
+  const start = new Date(`${report.seasonStart}T00:00:00Z`).getTime();
+  const end = new Date(`${report.seasonEnd}T00:00:00Z`).getTime();
+  const out: string[] = [];
+  for (let t = start; t <= end; t += 3 * MS_DAY) out.push(iso(new Date(t)));
+  const last = iso(new Date(end));
+  if (out[out.length - 1] !== last) out.push(last);
+  return out;
+}
+
 /**
  * Onset age to a leaf colour.
  *

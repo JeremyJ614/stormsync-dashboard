@@ -134,6 +134,57 @@ const ld = (obj) =>
 
 /* ── head assembly ──────────────────────────────────────────────────────── */
 
+/**
+ * The general FAQ, read out of `faqDefaults.ts`.
+ *
+ * `faqSchema()` has existed in `src/lib/seo.ts` since the SEO work went in, and
+ * `FAQ.tsx` calls it — but only at RUN time, so the block lands in the DOM
+ * after React mounts and is absent from the HTML every crawler is actually
+ * served. Building it here puts it in the file.
+ *
+ * Only the General FAQ, deliberately. The Module Guide section is generated
+ * from `moduleGuide.ts` and is thirty-eight entries of product description
+ * rather than questions anybody typed into a search box, and padding FAQPage
+ * markup with things that are not questions is how a site loses the markup's
+ * benefit of the doubt.
+ *
+ * Worth being honest about the ceiling: since 2023 Google has shown FAQ rich
+ * results only for government and health sites, so this is not going to draw an
+ * accordion under the listing. What it still does is let Bing, and the answer
+ * engines that read structured data rather than rendering pages, quote the
+ * answers instead of guessing at them.
+ */
+function parseFaq(src) {
+  const block = src.match(/const GENERAL: DefaultEntry\[\] = \[([\s\S]*?)\n\];/);
+  if (!block) throw new Error("seo-build: could not find the GENERAL FAQ array");
+  const out = [];
+  for (const entry of block[1].split(/\n  \{/).slice(1)) {
+    const q = entry.match(/title: "((?:[^"\\]|\\.)*)"/)?.[1];
+    // The first section's body. A section with a heading is a sub-answer; the
+    // first one is the answer, and concatenating all of them produces a wall
+    // of text no answer engine would quote.
+    const a = entry.match(/S\("(?:[^"\\]|\\.)*",\s*"((?:[^"\\]|\\.)*)"\)/)?.[1];
+    if (q && a) out.push({ q: unesc(q), a: unesc(a) });
+  }
+  if (!out.length) throw new Error("seo-build: parsed no FAQ entries");
+  return out;
+}
+
+const unesc = (v) => v.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+
+const faqEntries = parseFaq(
+  await readFile(join(ROOT, "src/lib/faqDefaults.ts"), "utf8"));
+
+const faqPage = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqEntries.map((e) => ({
+    "@type": "Question",
+    name: e.q,
+    acceptedAnswer: { "@type": "Answer", text: e.a },
+  })),
+};
+
 function headFor(page) {
   const url = canonical(page.path);
   const label = page.title.split("—")[0].trim();
@@ -143,6 +194,7 @@ function headFor(page) {
 
   const schemas = [organization, website];
   if (page.path === "/") schemas.push(application);
+  if (page.path === "/faq") schemas.push(faqPage);
   schemas.push(breadcrumb(page.path, label));
 
   return [
@@ -157,8 +209,12 @@ function headFor(page) {
     `<meta property="og:title" content="${esc(page.title)}" />`,
     `<meta property="og:description" content="${esc(page.description)}" />`,
     `<meta property="og:image" content="${OG_IMAGE}" />`,
-    `<meta property="og:image:width" content="1200" />`,
-    `<meta property="og:image:height" content="630" />`,
+    // The real dimensions of public/opengraph.jpg. These said 1200x630, which
+    // is the usual recommendation but not what the file is — and a crawler that
+    // trusts the declared size to lay out a card before the image arrives lays
+    // out the wrong box.
+    `<meta property="og:image:width" content="1280" />`,
+    `<meta property="og:image:height" content="720" />`,
     `<meta property="og:image:alt" content="StormSync Media severe weather tracking" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:url" content="${url}" />`,
@@ -307,5 +363,6 @@ await writeFile(join(DIST, "llms.txt"),
   + `Most modules require an account. The pages listed above are open to everyone.\n`);
 
 console.log(
-  `seo-build: ${written.length} pages (${written.join(", ")}), app.html fallback, `
+  `seo-build: ${written.length} pages (${written.join(", ")}), `
+  + `${faqEntries.length} FAQ questions, app.html fallback, `
   + `sitemap with ${indexable.length} urls, robots.txt, llms.txt`);

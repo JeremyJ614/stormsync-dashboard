@@ -755,11 +755,35 @@ function classifyMode(p: Params): StormMode {
   return "Messy multicell clusters";
 }
 
-/** HP / classic / LP, the way it is actually judged: mid-level moisture and shear. */
+/**
+ * HP, classic or LP.
+ *
+ * THE OLD RULE COULD NOT PRODUCE AN LP, EVER.
+ * It asked for `rh700 <= 42 AND mixr <= 12`. Across a hundred and forty
+ * reconstructed targets the mixing ratio never once went below 10.3 g/kg and
+ * its tenth percentile was 15.5 — a 12 g/kg cap is roughly a 61 °F dewpoint, so
+ * the AND threw away every genuinely dry-mid-level case the first clause had
+ * correctly found. LP fired zero times. HP, meanwhile, only needed two moist
+ * numbers, so nearly everything with any moisture read HP.
+ *
+ * What actually separates the three is a balance, not a pair of gates: how moist
+ * the mid-levels are, how rich the boundary layer is, and how high the cloud
+ * base sits. A High Plains storm on a 55 °F dewpoint with a 1,600 m LCL and dry
+ * air at 700 mb is an LP whatever its mixing ratio says; a Gulf-fed storm with
+ * saturated mid-levels and a 400 m base is an HP.
+ *
+ * So each of the three votes, and the sum leans. LP still needs a real LP
+ * environment — it stays rare in July, which is correct, rather than impossible,
+ * which is what it was.
+ */
 function supercellFlavour(p: Params): "HP" | "Classic" | "LP" | "n/a" {
   if (p.scp < 1 && p.shear06 < 15) return "n/a";
-  if (p.rh700 >= 72 && p.mixr >= 13) return "HP";
-  if (p.rh700 <= 42 && p.mixr <= 12) return "LP";
+  let lean = 0;                       // negative leans LP, positive leans HP
+  lean += p.rh700 >= 78 ? 2 : p.rh700 >= 66 ? 1 : p.rh700 <= 42 ? -2 : p.rh700 <= 52 ? -1 : 0;
+  lean += p.dewF >= 72 ? 2 : p.dewF >= 66 ? 1 : p.dewF <= 58 ? -2 : p.dewF <= 63 ? -1 : 0;
+  lean += p.lclAglM <= 500 ? 1 : p.lclAglM >= 1400 ? -2 : p.lclAglM >= 1000 ? -1 : 0;
+  if (lean >= 4) return "HP";
+  if (lean <= -3) return "LP";
   return "Classic";
 }
 
@@ -779,6 +803,63 @@ function bustProbability(p: Params, mode: StormMode): number {
   if (mode === "Little or nothing") risk += 25;
   if (p.cloudLow > 85 && p.cape < 1200) risk += 6;
   return clamp(Math.round(risk), 3, 96);
+}
+
+/**
+ * The national day score, 0-10.
+ *
+ * WHY THIS WAS REWRITTEN
+ * The old formula was `best_target / 10 + category_rank * 0.35`. Reconstructing
+ * the 2026 season exposed what that produces: seventy days scored between 6.3
+ * and 10.0, with a MARGINAL risk averaging 7.0. Every day was a seven or an
+ * eight, so the Yearly tab — whose whole job is to say how today ranks against
+ * the year — could not separate anything. A chaser reading "7.0" learned
+ * nothing, because it was always about to say 7.0.
+ *
+ * Two things caused it. `best / 10` starts around 6.5 for any day with a risk
+ * area anywhere in the country, because the target score is a weighted blend
+ * that lands mid-range by construction; and the category, the single most
+ * informative thing on the page, was worth at most 1.75 points.
+ *
+ * So the category becomes the spine. SPC's forecasters have seen mesoscale
+ * detail no point model has, and their category IS the day's ceiling; the
+ * computed numbers then say where inside that ceiling the day lands.
+ *
+ *   base       what the category is worth on its own
+ *   tornado    the strongest single discriminator inside a category
+ *   secondary  hail and wind count, but they do not make a chase day
+ *   target     the best point the engine found, ±1.1 around the category
+ *   bust       the engine already computes how likely the day is to fail
+ *
+ * Against the same seventy days this gives 1.8 to 10.0, median 5.8: marginals
+ * in the twos and threes, slights in the fives, enhanced in the eights, the one
+ * moderate at the top. Nines stay reachable — a strong enhanced day with 15%
+ * tornado probability and a clean target reaches 9.6 — but they are earned.
+ */
+const DAY_BASE: Record<string, number> = {
+  TSTM: 1.3, MRGL: 2.9, SLGT: 4.9, ENH: 6.9, MDT: 7.6, HIGH: 9.2,
+};
+
+function nationalDayScore(
+  catMax: string | null,
+  probs: Record<string, number>,
+  best: Scored | null,
+): number {
+  if (!best) return 0;
+  const base = catMax ? (DAY_BASE[catMax] ?? 0.3) : 0.3;
+
+  const t = probs.torn ?? 0;
+  const tornado = t >= 30 ? 1.1 : t >= 15 ? 0.8 : t >= 10 ? 0.55 : t >= 5 ? 0.3 : t >= 2 ? 0.12 : 0;
+
+  const h = probs.hail ?? 0, w = probs.wind ?? 0;
+  const secondary = (h >= 45 ? 0.3 : h >= 30 ? 0.18 : 0) + (w >= 45 ? 0.25 : w >= 30 ? 0.15 : 0);
+
+  // 68 is the middle of the observed target range; eleven points of target
+  // score is worth one point of day score.
+  const target = clamp((best.total - 68) / 11, -1.1, 1.1);
+  const bust = clamp((45 - best.bustPct) / 60, -0.5, 0.5);
+
+  return round(clamp(base + tornado + secondary + target + bust, 0, 10), 1);
 }
 
 /** Daylight left after initiation is the difference between a chase and a drive. */
@@ -1301,10 +1382,7 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
       picks.push(next);
     }
 
-    const dayScoreRaw = picks.length
-      ? clamp(picks[0].total / 10 + (CAT_RANK[catMax ?? "TSTM"] ?? 0) * 0.35, 0, 10)
-      : 0;
-    const dayScore = round(dayScoreRaw, 1);
+    const dayScore = nationalDayScore(catMax, probs, picks[0] ?? null);
 
     const source = {
       spc_max_category: catMax, spc_category_name: catMax ? CAT_NAME[catMax] : null,
@@ -1390,7 +1468,7 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
       `Date: ${outlookDate}.`,
       `SPC Day 1: ${catMax ? CAT_NAME[catMax] : "no risk area"}. Highest probabilities: tornado ${probs.torn}%, hail ${probs.hail}%, wind ${probs.wind}%.`,
       `Candidates were generated inside the SPC risk polygons on a ${gen.step}° grid (${source.candidates_scored} points scored).`,
-      `The computed national day score is ${dayScore} out of 10. Use it as an anchor; adjust by at most 1.5 either way and say why in the overview.`,
+      `The computed national day score is ${dayScore} out of 10, anchored on SPC's own category. Use it; adjust by at most 0.8 either way, and say why in the overview if you do.`,
       year
         ? `This year so far: ${year.days_scored ?? 0} days recorded, best ${year.best_score ?? "n/a"} on ${year.best_date ?? "n/a"}, median ${year.median_score ?? "n/a"}, ${year.above_seven ?? 0} days at 7 or better.`
         : `No year history recorded yet, so judge the yearly rank on the parameters alone and say that the record is thin.`,
@@ -1501,7 +1579,11 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
     });
 
     const aiScore = typeof aiData.day_score === "number" ? aiData.day_score : null;
-    const finalScore = aiScore !== null ? round(clamp(aiScore, Math.max(0, dayScore - 1.5), Math.min(10, dayScore + 1.5)), 1) : dayScore;
+    // Narrowed from 1.5 to 0.8. The computed score is now calibrated against a
+    // season of real days, and a model free to move it a point and a half in
+    // either direction can put a marginal risk back in the sevens — which is
+    // exactly the behaviour the recalibration exists to end.
+    const finalScore = aiScore !== null ? round(clamp(aiScore, Math.max(0, dayScore - 0.8), Math.min(10, dayScore + 0.8)), 1) : dayScore;
 
     const yearlyRank = clamp(Math.round(Number(
       aiData.yearly_rank ?? (finalScore >= 8.5 ? 5 : finalScore >= 7 ? 4 : finalScore >= 5.5 ? 3 : finalScore >= 3.5 ? 2 : 1),

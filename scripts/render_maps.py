@@ -272,6 +272,91 @@ GFS_PARAMS = [
           [20, 30, 40, 50, 60, 70, 80, 100],
           extra=[":VGRD:10 m above ground:", ":UGRD:500 mb:", ":VGRD:500 mb:"],
           combine="vecdiff"),
+    # ── added after feedback that GFS was thin ────────────────────────────
+    # Every match below was resolved against a live gfs.tHHz.pgrb2.0p25 index
+    # first. Where a field is published twice — instantaneous and time-averaged
+    # — `fetch_record` already prefers the instantaneous one.
+    Param("mlcape", "ML CAPE (180 mb)", "Severe Weather",
+          ":CAPE:180-0 mb above ground:", "J/kg", "cape",
+          [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000]),
+    Param("mucape", "MU CAPE (255 mb)", "Severe Weather",
+          ":CAPE:255-0 mb above ground:", "J/kg", "cape",
+          [100, 250, 500, 750, 1000, 1500, 2000, 2500, 3000, 4000, 5000]),
+    Param("mlcin", "ML CIN (180 mb)", "Severe Weather",
+          ":CIN:180-0 mb above ground:", "J/kg", "cin",
+          [-300, -200, -150, -100, -75, -50, -25, -10], mask_below=False),
+    Param("refc", "Composite Reflectivity", "Severe Weather",
+          ":REFC:entire atmosphere:", "dBZ", "refl",
+          [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70, 75]),
+    Param("refd4km", "4 km Reflectivity", "Severe Weather",
+          ":REFD:4000 m above ground:", "dBZ", "refl",
+          [5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60, 65, 70]),
+    # The cap, and what breaks it. 700 mb temperature is the single field a
+    # Plains chaser checks before deciding whether anything goes up at all.
+    Param("tmp700", "700 mb Temperature", "Upper Air",
+          ":TMP:700 mb:", "°C", "temp",
+          [-6, -4, -2, 0, 2, 4, 6, 8, 10, 12, 14, 16], mask_below=False),
+    Param("tmp500", "500 mb Temperature", "Upper Air",
+          ":TMP:500 mb:", "°C", "temp",
+          [-30, -26, -22, -18, -14, -12, -10, -8, -6, -4], mask_below=False),
+    Param("lapse75", "700-500 mb Lapse Rate", "Upper Air",
+          ":TMP:700 mb:", "°C/km", "temp",
+          [4.0, 4.5, 5.0, 5.5, 6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0],
+          extra=[":TMP:500 mb:", ":HGT:700 mb:", ":HGT:500 mb:"], combine="lapse"),
+    Param("thetae", "Surface Theta-E", "Upper Air",
+          ":TMP:2 m above ground:", "K", "thetae",
+          [290, 300, 310, 315, 320, 325, 330, 335, 340, 345, 350, 355],
+          extra=[":DPT:2 m above ground:", ":PRES:surface:"], combine="thetae",
+          mask_below=False),
+    Param("tmp2m", "2 m Temperature", "Surface & Precipitation",
+          ":TMP:2 m above ground:", "°F", "temp",
+          [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110], mask_below=False),
+    # Where the boundary layer tops out and where cloud base sits — the two
+    # numbers behind "will the bases be high enough to see anything".
+    Param("pbl", "Boundary Layer Depth", "Upper Air",
+          ":HPBL:surface:", "m", "lcl",
+          [200, 400, 600, 900, 1200, 1600, 2000, 2600, 3200]),
+    Param("cldbase", "Cloud Base Height", "Upper Air",
+          ":HGT:cloud ceiling:", "ft", "lcl",
+          [500, 1000, 1500, 2000, 3000, 4000, 6000, 8000, 12000]),
+    Param("fzlvl", "Freezing Level", "Upper Air",
+          ":HGT:0C isotherm:", "ft", "hgt",
+          [4000, 6000, 8000, 10000, 11000, 12000, 13000, 14000, 16000]),
+    # The wind fields. A low-level jet, the mid-level flow that sets storm
+    # motion, and the upper jet whose left exit does the lifting.
+    Param("wind850", "850 mb Wind", "Upper Air",
+          ":UGRD:850 mb:", "kt", "wind",
+          [10, 15, 20, 25, 30, 35, 40, 50, 60, 70],
+          extra=[":VGRD:850 mb:"], combine="mag"),
+    Param("wind500", "500 mb Wind", "Upper Air",
+          ":UGRD:500 mb:", "kt", "wind",
+          [20, 30, 40, 50, 60, 70, 80, 90, 100, 120],
+          extra=[":VGRD:500 mb:"], combine="mag"),
+    Param("wind250", "250 mb Jet", "Upper Air",
+          ":UGRD:250 mb:", "kt", "wind",
+          [50, 70, 90, 110, 130, 150, 170, 190],
+          extra=[":VGRD:250 mb:"], combine="mag"),
+    Param("hgt850", "850 mb Height", "Upper Air",
+          ":HGT:850 mb:", "m", "hgt",
+          [1300, 1360, 1400, 1440, 1480, 1520, 1560, 1600], mask_below=False),
+    Param("absv850", "850 mb Absolute Vorticity", "Upper Air",
+          ":ABSV:850 mb:", "1e-5/s", "vort",
+          [6, 10, 14, 18, 22, 26, 30, 36]),
+    Param("vvel700", "700 mb Vertical Velocity", "Upper Air",
+          ":VVEL:700 mb:", "Pa/s", "press",
+          [-1.2, -0.8, -0.5, -0.3, -0.15, -0.05, 0.05, 0.2, 0.5], mask_below=False),
+    Param("rh850", "850 mb Relative Humidity", "Upper Air",
+          ":RH:850 mb:", "%", "cloud",
+          [10, 20, 30, 40, 50, 60, 70, 80, 90, 95]),
+    Param("lcdc", "Low Cloud Cover", "Surface & Precipitation",
+          ":LCDC:low cloud layer:", "%", "cloud",
+          [5, 15, 25, 40, 55, 70, 80, 90, 95]),
+    Param("prate", "Precipitation Rate", "Surface & Precipitation",
+          ":PRATE:surface:", "mm/h", "pwat",
+          [0.1, 0.4, 1, 2.5, 5, 10, 20, 35, 50]),
+    Param("vis", "Surface Visibility", "Surface & Precipitation",
+          ":VIS:surface:", "mi", "cloud",
+          [0.25, 0.5, 1, 2, 3, 5, 7, 10], mask_below=False),
     Param("haines", "Haines Index", "Surface & Precipitation",
           ":HINDEX:surface:", "", "smoke",
           [2, 3, 4, 5, 6], mask_below=False),
@@ -467,11 +552,91 @@ def convert(key: str, data: np.ndarray) -> np.ndarray:
         return data                     # already K
     if key in ("retop", "lclhgt"):
         return data / 304.8             # m -> kft
+    # ── the GFS additions ──────────────────────────────────────────────────
+    # Every one of these is a real unit change, not a preference. GRIB gives
+    # kelvin, metres, metres per second and metres of visibility; a chaser
+    # reads Fahrenheit, feet, knots and miles, and a contour labelled "80" is
+    # a different fact in each.
+    if key == "tmp2m":
+        return (data - 273.15) * 9 / 5 + 32   # K -> F
+    if key in ("tmp700", "tmp500"):
+        return data - 273.15            # K -> C
+    if key in ("cldbase", "fzlvl"):
+        return data * 3.280840          # m -> ft
+    if key in ("wind850", "wind500", "wind250"):
+        return data * 1.943844          # m/s -> kt
+    if key == "absv850":
+        return data * 1e5
+    if key == "prate":
+        return data * 3600.0            # kg/m2/s -> mm/h
+    if key == "vis":
+        return data / 1609.344          # m -> miles
     if key == "smoke":
         return data * 1e9               # kg/m^3 -> ug/m^3
     if key.startswith("p_"):
         return data * 100.0 if float(np.nanmax(data) if data.size else 0) <= 1.01 else data
     return data
+
+
+# The map furniture, built once.
+#
+# Cartopy re-reads, clips and re-projects the 50 m land, ocean, state, coastline
+# and border geometries on EVERY `add_feature`, and that is most of the cost of
+# a frame — the pcolormesh itself is milliseconds. Rebuilding the figure per
+# frame was fine at eight parameters and is not at forty: a GFS run is now
+# forty parameters over seventeen forecast hours, and at two seconds a frame
+# that is longer than the job's own timeout.
+#
+# So the furniture is built once and only the data is swapped. Every artist a
+# frame owns is removed after it is saved, which is what makes the reuse safe:
+# nothing from one frame can survive into the next.
+_CANVAS: tuple | None = None
+
+
+def canvas():
+    global _CANVAS
+    if _CANVAS is not None:
+        return _CANVAS
+
+    proj = ccrs.LambertConformal(
+        central_longitude=-97.5, central_latitude=38.5, standard_parallels=(38.5, 38.5))
+    fig = plt.figure(figsize=(12.0, 8.0), dpi=DPI)
+    fig.patch.set_facecolor(BG)
+    ax = fig.add_axes([0, 0, 1, 1], projection=proj)
+    ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
+
+    # The old figure was 12.8x7.6 with the axes laid out normally, and the map is
+    # not that shape. A GeoAxes holds its data aspect, so the drawing sat
+    # letterboxed: roughly 880x550 of map inside a 1280x760 file, 45% of every
+    # frame spent on black margin. That is most of why these looked soft next to
+    # other sites', and it compounded on the regional presets, which crop a box
+    # out of that already-small map and blow it back up.
+    x0, x1, y0, y1 = ax.get_extent(crs=proj)
+    aspect = (x1 - x0) / (y1 - y0)
+    w_in = math.sqrt(TARGET_PX * aspect) / DPI
+    fig.set_size_inches(w_in, w_in / aspect)
+
+    # "auto" AFTER the limits are set, not before. A GeoAxes defaults to an
+    # equal aspect with adjustable="box", which lets matplotlib shrink the axes
+    # inside its position to honour that aspect — and a letterboxed axes is
+    # exactly what the viewer's region crops cannot see. The figure is already
+    # sized to the extent's own aspect, so "auto" distorts nothing; what it buys
+    # is the guarantee that the image bounds ARE the projected extent, to the
+    # pixel, which is what lets the client compute a region rect from the
+    # projection instead of from constants measured off a screenshot once.
+    ax.set_aspect("auto")
+
+    ax.set_facecolor(BG)
+    ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor=LAND, zorder=0)
+    ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor=BG, zorder=0)
+    ax.add_feature(cfeature.STATES.with_scale("50m"), edgecolor=BORDER, linewidth=0.7, zorder=2)
+    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
+    ax.add_feature(cfeature.BORDERS.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
+    ax.spines["geo"].set_visible(False)
+    ax.set_title("")
+
+    _CANVAS = (fig, ax)
+    return _CANVAS
 
 
 def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out: str) -> bool:
@@ -504,45 +669,7 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
         # regardless of ordering, so it only needs the -180..180 mapping.
         lons = np.where(lons > 180, lons - 360, lons)
 
-    # ── the frame ────────────────────────────────────────────────────────────
-    # The old figure was 12.8x7.6 with the axes laid out normally, and the map
-    # is not that shape. A GeoAxes holds its data aspect, so the drawing sat
-    # letterboxed in the middle: roughly 880x550 of map inside a 1280x760 file,
-    # with 45% of every frame spent on black margin. That is most of why these
-    # looked soft next to other sites' — and it compounded on the regional
-    # presets, which crop a box out of that already-small map and blow it back
-    # up to full width.
-    #
-    # So the axes is pinned to the whole figure and the FIGURE is resized to the
-    # projected extent's own aspect. Total pixels are held at roughly what they
-    # were, which keeps the storage budget exactly where it was; they are simply
-    # all map now — about 2.4x the resolution over the same bytes.
-    proj = ccrs.LambertConformal(
-        central_longitude=-97.5, central_latitude=38.5, standard_parallels=(38.5, 38.5))
-    fig = plt.figure(figsize=(12.0, 8.0), dpi=DPI)
-    fig.patch.set_facecolor(BG)
-    ax = fig.add_axes([0, 0, 1, 1], projection=proj)
-    ax.set_extent(EXTENT, crs=ccrs.PlateCarree())
-
-    x0, x1, y0, y1 = ax.get_extent(crs=proj)
-    aspect = (x1 - x0) / (y1 - y0)
-    w_in = math.sqrt(TARGET_PX * aspect) / DPI
-    fig.set_size_inches(w_in, w_in / aspect)
-
-    # "auto" after the limits are set, not before. A GeoAxes defaults to an
-    # equal aspect with adjustable="box", which means matplotlib is free to
-    # shrink the axes inside its position to honour that aspect — and a
-    # letterboxed axes is exactly what the viewer's region crops cannot see.
-    # The figure has already been sized to the extent's own aspect, so "auto"
-    # distorts nothing; what it buys is the guarantee that the image bounds ARE
-    # the projected extent, to the pixel. That is what lets the client compute a
-    # region rect from the projection instead of from constants somebody
-    # measured off a screenshot once.
-    ax.set_aspect("auto")
-
-    ax.set_facecolor(BG)
-    ax.add_feature(cfeature.LAND.with_scale("50m"), facecolor=LAND, zorder=0)
-    ax.add_feature(cfeature.OCEAN.with_scale("50m"), facecolor=BG, zorder=0)
+    fig, ax = canvas()
 
     # BoundaryNorm with extend="both" needs (len(levels) - 1) + 2 colour bins.
     # A fixed ListedColormap (e.g. the 14-stop reflectivity ramp) can be short of
@@ -558,34 +685,38 @@ def render(ds: xr.Dataset, p: Param, model: str, cycle: datetime, fhr: int, out:
     cmap = CMAPS[p.cmap].resampled(nbins).copy()
     cmap.set_bad(alpha=0.0)          # NaN -> fully transparent
     norm = BoundaryNorm(p.levels, ncolors=nbins, extend=extend)
-    ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
+    mesh = ax.pcolormesh(lons, lats, vals, cmap=cmap, norm=norm,
                          transform=ccrs.PlateCarree(), shading="auto", zorder=1)
-
-    ax.add_feature(cfeature.STATES.with_scale("50m"), edgecolor=BORDER, linewidth=0.7, zorder=2)
-    ax.add_feature(cfeature.COASTLINE.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
-    ax.add_feature(cfeature.BORDERS.with_scale("50m"), edgecolor=COAST, linewidth=0.8, zorder=2)
-    ax.spines["geo"].set_visible(False)
+    frame_artists = [mesh]
 
     # The caption rides ON the map rather than in a band above it, so it costs
     # no map height. There is no colour bar any more either: the viewer already
     # receives every level and colour in the run manifest and draws the ramp in
     # HTML, which is sharp at any pixel ratio instead of being baked in at one.
     valid = cycle + timedelta(hours=fhr)
-    ax.set_title("")
     shadow = [patheffects.withStroke(linewidth=3.2, foreground="#05060d")]
-    ax.text(0.012, 0.962, f"{model.upper()}  {p.label.upper()}", transform=ax.transAxes,
-            color="#ffffff", fontsize=15, fontweight="bold", ha="left", va="center",
-            path_effects=shadow, zorder=5)
-    ax.text(0.012, 0.925,
-            f"{cycle:%HZ %b %d} run  ·  F{fhr:03d}  ·  valid {valid:%a %b %d %H:%MZ}  ·  {p.unit}",
-            transform=ax.transAxes, color="#c3ccdd", fontsize=9.5, ha="left", va="center",
-            path_effects=shadow, zorder=5)
-    ax.text(0.988, 0.962, "VIP.SSWX.SPACE", transform=ax.transAxes, color="#cbb7d8",
-            fontsize=10, fontweight="bold", ha="right", va="center",
-            path_effects=shadow, zorder=5)
+    frame_artists.append(ax.text(
+        0.012, 0.962, f"{model.upper()}  {p.label.upper()}", transform=ax.transAxes,
+        color="#ffffff", fontsize=15, fontweight="bold", ha="left", va="center",
+        path_effects=shadow, zorder=5))
+    frame_artists.append(ax.text(
+        0.012, 0.925,
+        f"{cycle:%HZ %b %d} run  ·  F{fhr:03d}  ·  valid {valid:%a %b %d %H:%MZ}  ·  {p.unit}",
+        transform=ax.transAxes, color="#c3ccdd", fontsize=9.5, ha="left", va="center",
+        path_effects=shadow, zorder=5))
+    frame_artists.append(ax.text(
+        0.988, 0.962, "VIP.SSWX.SPACE", transform=ax.transAxes, color="#cbb7d8",
+        fontsize=10, fontweight="bold", ha="right", va="center",
+        path_effects=shadow, zorder=5))
 
-    fig.savefig(out, facecolor=BG, edgecolor="none")
-    plt.close(fig)
+    try:
+        fig.savefig(out, facecolor=BG, edgecolor="none")
+    finally:
+        # Everything this frame put on the shared canvas comes off again, in a
+        # `finally` because a failed save must not leave a mesh behind to be
+        # drawn under the next parameter's data.
+        for art in frame_artists:
+            art.remove()
     quantise(out)
     return True
 
@@ -862,6 +993,15 @@ def main() -> int:
                     # match = TMP, extra = [DPT, PRES]
                     td, pres = parts
                     combined = bolton_theta_e(base, td, pres)
+                elif p.combine == "lapse":
+                    # match = TMP lower, extra = [TMP upper, HGT lower, HGT upper]
+                    # °C per kilometre through the layer. GFS publishes no lapse
+                    # rate of its own, and 700-500 is the number a chaser reads
+                    # to decide whether the cap will break and how hard updrafts
+                    # will go once it does — it is four real records, divided.
+                    t_up, z_lo, z_up = parts
+                    dz = np.maximum(z_up - z_lo, 1.0) / 1000.0
+                    combined = (base - t_up) / dz
                 else:
                     print(f"    - {p.key}: unknown combine '{p.combine}'")
                     continue

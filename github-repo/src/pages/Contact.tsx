@@ -30,6 +30,7 @@ import { verifyEmergencyPin, useAuth } from "../hooks/useAuth";
 import { fetchMyEmergencyPin } from "../lib/alerts";
 import { RELAY_API } from "../config";
 import { ROYAL, SPRING, prefersReducedMotion } from "../lib/royal";
+import { ModuleShell } from "../components/ModuleShell";
 
 type Tab = "general" | "service" | "emergency";
 
@@ -44,18 +45,22 @@ export default function Contact() {
   const active = TABS.find((t) => t.id === tab)!;
 
   return (
-    <div className="p-4 md:p-6 max-w-3xl mx-auto space-y-5">
-      <header className="space-y-1">
-        <h1 className="text-2xl font-bold tracking-wide uppercase flex items-center gap-2">
-          <Mail className="w-6 h-6" style={{ color: ROYAL.gold }} /> Contact StormSync
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Three channels, and they are not interchangeable. Pick the one that matches how fast you need an answer.
-        </p>
-      </header>
-
-      <LayoutGroup id="contact-tabs">
-        <div className="grid grid-cols-3 gap-1 bg-card border border-border rounded-xl p-1.5">
+    <ModuleShell
+      narrow
+      eyebrow="StormSync · Three channels"
+      title="Contact StormSync"
+      subtitle="They are not interchangeable. Pick the one that matches how fast you need an answer."
+      status={
+        <LayoutGroup id="contact-tabs">
+          {/* Not `SegmentedTabs`: each channel carries its own tone, and the
+              emergency one being red is the point. A single champagne slab
+              sliding between three identically-coloured segments would throw
+              that away. */}
+          <div className="grid grid-cols-3 gap-1 rounded-xl p-1.5"
+               style={{
+                 border: `1px solid ${ROYAL.hairline}`,
+                 background: "linear-gradient(180deg, rgba(18,18,34,0.72), rgba(10,10,22,0.72))",
+               }}>
           {TABS.map((t) => {
             const Icon = t.icon;
             const on = tab === t.id;
@@ -71,7 +76,7 @@ export default function Contact() {
                     transition={prefersReducedMotion() ? { duration: 0 } : SPRING.silk}
                   />
                 )}
-                <span className={`relative flex items-center gap-1.5 ${on ? "" : "text-muted-foreground"}`}>
+                <span className={`relative flex items-center gap-1.5 ${on ? "" : "sx-dim"}`}>
                   <Icon className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">{t.label}</span>
                   <span className="sm:hidden">{t.short}</span>
@@ -79,9 +84,10 @@ export default function Contact() {
               </button>
             );
           })}
-        </div>
-      </LayoutGroup>
-
+          </div>
+        </LayoutGroup>
+      }
+    >
       <AnimatePresence mode="wait">
         <motion.div
           key={tab}
@@ -96,10 +102,10 @@ export default function Contact() {
         </motion.div>
       </AnimatePresence>
 
-      <p className="text-[11px] text-muted-foreground text-center">
+      <p className="text-[11px] sx-dim text-center">
         Typical reply on {active.id === "emergency" ? "the emergency line: minutes" : "this channel: within a day"}.
       </p>
-    </div>
+    </ModuleShell>
   );
 }
 
@@ -109,15 +115,15 @@ function Field({
 }: { label: string; hint?: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-[11px] uppercase tracking-wider text-muted-foreground">{label}</span>
+      <span className="text-[11px] uppercase tracking-wider sx-dim">{label}</span>
       {children}
-      {hint && <span className="block text-[10px] text-muted-foreground/80">{hint}</span>}
+      {hint && <span className="block text-[10px] sx-dim-soft">{hint}</span>}
     </label>
   );
 }
 
 const input =
-  "w-full bg-muted/25 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/50 transition-colors";
+  "sx-input";
 
 function Sent({ children }: { children: React.ReactNode }) {
   return (
@@ -162,12 +168,12 @@ function GeneralForm() {
   }
 
   return (
-    <form onSubmit={submit} className="bg-card border border-border rounded-xl p-5 space-y-4">
+    <form onSubmit={submit} className="sx-form p-5 space-y-4">
       <div>
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <Mail className="w-4 h-4" style={{ color: ROYAL.iris }} /> General contact
         </h2>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-xs sx-dim mt-1">
           Questions, ideas, bug reports, anything that is not urgent. It lands in the team inbox and a person reads it.
         </p>
       </div>
@@ -194,7 +200,12 @@ function GeneralForm() {
 
       <button type="submit" disabled={busy}
         className="w-full px-4 py-2.5 rounded-lg font-semibold disabled:opacity-50 flex items-center justify-center gap-2"
-        style={{ background: `${ROYAL.iris}1e`, border: `1px solid ${ROYAL.iris}55`, color: ROYAL.iris }}>
+        style={{
+          background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a463)`,
+          border: `1px solid ${ROYAL.gold}`,
+          color: ROYAL.ink,
+          boxShadow: `0 10px 26px -14px ${ROYAL.goldSoft}`,
+        }}>
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         {busy ? "Sending…" : "Send message"}
       </button>
@@ -252,12 +263,12 @@ function ServiceForm() {
   }
 
   return (
-    <form onSubmit={submit} className="bg-card border border-border rounded-xl p-5 space-y-4">
+    <form onSubmit={submit} className="sx-form p-5 space-y-4">
       <div>
         <h2 className="text-sm font-semibold flex items-center gap-2">
           <Headphones className="w-4 h-4" style={{ color: ROYAL.gold }} /> Customer service
         </h2>
-        <p className="text-xs text-muted-foreground mt-1">
+        <p className="text-xs sx-dim mt-1">
           Billing, access and account problems.
         </p>
       </div>
@@ -267,7 +278,7 @@ function ServiceForm() {
         <ShieldCheck className="w-4 h-4 shrink-0 mt-px" style={{ color: ROYAL.gold }} />
         <p className="text-[11px] leading-relaxed">
           <strong style={{ color: ROYAL.gold }}>Routed to SSWX Internal Affairs.</strong>
-          <span className="text-muted-foreground">
+          <span className="sx-dim">
             {" "}Account and billing matters are handled internally rather than through a public inbox.
             Your message is logged with a reference and worked by a person — you will get a reply at the
             email you give below.
@@ -390,7 +401,7 @@ function EmergencyVault() {
 
 function VaultNeedsSignIn() {
   return (
-    <div className="bg-card border-2 rounded-2xl p-6 space-y-4 text-center"
+    <div className="sx-form border-2 rounded-2xl p-6 space-y-4 text-center"
          style={{ borderColor: "rgba(226,55,60,0.3)" }}>
       <span className="w-14 h-14 rounded-2xl grid place-items-center mx-auto"
             style={{ background: "rgba(226,55,60,0.12)", border: "1px solid rgba(226,55,60,0.4)" }}>
@@ -398,7 +409,7 @@ function VaultNeedsSignIn() {
       </span>
       <div>
         <h2 className="text-base font-bold" style={{ color: "#f0a2a5" }}>Emergency Storm Contact</h2>
-        <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto leading-relaxed">
+        <p className="text-xs sx-dim mt-1 max-w-sm mx-auto leading-relaxed">
           This line is tied to your membership, so you have to be signed in before the PIN will do anything.
         </p>
       </div>
@@ -407,7 +418,7 @@ function VaultNeedsSignIn() {
         style={{ background: "rgba(226,55,60,0.25)", border: "1px solid rgba(226,55,60,0.55)", color: "#ffd7d8" }}>
         <LogIn className="w-4 h-4" /> Sign in
       </Link>
-      <p className="text-[11px] text-muted-foreground leading-relaxed max-w-sm mx-auto">
+      <p className="text-[11px] sx-dim leading-relaxed max-w-sm mx-auto">
         If a storm is on you right now and you cannot get in, call 911. Do not spend the next five minutes
         on a login screen.
       </p>
@@ -434,7 +445,7 @@ function VaultDoor({
   }
 
   return (
-    <div className="bg-card border-2 rounded-2xl overflow-hidden" style={{ borderColor: "rgba(226,55,60,0.35)" }}>
+    <div className="sx-form border-2 rounded-2xl overflow-hidden" style={{ borderColor: "rgba(226,55,60,0.35)" }}>
       {/* the door */}
       <div
         ref={boxRef}
@@ -527,7 +538,7 @@ function VaultDoor({
       <div className="p-5 space-y-4 border-t" style={{ borderColor: "rgba(226,55,60,0.2)" }}>
         <div className="text-center">
           <h2 className="text-base font-bold" style={{ color: "#f0a2a5" }}>Emergency Storm Contact</h2>
-          <p className="text-xs text-muted-foreground mt-0.5">
+          <p className="text-xs sx-dim mt-0.5">
             {state === "checking" ? "Checking…"
               : state === "opening" ? "Opening the line…"
               : "Enter your 4-digit emergency PIN."}
@@ -582,16 +593,16 @@ function VaultDoor({
 
         <div className="border-t pt-4 space-y-2.5" style={{ borderColor: ROYAL.hairline }}>
           <h3 className="text-[11px] uppercase tracking-wider" style={{ color: "#f0a2a5" }}>What this line is for</h3>
-          <p className="text-xs text-muted-foreground leading-relaxed">
+          <p className="text-xs sx-dim leading-relaxed">
             An active, life-threatening storm where you need a person now — a tornado on the ground near you,
             flash flooding in progress, a decision you have minutes to make. It reaches the team with an urgent
             tag on both email and text.
           </p>
-          <p className="text-xs text-muted-foreground leading-relaxed">
-            <strong className="text-foreground">Not for</strong> billing, account access, feature requests, or
+          <p className="text-xs sx-dim leading-relaxed">
+            <strong className="sx-text">Not for</strong> billing, account access, feature requests, or
             "is it going to storm this weekend". Those belong on the other two tabs and will be answered there.
           </p>
-          <p className="text-[11px] text-muted-foreground/80 leading-relaxed">
+          <p className="text-[11px] sx-dim-soft leading-relaxed">
             The PIN comes with Advanced tier. If you have one and it isn't working, use Customer Service — do not
             keep guessing here.
           </p>
@@ -680,7 +691,7 @@ function EmergencyForm({ pin }: { pin: string }) {
 
       <Field label="Exactly where you are" hint="City and state at minimum. A cross street or county is better.">
         <div className="relative">
-          <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+          <MapPin className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 sx-dim pointer-events-none" />
           <input value={location} onChange={(e) => setLocation(e.target.value)} required
                  className={`${input} pl-9`} placeholder="Norman, OK — near Main & Porter" />
         </div>
@@ -723,7 +734,7 @@ function EmergencyForm({ pin }: { pin: string }) {
       {result && <Sent>{result}</Sent>}
       {err && <p className="text-xs text-red-400">{err}</p>}
 
-      <p className="text-[10px] text-muted-foreground flex items-center gap-1.5">
+      <p className="text-[10px] sx-dim flex items-center gap-1.5">
         <Clock className="w-3 h-3" /> Expect a reply in minutes. Keep your phone unlocked and to hand.
         <ChevronRight className="w-3 h-3 opacity-0" />
       </p>

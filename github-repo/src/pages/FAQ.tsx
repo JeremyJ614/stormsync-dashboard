@@ -137,6 +137,22 @@ export default function FAQ() {
 
   const total = visible.reduce((n, c) => n + c.entries.length, 0);
 
+  /**
+   * How many matches each category holds for the current search.
+   *
+   * Searching crosses categories, which is right — but the rail then sat there
+   * showing the unchanged full counts, so the one moment you most want to know
+   * WHERE the answers are was the one moment the rail stopped saying. With this
+   * it reads "Module Guide 12" while you type, and a category with nothing in
+   * it says so.
+   */
+  const matchCounts = useMemo(() => {
+    if (!q || !results) return null;
+    const out = new Map<string, number>();
+    for (const r of results) out.set(r.cat, (out.get(r.cat) ?? 0) + 1);
+    return out;
+  }, [q, results]);
+
   return (
     <ModuleShell
       eyebrow="StormSync VIP"
@@ -192,9 +208,16 @@ export default function FAQ() {
                   <span className="relative flex items-baseline gap-2 whitespace-nowrap lg:whitespace-normal">
                     <span className="text-[12.5px] font-semibold"
                           style={{ color: on ? ROYAL.gold : ROYAL.text, fontFamily: HEADING }}>{c.name}</span>
-                    <span className="text-[10px] tabular-nums ml-auto" style={{ color: ROYAL.dim }}>
-                      {c.entries.length}
-                    </span>
+                    {(() => {
+                      const hits = matchCounts?.get(c.name);
+                      const searching = matchCounts !== null;
+                      return (
+                        <span className="text-[10px] tabular-nums ml-auto"
+                              style={{ color: searching ? (hits ? ROYAL.gold : "rgba(163,163,204,0.4)") : ROYAL.dim }}>
+                          {searching ? (hits ?? 0) : c.entries.length}
+                        </span>
+                      );
+                    })()}
                   </span>
                 </button>
               );
@@ -203,7 +226,13 @@ export default function FAQ() {
         )}
 
         {/* ── the answers ───────────────────────────────────────────────── */}
-        <div className="min-w-0 space-y-2">
+        {/* One panel, hairline-ruled, rather than a stack of separately-bordered
+            cards. Nineteen identical rounded boxes in a column is a wall: every
+            row carries the same weight as every other, so nothing can be
+            skimmed. Ruled rows read as what this actually is — a reference
+            document — and the champagne numeral gives the eye something to
+            count down. */}
+        <div className="min-w-0">
           {q && (
             <div className="text-[11px] px-1" style={{ color: ROYAL.dim }}>
               {shown.length === 0
@@ -212,6 +241,12 @@ export default function FAQ() {
             </div>
           )}
 
+          <div className="rounded-2xl overflow-hidden"
+               style={{
+                 background: ROYAL.panel,
+                 border: `1px solid ${ROYAL.hairline}`,
+                 boxShadow: "0 20px 44px -30px rgba(0,0,0,0.95)",
+               }}>
           {shown.map(({ entry: e, cat, why }, i) => {
             const isOpen = open === e.id;
             const lead = e.sections.find((s) => s.body)?.body ?? "";
@@ -221,17 +256,30 @@ export default function FAQ() {
                 initial={still ? { opacity: 0 } : { opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: still ? 0.15 : 0.3, delay: still ? 0 : Math.min(i, 10) * 0.028, ease: EASE }}
-                className="rounded-2xl overflow-hidden"
+                className="sx-faq-row relative overflow-hidden"
                 style={{
-                  background: ROYAL.panel,
-                  border: `1px solid ${isOpen ? ROYAL.goldSoft : ROYAL.hairline}`,
+                  background: isOpen ? "rgba(217,183,117,0.045)" : "transparent",
+                  borderTop: "none",
+                  borderBottom: i === shown.length - 1 ? "none" : `1px solid ${ROYAL.hairline}`,
                 }}
               >
+                {/* The open row lights its left edge, so you can see where you
+                    are in the list without scrolling back to the heading. */}
+                {isOpen && (
+                  <motion.span aria-hidden layoutId="faq-edge"
+                    className="absolute left-0 top-0 bottom-0 w-[2px]"
+                    transition={still ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 30 }}
+                    style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, ${ROYAL.goldSoft})` }} />
+                )}
                 <button
                   onClick={() => setOpen(isOpen ? null : e.id)}
                   aria-expanded={isOpen}
                   className="w-full text-left px-4 py-3.5 flex items-start gap-3"
                 >
+                  <span className="text-[11px] tabular-nums font-semibold pt-0.5 shrink-0 w-6"
+                        style={{ color: isOpen ? ROYAL.gold : "rgba(163,163,204,0.5)" }}>
+                    {String(i + 1).padStart(2, "0")}
+                  </span>
                   <div className="flex-1 min-w-0">
                     {cat && (
                       <div className="text-[9px] uppercase tracking-[0.24em] mb-1" style={{ color: ROYAL.gold }}>{cat}</div>
@@ -265,8 +313,10 @@ export default function FAQ() {
                       transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
                       style={{ overflow: "hidden" }}
                     >
-                      <div className="px-4 pb-4 pt-1 space-y-3"
-                           style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
+                      {/* Indented to the title, not to the numeral. The number
+                          column is 1.5rem plus a 0.75rem gap, so the answer
+                          hangs off the question rather than off the margin. */}
+                      <div className="pr-4 pb-4 pt-1 space-y-3 pl-[3.25rem]">
                         {e.sections.map((s, si) => (
                           <motion.div
                             key={si}
@@ -298,6 +348,7 @@ export default function FAQ() {
               </motion.div>
             );
           })}
+          </div>
         </div>
       </div>
 

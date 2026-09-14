@@ -724,15 +724,24 @@ def canvas():
 
 # How many times each cell of a regular lat/lon grid is subdivided before it is
 # drawn. Only the coarse global models need it; see `smooth_grid`.
-# EIGHT, not four, and the number is chosen rather than guessed.
 #
-# GFS is 0.25°, which over the CONUS extent is about 204 x 112 cells. The frame
-# is 1800 x 1100. At 4x that is 813 x 445 — still a little over two output
-# pixels per sample, so band edges kept a faint stair. At 8x it is 1625 x 889,
-# which is roughly one interpolated value per output pixel and matches HRRR's
-# 3 km grid spacing almost exactly. Past that there is nothing left to gain:
-# the display is already finer than the screen.
-UPSAMPLE = {"gfs": 8}
+# FOUR, and the number was measured twice — once for looks and once for cost.
+#
+# GFS is 0.25°, which over the CONUS extent is about 141 x 257 cells. At 4x that
+# is 561 x 1025, a little under two output pixels per value in an 1900 x 1040
+# frame. Eight was tried on the theory that one value per pixel would be
+# sharper. Rendered side by side at 3x magnification — far closer than anyone
+# views these — 4x and 8x are indistinguishable: what removes the facets is the
+# cubic in `_interp_axis`, not the sample count, and past ~2 px per value there
+# is nothing left for the extra samples to describe.
+#
+# The cost, however, is not indistinguishable. pcolormesh draws one quad per
+# cell and cartopy projects every vertex into Lambert Conformal, so the work is
+# quadratic in this number: 0.58M quads at 4x against 2.30M at 8x. Measured on
+# the runner, a 40-parameter GFS run went from 7.8 minutes to over 25 and was
+# heading for the job's own 45-minute timeout — on a 2,000-minute monthly
+# allowance that is the whole budget, spent on a difference nobody can see.
+UPSAMPLE = {"gfs": 4}
 
 
 def _interp_axis(x_src: np.ndarray, y: np.ndarray, x_dst: np.ndarray, axis: int) -> np.ndarray:

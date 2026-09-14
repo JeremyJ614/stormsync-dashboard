@@ -34,12 +34,20 @@ interface Props {
   children: ReactNode;
   /** Wider measure for map-led modules. */
   wide?: boolean;
+  /**
+   * Narrower measure for modules that are mostly prose or a form.
+   *
+   * A contact form or an FAQ set across the full six-column measure gives
+   * reading lines of 140 characters and input fields a foot wide, which is
+   * uncomfortable to read and slightly absurd to type into.
+   */
+  narrow?: boolean;
   /** Suppresses the geometry, for modules whose own content is already dense. */
   bare?: boolean;
 }
 
 export const ModuleShell = memo(function ModuleShell({
-  eyebrow, title, subtitle, actions, status, children, wide, bare,
+  eyebrow, title, subtitle, actions, status, children, wide, narrow, bare,
 }: Props) {
   const still = prefersReducedMotion();
 
@@ -52,7 +60,7 @@ export const ModuleShell = memo(function ModuleShell({
   });
 
   return (
-    <div className={`p-4 md:p-6 mx-auto space-y-4 ${wide ? "max-w-7xl" : "max-w-6xl"}`}>
+    <div className={`p-4 md:p-6 mx-auto space-y-4 ${wide ? "max-w-7xl" : narrow ? "max-w-3xl" : "max-w-6xl"}`}>
       <motion.header {...rise(0)} className="relative overflow-hidden rounded-2xl">
         {!bare && <Apparatus height={172} intensity={0.9} />}
 
@@ -118,11 +126,8 @@ export function Panel({
 }) {
   return (
     <section
-      className={`relative rounded-2xl overflow-hidden ${className}`}
+      className={`royal-glass relative rounded-2xl overflow-hidden ${className}`}
       style={{
-        background: ROYAL.panel,
-        backdropFilter: "blur(14px) saturate(1.15)",
-        WebkitBackdropFilter: "blur(14px) saturate(1.15)",
         border: `1px solid ${ROYAL.hairline}`,
         boxShadow: `0 20px 44px -30px rgba(0,0,0,0.95)`,
         ...(defer ? { contentVisibility: "auto", containIntrinsicSize: "480px" } as React.CSSProperties : {}),

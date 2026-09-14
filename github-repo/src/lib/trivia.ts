@@ -76,6 +76,35 @@ export async function getTodayQuestions(): Promise<TriviaQuestion[]> {
   return (data ?? []).map((r) => toQ(r as Row, false));
 }
 
+/**
+ * The answer key for questions this member has already answered.
+ *
+ * The question row deliberately withholds `answer_index` and `explanation` from
+ * members — today's row is readable, so granting those columns would put the
+ * answer key one `select` away. The side effect was that a member who reloaded
+ * lost the answer too: a red cross, and no way to find out what was right.
+ *
+ * `trivia_answer_keys` returns the key only for questions this member has
+ * already answered, so it cannot be used to read ahead. Absent (an older
+ * database without the migration) it degrades to what the page did before —
+ * the verdict, without the explanation.
+ */
+export async function getAnswerKeys(
+  questionIds: string[],
+): Promise<Record<string, { answerIndex: number; explanation: string | null }>> {
+  if (!isSupabaseConfigured || questionIds.length === 0) return {};
+  const { data, error } = await supabase.rpc("trivia_answer_keys", { p_questions: questionIds });
+  if (error) {
+    logger.warn("answer keys unavailable", { scope: "trivia", error });
+    return {};
+  }
+  const out: Record<string, { answerIndex: number; explanation: string | null }> = {};
+  for (const r of (data ?? []) as { question_id: string; answer_index: number; explanation: string | null }[]) {
+    out[r.question_id] = { answerIndex: r.answer_index, explanation: r.explanation };
+  }
+  return out;
+}
+
 /** This member's answers for the given question ids. */
 export async function getMyAnswers(userId: string, questionIds: string[]): Promise<Record<string, TriviaAnswer>> {
   if (!isSupabaseConfigured || !userId || questionIds.length === 0) return {};

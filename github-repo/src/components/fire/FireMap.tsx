@@ -11,7 +11,8 @@
  * were built from.
  */
 import { useEffect, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import "../../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
 import { riskOf, type Incident } from "../../lib/fireWeather";

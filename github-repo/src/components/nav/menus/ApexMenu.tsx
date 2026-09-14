@@ -131,7 +131,17 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
     setHover(null);
   };
 
-  const focused = hover !== null ? entries[hover] : null;
+  /*
+   * Something is always named.
+   *
+   * `hover` starts null, and on a touch screen there is no hover at all — so
+   * with the node labels gone the readout would have said "Pick a section"
+   * until the first drag and named nothing in the meantime. Falling back to the
+   * first entry means the readout is populated the instant the arc opens, and
+   * dragging simply moves it.
+   */
+  const focused = hover !== null ? entries[hover] : (entries[0] ?? null);
+  const focusedIdx = hover !== null ? hover : 0;
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
@@ -225,7 +235,7 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
               {entries.map((e, i) => {
                 const { x, y } = posFor(i);
                 const Icon = e.icon;
-                const on = hover === i;
+                const on = focusedIdx === i;
                 const near = hover !== null && Math.abs(hover - i) === 1;
                 const scale = on ? 1.34 : near ? 1.12 : 1;
 
@@ -234,6 +244,7 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
                     key={e.key}
                     onClick={(ev) => { ev.stopPropagation(); choose(i); }}
                     onPointerEnter={() => setHover(i)}
+                    onFocus={() => setHover(i)}
                     onPointerLeave={() => setHover((h) => (h === i ? null : h))}
                     className="absolute flex flex-col items-center gap-1.5"
                     style={{ left: -node / 2, top: -node / 2, transformOrigin: "center" }}
@@ -275,31 +286,22 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
                         </span>
                       )}
                     </span>
-                    {/* Every node is named, always.
-                        This used to name only the hovered one, on the grounds
-                        that seven labels on a 314px arc collide — which is true
-                        with all of them on the same radius, and which is why
-                        they are not. Alternating nodes drop their label a row
-                        further out, the way a dial staggers its numerals, and
-                        the band resolves.
-                        The reason it had to change is simpler than the layout:
-                        there is no hover on a phone. Nothing was ever focused,
-                        so nothing was ever named, and the menu was seven
-                        unlabelled buttons. */}
-                    <motion.span
-                      className="text-[8px] font-semibold tracking-wider uppercase whitespace-nowrap px-1 rounded"
-                      style={{
-                        color: on ? ROYAL.gold : ROYAL.text,
-                        textShadow: "0 1px 6px #000, 0 0 10px #000",
-                        marginTop: i % 2 === 1 ? 11 : 0,
-                        background: "rgba(7,7,19,0.55)",
-                      }}
-                      initial={false}
-                      animate={{ opacity: on ? 1 : 0.85 }}
-                      transition={calm ? { duration: 0 } : { duration: 0.16 }}
-                    >
-                      {e.label.length > 13 ? `${e.label.slice(0, 12)}…` : e.label}
-                    </motion.span>
+                    {/*
+                      NO LABEL ON THE NODE.
+                      There was one, at 8px, truncated to twelve characters and
+                      staggered onto two radii to stop seven of them colliding
+                      on a 314px arc. It collided anyway, and even where it did
+                      not, "METEOROLOGIC…" at eight pixels over a lit tile is
+                      not a readable name — which is exactly how it was
+                      reported.
+
+                      The arc cannot hold seven legible names at once, so it
+                      holds none. The readout above is 26px and names whatever
+                      is nearest the thumb, which is the same information in a
+                      size somebody can actually read, and it is where the eye
+                      already is while dragging. What the node carries is its
+                      mark and its count, which is all a node has to do.
+                    */}
                   </motion.button>
                 );
               })}

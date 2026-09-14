@@ -30,21 +30,21 @@ import { useCalm } from "../lib/calm";
 import type { Location } from "../hooks/useLocation";
 import { TTL } from "../lib/queryClient";
 import {
-  fetchChaseOutlook, bandFor, isStale, dateLabel, SPC_COLOR,
+  fetchChaseOutlook, fetchChaseYearContext, bandFor, isStale, dateLabel, SPC_COLOR,
   type ChaseOutlook,
 } from "../lib/chase";
 import { TornadoPin, PinDrop, TargetLink } from "../components/chase/TornadoPin";
 import { ChaseScore } from "../components/chase/ChaseScore";
 import { ChaseTabs, type TabDef } from "../components/chase/ChaseTabs";
 import {
-  OverviewPanel, AtmospherePanel, StormModePanel, BustPanel, YearlyPanel,
+  OverviewPanel, ParametersPanel, StormModePanel, BustPanel, YearlyPanel,
 } from "../components/chase/ChasePanels";
 
-type TabId = "overview" | "atmosphere" | "mode" | "bust" | "yearly";
+type TabId = "overview" | "parameters" | "mode" | "bust" | "yearly";
 
 const TABS: readonly TabDef<TabId>[] = [
   { id: "overview", label: "Overview", hint: "Why these two areas" },
-  { id: "atmosphere", label: "Atmosphere", hint: "Every parameter, both targets" },
+  { id: "parameters", label: "Parameters", hint: "What the air is doing, and what it does to the storm" },
   { id: "mode", label: "Storm Mode", hint: "What kind of storms, and how fast" },
   { id: "bust", label: "Bust Probability", hint: "How this fails" },
   { id: "yearly", label: "Yearly", hint: "Against the rest of the year" },
@@ -52,7 +52,7 @@ const TABS: readonly TabDef<TabId>[] = [
 
 const RESOURCES = [
   { label: "SPC Day 1 Outlook", url: "https://www.spc.noaa.gov/products/outlook/day1otlk.html", desc: "The official categorical and probabilistic risk areas." },
-  { label: "SPC Mesoanalysis", url: "https://www.spc.noaa.gov/exper/mesoanalysis/", desc: "Hourly objective analysis of every parameter on the Atmosphere tab." },
+  { label: "SPC Mesoanalysis", url: "https://www.spc.noaa.gov/exper/mesoanalysis/", desc: "Hourly objective analysis of every parameter on the Parameters tab." },
   { label: "NWS Watches & Warnings", url: "https://www.weather.gov/", desc: "What is actually in effect right now." },
   { label: "RadarScope", url: "https://www.radarscope.app/", desc: "The radar app most chasers run in the field." },
   { label: "Pivotal Weather", url: "https://www.pivotalweather.com/", desc: "Model soundings and forecast maps." },
@@ -71,6 +71,19 @@ export default function StormChasingOutlook({ location }: { location: Location }
   const { data, isLoading, isError, refetch, isFetching } = useQuery({
     queryKey: ["chase-outlook"],
     queryFn: fetchChaseOutlook,
+    staleTime: TTL.normal,
+  });
+
+  // The year's ledger, asked for rather than read off the row.
+  //
+  // The row carries a copy stamped at the moment the engine ran, and the
+  // Yearly tab was reading that — so with seventy days in the table the page
+  // still said "16 days recorded, since Aug 26", underneath a line promising it
+  // was read straight off the rows and not from memory. Any write by the
+  // historical backfill made the stored copy wrong and nothing refreshed it.
+  const { data: liveYear } = useQuery({
+    queryKey: ["chase-year-context"],
+    queryFn: fetchChaseYearContext,
     staleTime: TTL.normal,
   });
 
@@ -147,10 +160,10 @@ export default function StormChasingOutlook({ location }: { location: Location }
               transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
             >
               {tab === "overview" && <OverviewPanel o={data} color={band.color} still={still} />}
-              {tab === "atmosphere" && <AtmospherePanel targets={data.targets} color={band.color} still={still} />}
+              {tab === "parameters" && <ParametersPanel targets={data.targets} color={band.color} still={still} />}
               {tab === "mode" && <StormModePanel targets={data.targets} color={band.color} still={still} />}
               {tab === "bust" && <BustPanel targets={data.targets} color={band.color} still={still} />}
-              {tab === "yearly" && <YearlyPanel o={data} color={band.color} still={still} />}
+              {tab === "yearly" && <YearlyPanel o={data} liveYear={liveYear ?? null} color={band.color} still={still} />}
             </motion.div>
           </AnimatePresence>
         </>

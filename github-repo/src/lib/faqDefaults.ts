@@ -67,7 +67,12 @@ const GENERAL: DefaultEntry[] = [
   },
   {
     title: "Where does the weather news come from?",
-    sections: [S("", "A curated feed of severe-weather reporting, refreshed through the day. The App Updates tab on the Home page is separate: that is news about StormSync itself, including badges people earned, releases that went out, game and trivia results, and new members.")],
+    sections: [
+      S("The feeds", "Seven of them, refreshed through the day: NOAA, the National Hurricane Center's full product text, ScienceDaily, Severe Weather Europe, Phys.org, Yale Climate Connections, and a broad aggregator for reach. The general-science feeds are filtered to weather; the weather feeds are not filtered at all."),
+      S("Read here, or read there", "Where a publisher syndicates the whole piece, it opens and reads inside the app with their words and their lead image — those lead the list under \"Read here\". Where a feed carries only a headline, it is a headline and it links out. Nothing is scraped from an article page: a feed is an offer, a page is not."),
+      S("Why one publisher does not fill it", "No source may hold more than three of the readable slots. Without that rule one prolific syndicator took eight of ten."),
+      S("App Updates is separate", "That tab on the Home page is news about StormSync itself: badges people earned, releases that went out, game and trivia results, and new members."),
+    ],
   },
   {
     title: "Is my data shared?",
@@ -116,9 +121,26 @@ const GENERAL: DefaultEntry[] = [
   {
     title: "Can I change how the menu looks?",
     sections: [
-      S("Fifteen of them", "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a radar scope that sweeps, a departure board that flips, a comic page, a neon street, a black hole, folded paper, a stack of stone."),
+      S("Fifteen of them", "The navigation menu is your choice, not a fixed part of the app. There are fifteen, and they are genuinely different objects rather than colour variations: a vault door that swings open onto a wall of deposit boxes, a stream of liquid metal that beads into drops, a comic page, a neon street, a black hole, folded paper, a lift shaft."),
       S("Where to pick", "New members choose one during the intro guide. After that it is in My Profile, and it changes the moment you tap it."),
       S("If you never choose", "You get whichever menu the app is set to by default, which an admin sets. Picking your own overrides it from then on, and changing the default afterwards does not overwrite a choice you made."),
+    ],
+  },
+  {
+    title: "How do the model maps work, and why does GFS look softer than HRRR?",
+    sections: [
+      S("What is rendered", "Three models and eighty-four parameters between them. HRRR at 3 km out to eighteen hours, GFS out to two days, and HREF — a twenty-one-member ensemble whose maps are probabilities rather than a single answer. Every parameter was confirmed against the live file it comes from rather than a documentation page."),
+      S("How often", "Four cycles a day each, rendered straight from NOAA's own files. The renderer reads only the records it needs by byte range, so a frame costs a fraction of a megabyte instead of the 140 MB the whole file would."),
+      S("Why GFS looks softer", "Because it is. GFS publishes at a quarter of a degree — about 25 km — while HRRR and HREF are 3 km, so GFS genuinely holds about eight times less detail and no amount of drawing can put it back. What we can do is not make it worse, and the GFS grid is now smoothed before it is drawn so the band edges are curves rather than a staircase of 25 km blocks."),
+      S("A parameter that looks empty", "Some are, honestly. HREF's severe wind probability is built on SUSTAINED ten-metre wind, which is the only wind record HREF publishes — and a sustained 58 mph over land is close to unheard of, so on most days that map is nearly blank and it is telling the truth. It is drawn on its own low scale so the signal that is there shows, and there is a 40 mph companion that carries real signal on an ordinary convective day."),
+    ],
+  },
+  {
+    title: "Can I arrange the Dashboard?",
+    sections: [
+      S("Yes", "Press Customize. Arrows move a tile within its section and the eye takes it off the wall; anything you take off comes back as a chip you can tap to restore. Reset puts everything back."),
+      S("What is on it", "One tile per module you have, and only the modules that can actually report something from the shared forecast — a module with nothing to say is not on the wall at all, because a tile reading \"open the module\" is a navigation menu wearing a dashboard's clothes. Where there is a series or an angle behind the number, the tile draws it."),
+      S("Where it saves", "On the device you set it on, so your phone can be lean and your desktop dense. A module you have never seen arrives in its default place rather than hidden, so a new release never ships to nobody."),
     ],
   },
   {
@@ -197,7 +219,8 @@ const ADDITIONAL: DefaultEntry[] = [
     title: "Where does the data come from?",
     sections: [
       S("The agencies", "National Weather Service (alerts, forecasts, discussions), Storm Prediction Center (outlooks, mesoscale discussions, storm reports), National Hurricane Center (tropical), Weather Prediction Center (winter storm severity, snow and ice probability, winter outlooks), NOHRSC (snow on the ground), Climate Prediction Center (extended pattern), Iowa Environmental Mesonet (local storm reports), GOES (satellite), MRMS (radar mosaics)."),
-      S("Model data", "Open-Meteo, which is free and needs no key, for the point forecasts and the parameters behind the severe-weather modules."),
+      S("Model data", "Open-Meteo, which is free and needs no key, for the point forecasts and the parameters behind the severe-weather modules. The Model Runs maps are rendered here from NOAA's own HRRR, GFS and HREF files rather than borrowed from anyone's image server."),
+      S("Lightning and climatology", "GOES-East's geostationary lightning mapper and LightningCast for live activity and the next hour, SPC's cleaned storm database (1950-2023) for tornado climatology and the historical tracks, and the USA National Phenology Network for autumn foliage."),
       S("Cameras", "Caltrans, ALERTCalifornia, the Michigan Department of Transportation and DriveBC, all published publicly by those agencies."),
       S("Our own work", "The Threat Index, the SSWXCon score, the chase scoring and the AI briefings are ours. Anywhere a number is computed rather than quoted, the module says so, and anywhere a product does not exist we say that rather than approximate it."),
     ],

@@ -52,16 +52,16 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   },
   {
     id: "/dashboard", title: "Dashboard", group: "Start here",
-    what: "Your own layout, built from widgets.",
-    does: "Current conditions, highs and lows, the seven-day, wind, sun times, air quality and more, arranged the way you want them.",
-    use: "Press Customize and drag the widgets you care about into place.",
-    tip: "Layouts save per device, so it is worth making a lean one on your phone.",
+    what: "One tile per module, so you can see where to look.",
+    does: "A wall of your modules, each reading live from the shared forecast: temperature with the next twenty-four hours drawn under it, CAPE, wind on a compass, AQI and UV on their own named bands, the moon as a moon. Tiles are deliberately unequal — most sit quiet, and the ones worth acting on light their rail.",
+    use: "Open it and look for the lit rails. Press Customize to move tiles within a section or take one off the wall entirely.",
+    tip: "It is not a second forecast page — a module with nothing to report is not on the wall at all. Your arrangement saves per device, so your phone can be lean and your desktop dense.",
   },
   {
     id: "/forecast", title: "Daily Brief & Forecast", group: "Start here",
     what: "Your morning brief, then the hour-by-hour.",
-    does: "Opens on the Daily Brief: the same summary the push and email digest carry, with the sections and delivery time you choose. Behind it sits the full hourly grid for the next seven days.",
-    use: "Press Customise on the brief to pick what is in it and what time it arrives.",
+    does: "Opens on the Daily Brief: the same summary the push and email digest carry, with the sections and delivery time you choose. A ribbon across the top plots the whole week on one temperature scale, so the shape of the week reads before any number does, and behind it sit the national outlooks — SPC thunderstorm and dry-thunderstorm, WPC rainfall and HeatRisk, CPC 6-10 and 8-14 day, drought and autumn foliage — drawn on the app's own map rather than as pictures.",
+    use: "Read the ribbon, pick the day that looks different, then press Customise to choose what is in the brief and what time it arrives.",
     tip: "The brief is the fastest way to know whether today needs your attention.",
   },
 
@@ -74,10 +74,10 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   },
   {
     id: "/comparator", title: "Model Runs", group: "Forecast",
-    what: "What the models are showing, side by side.",
-    does: "HRRR and GFS forecast maps, plus a Nowcast tab that reads the next fifteen minutes to six hours from live model data rather than a map image.",
-    use: "Start on Nowcast for right now; use HRRR and GFS to see how the day develops.",
-    tip: "When the models disagree, that disagreement is the forecast.",
+    what: "What the models are showing, side by side, with playback.",
+    does: "Three models rather than two — HRRR at 3 km, GFS out to two days, and HREF, a twenty-one-member ensemble whose maps are probabilities rather than one answer. Eighty-four parameters between them, every one checked against the live file it comes from. Frames play as a loop you can scrub, and there is still a Nowcast tab that reads the next fifteen minutes to six hours from live data rather than a map image.",
+    use: "Start on Nowcast for right now; use HRRR for today, GFS for the next two days, and HREF when you want to know how confident to be.",
+    tip: "When the models disagree, that disagreement is the forecast — and HREF is the one that measures the disagreement for you.",
   },
   {
     id: "/wpi", title: "Weather Pattern AI", group: "Forecast",
@@ -88,8 +88,8 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   {
     id: "/summary", title: "Daylight Tracker", group: "Forecast",
     what: "How much light you have left.",
-    does: "Sunrise, sunset, day length and how it is changing through the season.",
-    use: "Check it before an evening plan that depends on light.",
+    does: "The day drawn as a full twenty-four-hour arc with night shaded at both ends and the twilights marked, plus all twelve months on one baseline as a ribbon you can scrub to see the season turn.",
+    use: "Check it before an evening plan that depends on light. Drag the month ribbon to see how much earlier it will be dark in six weeks.",
   },
 
   // ── Severe weather ─────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   {
     id: "/spc", title: "SPC Outlook", group: "Severe weather",
     what: "The national severe weather risk, straight from SPC.",
-    does: "Categorical and probabilistic outlooks for Day 1 to 3 on an interactive map, plus shareable static maps.",
+    does: "Categorical and probabilistic outlooks for Day 1 to 3 on an interactive map, plus shareable static maps. Hail, wind and tornado now carry SPC's conditional intensity tiers, which SPC introduced in February 2026, with significant areas hatched the way SPC hatches them.",
     use: "Pick a day and a hazard. Use Download or Share to post it.",
     tip: "A quiet day with small polygons is a real answer, not a broken map.",
   },
@@ -150,9 +150,9 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   },
   {
     id: "/sswxcon", title: "SSWXCon Score", group: "Severe weather",
-    what: "A national threat level, one to five.",
-    does: "A single reading for the country from current data and AI synthesis.",
-    use: "Five is all clear. One is widespread significant severe, imminent.",
+    what: "A national threat level on a named scale, with a line in it.",
+    does: "One reading for the country, drawn as sixty countable segments rather than a needle — because this is a level, not a speed. The activation gate is marked on the ring, segments below it are cold and segments past it burn, so crossing the line is something you can see from across a room.",
+    use: "Read the number, then the distance to activation printed under it. Below the gate it is weather; above it, it is an event.",
   },
   {
     id: "/hurricane", title: "Hurricane Tracker", group: "Severe weather",
@@ -226,30 +226,33 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   },
   {
     id: "/lightning-globe", title: "Lightning Density", group: "Sky & space",
-    what: "Where the planet is being struck.",
-    does: "A globe of recent lightning activity worldwide.",
-    use: "Spin it to wherever is active.",
+    what: "Where lightning happens, and where it is happening now.",
+    does: "Climatology leads, because that is what the module is for: the world's strike density, the US by state, and the thunder year drawn as a year — twelve months at their own clock angles, so the season reads as the lobe it is rather than as a bar chart cut at an arbitrary January. A Live tab sits behind it with two real layers on the app's own map: GOES-East flash extent density for where it is striking, and LightningCast for the chance of a flash in the next sixty minutes.",
+    use: "Climatology to learn your own season; Live when something is up.",
+    tip: "The next-hour layer is the one worth having. By the time a flash appears over you, a strike map has told you something you already knew.",
   },
 
   // ── Maps & history ─────────────────────────────────────────────────────────
   {
     id: "/rotation", title: "Radar & MRMS", group: "Maps & history",
     what: "Radar, and the products built on top of it.",
-    does: "National reflectivity, MRMS products and GOES satellite on one dark, labelled map.",
-    use: "Pick a product group, then a layer.",
+    does: "National reflectivity, GOES satellite, and eight MRMS products on one dark, labelled map: reflectivity at the lowest altitude plus seven rainfall totals from one hour to three days, in NOAA's own colour ramps. The console folds away on a phone so the map keeps the screen.",
+    use: "Pick a product group, then a layer. Tiles are requested down to zoom 14, which is as deep as the service publishes.",
     tip: "Reflectivity tells you where the storm is; the rotation products tell you which one to worry about.",
   },
   {
     id: "/climatology", title: "Tornado Climatology", group: "Maps & history",
-    what: "Where tornadoes actually happen.",
-    does: "Historical tornado density, EF distribution and seasonal timing on a national map.",
-    use: "Use the tabs to switch views; the reference tab explains the EF scale.",
+    what: "Seventy-four years of US tornadoes, in four questions.",
+    does: "When, where, the record, and anatomy. The season is a ridgeline of the national curve and the six regions under it, ordered by the month each region peaks — so the march of the season north and west is simply the reading order. Where is one map with three layers: all tornadoes, EF2 and up, and every violent track. The record draws reports per year and deaths per year on one span, which is the whole argument: counts climb because detection improved, deaths fall because warning did.",
+    use: "Start on When to find your own season, then Where to find your own ground.",
+    tip: "The database ends in 2023, which is where SPC's cleaned archive ends. That is stated in the header rather than hidden in an axis.",
   },
   {
     id: "/history", title: "Severe Weather History", group: "Maps & history",
-    what: "What has already happened.",
-    does: "Rolling summaries of recent severe weather and the notable events behind them.",
-    use: "Good for context after an outbreak.",
+    what: "What has already happened, back a decade.",
+    does: "Ten years of tornado tracks you can filter three ways at once: by EF rating, by state, and by month across every year on record — \"every May since 2016\" is one pick. Counts lead at display size with a bar showing what they are made of.",
+    use: "Pick a month, then a state, and watch how different two neighbouring states can be in the same month.",
+    tip: "Years before 2019 are marked partial where the damage survey is incomplete, rather than presented as a full count.",
   },
   {
     id: "/glossary", title: "Weather Glossary", group: "Maps & history",
@@ -260,6 +263,12 @@ export const MODULE_GUIDE: ModuleGuideEntry[] = [
   },
 
   // ── Community ──────────────────────────────────────────────────────────────
+  {
+    id: "/duel", title: "AI Knowledge Battle", group: "Community",
+    what: "You against the model, on weather questions.",
+    does: "A head-to-head round of questions where both of you answer and the score is kept.",
+    use: "Play a round when you have five minutes. It is a faster way to find your gaps than reading the glossary.",
+  },
   {
     id: "/game", title: "Forecast Game", group: "Community",
     what: "Guess where severe weather lands.",

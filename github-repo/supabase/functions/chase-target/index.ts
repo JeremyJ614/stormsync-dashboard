@@ -31,6 +31,7 @@
 // neither, every field falls back to a deterministic write so the page is never
 // dead — it just says less.
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { terrainFor, type TerrainCache, type TerrainResult } from "./terrain.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -89,6 +90,13 @@ const chunk = <T>(a: T[], n: number): T[][] => {
   return out;
 };
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const IS_DATE = /^\d{4}-\d{2}-\d{2}$/;
+/** Calendar arithmetic on YYYY-MM-DD, done at noon UTC so no DST can move it. */
+function addDays(iso: string, n: number): string {
+  const d = new Date(`${iso}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. SPC polygons
@@ -114,22 +122,92 @@ function toPolys(geom: any): Poly[] {
   return [];
 }
 
-async function fetchOutlook(product: string): Promise<{ label: string; polys: Poly[] }[]> {
+/**
+ * One SPC outlook source: a URL stem that `_cat` / `_torn` / `_hail` / `_wind`
+ * hang off, and the convective day it is expected to describe.
+ *
+ * Naming a stem is not the same as knowing what it covers, which is the whole
+ * reason this type exists — see `sourcesFor`.
+ */
+interface OutlookSource { stem: string; label: string }
+
+/** Stems worth trying for a given convective day, best first. */
+function sourcesFor(targetDate: string, historical: boolean): OutlookSource[] {
+  if (!historical) {
+    // Live products. Which of the two actually covers `targetDate` depends on
+    // the hour the engine is running, so both are offered and the VALID window
+    // decides. Day 1 wins when it fits because it is the later, sharper look.
+    return [
+      { stem: `${SPC}/products/outlook/day1otlk`, label: "day1-live" },
+      { stem: `${SPC}/products/outlook/day2otlk`, label: "day2-live" },
+    ];
+  }
+  const ymd = targetDate.replaceAll("-", "");
+  const year = targetDate.slice(0, 4);
+  const prev = addDays(targetDate, -1).replaceAll("-", "");
+  const arc = `${SPC}/products/outlook/archive/${year}`;
+  return [
+    // The 1300Z Day 1 is the authoritative daytime outlook for the convective
+    // day; the others are its neighbours in the issuance schedule, tried in
+    // case a day is missing one.
+    { stem: `${arc}/day1otlk_${ymd}_1300`, label: "day1-1300" },
+    { stem: `${arc}/day1otlk_${ymd}_1630`, label: "day1-1630" },
+    { stem: `${arc}/day1otlk_${ymd}_1200`, label: "day1-1200" },
+    { stem: `${arc}/day1otlk_${ymd}_2000`, label: "day1-2000" },
+    { stem: `${arc}/day2otlk_${prev}_1730`, label: "day2-prev-1730" },
+  ];
+}
+
+/** "202609121300" → epoch ms. SPC stamps are UTC with no separator. */
+function spcStamp(v: unknown): number {
+  const s = String(v ?? "");
+  if (!/^\d{12}$/.test(s)) return NaN;
+  return Date.parse(
+    `${s.slice(0, 4)}-${s.slice(4, 6)}-${s.slice(6, 8)}T${s.slice(8, 10)}:${s.slice(10, 12)}:00Z`,
+  );
+}
+
+/**
+ * Does this product actually describe the afternoon we are forecasting?
+ *
+ * The file name does not say. A live `day1otlk_cat` at four in the morning is
+ * the 0100Z issuance, which expires at 12Z and covers only the night that is
+ * ending; the same URL at two in the afternoon covers today properly. Checking
+ * VALID..EXPIRE against 21Z on the target date — peak convective hour, and
+ * inside every real outlook window — is what lets the engine run at an hour
+ * nobody designed it for and still refuse to score the wrong day.
+ */
+function coversAfternoon(props: Record<string, unknown> | undefined, targetDate: string): boolean {
+  const from = spcStamp(props?.VALID);
+  const to = spcStamp(props?.EXPIRE);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return false;
+  const peak = Date.parse(`${targetDate}T21:00:00Z`);
+  return peak >= from && peak <= to;
+}
+
+interface OutlookLayer {
+  shapes: { label: string; polys: Poly[] }[];
+  /** Properties off the first feature: VALID, EXPIRE, ISSUE. */
+  props: Record<string, unknown> | undefined;
+}
+
+async function fetchOutlook(product: string): Promise<OutlookLayer> {
   for (const suffix of [".lyr.geojson", ".nolyr.geojson"]) {
     try {
-      const r = await fetch(`${SPC}/products/outlook/${product}${suffix}`, {
+      const r = await fetch(`${product}${suffix}`, {
         headers: { "User-Agent": UA, Accept: "application/geo+json, application/json" },
       });
       if (!r.ok) continue;
       // deno-lint-ignore no-explicit-any
       const geo = await r.json() as { features?: any[] };
-      const out = (geo.features ?? [])
+      const feats = geo.features ?? [];
+      const shapes = feats
         .map((f) => ({ label: String(f?.properties?.LABEL ?? ""), polys: toPolys(f?.geometry) }))
         .filter((f) => f.polys.length > 0);
-      if (out.length) return out;
+      if (shapes.length) return { shapes, props: feats[0]?.properties };
     } catch { /* try the other suffix */ }
   }
-  return [];
+  return { shapes: [], props: undefined };
 }
 
 /** Ray casting, with holes: inside an outer ring and inside no hole. */
@@ -166,11 +244,45 @@ function probPct(label: string): number {
   return f <= 1 ? Math.round(f * 100) : Math.round(f);
 }
 
-async function ingestRisk(): Promise<{ areas: RiskArea[]; catMax: string | null; probs: Record<string, number> }> {
-  const [cat, torn, hail, wind] = await Promise.all([
-    fetchOutlook("day1otlk_cat"), fetchOutlook("day1otlk_torn"),
-    fetchOutlook("day1otlk_hail"), fetchOutlook("day1otlk_wind"),
+interface RiskIngest {
+  areas: RiskArea[];
+  catMax: string | null;
+  probs: Record<string, number>;
+  /** Which stem answered, and the window it claimed — both go in `source`. */
+  outlook: string | null;
+  valid: string | null;
+}
+
+/**
+ * Find an SPC outlook that genuinely covers `targetDate` and read it.
+ *
+ * Every stem is checked against its own VALID window before its polygons are
+ * used, so a run at any hour either scores the right convective day or scores
+ * none at all. Coming back with no risk areas is a legitimate answer — the
+ * candidate generator falls through to a coarse national sweep — and it is very
+ * much better than silently ranking last night's leftovers.
+ */
+async function ingestRisk(targetDate: string, historical: boolean): Promise<RiskIngest> {
+  let chosen: OutlookSource | null = null;
+  let catLayer: OutlookLayer = { shapes: [], props: undefined };
+
+  for (const src of sourcesFor(targetDate, historical)) {
+    const layer = await fetchOutlook(`${src.stem}_cat`);
+    if (!layer.shapes.length) continue;
+    if (!coversAfternoon(layer.props, targetDate)) continue;
+    chosen = src;
+    catLayer = layer;
+    break;
+  }
+
+  if (!chosen) return { areas: [], catMax: null, probs: { torn: 0, hail: 0, wind: 0 }, outlook: null, valid: null };
+
+  const [tornL, hailL, windL] = await Promise.all([
+    fetchOutlook(`${chosen.stem}_torn`),
+    fetchOutlook(`${chosen.stem}_hail`),
+    fetchOutlook(`${chosen.stem}_wind`),
   ]);
+  const cat = catLayer.shapes, torn = tornL.shapes, hail = hailL.shapes, wind = windL.shapes;
 
   const areas: RiskArea[] = [];
   let catMax: string | null = null, catMaxRank = -1;
@@ -178,7 +290,15 @@ async function ingestRisk(): Promise<{ areas: RiskArea[]; catMax: string | null;
     const rank = CAT_RANK[f.label];
     if (rank === undefined) continue;
     if (rank > catMaxRank) { catMaxRank = rank; catMax = f.label; }
-    areas.push({ label: f.label, kind: "cat", weight: rank * 12, polys: f.polys });
+    // A floor of 3, because `CAT_RANK["TSTM"]` is 0 and a weight of zero is
+    // indistinguishable from "not in a risk area at all" to the grid below.
+    // On 20 and 21 April 2026 SPC's Day 1 held nothing but a general-thunder
+    // area covering most of the country, every gridded point inside it scored
+    // weight 0, `generateCandidates` returned an empty list, and the day could
+    // not be reconstructed at all. A general-thunderstorm day is a weak chase
+    // day, not an absent one — and the best target in the country that day is
+    // somewhere inside that polygon.
+    areas.push({ label: f.label, kind: "cat", weight: Math.max(rank * 12, 3), polys: f.polys });
   }
   const probs: Record<string, number> = { torn: 0, hail: 0, wind: 0 };
   const addProb = (kind: "torn" | "hail" | "wind", list: { label: string; polys: Poly[] }[], scale: number) => {
@@ -193,7 +313,9 @@ async function ingestRisk(): Promise<{ areas: RiskArea[]; catMax: string | null;
   addProb("hail", hail, 0.7);
   addProb("wind", wind, 0.45);
 
-  return { areas, catMax, probs };
+  const props = catLayer.props;
+  const valid = props?.VALID && props?.EXPIRE ? `${props.VALID}-${props.EXPIRE}` : null;
+  return { areas, catMax, probs, outlook: chosen.label, valid };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -218,21 +340,23 @@ function snap(v: number, step: number): number { return Math.round(v / step) * s
  * need the same spacing as a marginal blob over one. The cap on total points is
  * what keeps the Open-Meteo bill (in requests, not dollars) bounded.
  */
+/** Nothing to aim at: sweep the country coarsely and answer honestly. */
+function nationalSweep(): { list: Candidate[]; step: number; source: string } {
+  const step = 1.5;
+  const list: Candidate[] = [];
+  for (let lat = CONUS.y0; lat <= CONUS.y1; lat += step) {
+    for (let lon = CONUS.x0; lon <= CONUS.x1; lon += step) {
+      list.push({ lat: round(lat, 2), lon: round(lon, 2), spcWeight: 0, spcCat: null, tornProb: 0, hailProb: 0, windProb: 0 });
+    }
+  }
+  return { list, step, source: "national-fallback" };
+}
+
 function generateCandidates(areas: RiskArea[]): { list: Candidate[]; step: number; source: string } {
   const meaningful = areas.filter((a) => !(a.kind === "cat" && a.label === "TSTM"));
   const usable = meaningful.length ? meaningful : areas;
 
-  if (!usable.length) {
-    // Nothing anywhere. Answer honestly with a coarse national sweep.
-    const step = 1.5;
-    const list: Candidate[] = [];
-    for (let lat = CONUS.y0; lat <= CONUS.y1; lat += step) {
-      for (let lon = CONUS.x0; lon <= CONUS.x1; lon += step) {
-        list.push({ lat: round(lat, 2), lon: round(lon, 2), spcWeight: 0, spcCat: null, tornProb: 0, hailProb: 0, windProb: 0 });
-      }
-    }
-    return { list, step, source: "national-fallback" };
-  }
+  if (!usable.length) return nationalSweep();
 
   const [bx0, by0, bx1, by1] = bboxOf(usable.flatMap((a) => a.polys));
   const span = Math.max(bx1 - bx0, by1 - by0);
@@ -267,6 +391,11 @@ function generateCandidates(areas: RiskArea[]): { list: Candidate[]; step: numbe
   }
 
   const list = [...byKey.values()].sort((a, b) => b.spcWeight - a.spcWeight);
+  // Belt and braces. Whatever the polygons look like — entirely offshore, or
+  // smaller than the grid step, or all zero-weight — this function must never
+  // hand back an empty list, because an empty list is indistinguishable
+  // downstream from "the weather service did not answer".
+  if (!list.length) return nationalSweep();
   return { list, step, source: "spc-polygons" };
 }
 
@@ -303,22 +432,98 @@ const HOURLY = [
 type Series = Record<string, (number | null)[]> & { time: string[] };
 interface OMLoc { hourly: Series; daily: { time: string[]; sunset: string[]; sunrise: string[] }; utc_offset_seconds: number }
 
-async function fetchWeather(points: Candidate[]): Promise<(OMLoc | null)[]> {
+/**
+ * Soundings for every candidate, for one specific convective day.
+ *
+ * Two endpoints, one variable list. The live forecast API answers for today and
+ * tomorrow; `historical-forecast-api` answers for any past date out of the same
+ * archived model runs, with the identical thirty-one fields and no gaps. That
+ * symmetry is what makes the backfill honest: a March day is reconstructed from
+ * the model data that was actually available for it, not from a guess.
+ *
+ * `forecast_days=3` rather than 2 because the overnight run happens while the
+ * target day is still tomorrow in Mountain and Pacific time, so the day we want
+ * is not always the first one in the response. Nothing downstream indexes by
+ * position — every reader matches on the date string.
+ */
+async function fetchWeather(
+  points: Candidate[], targetDate: string, historical: boolean,
+): Promise<(OMLoc | null)[]> {
   const out: (OMLoc | null)[] = new Array(points.length).fill(null);
   const groups = chunk(points.map((p, i) => ({ p, i })), 25);
+  const host = historical ? "https://historical-forecast-api.open-meteo.com/v1" : OM;
+  // The convective window runs to 02:00 the following morning, so the request
+  // has to reach into the next day as well.
+  const range = historical
+    ? `&start_date=${targetDate}&end_date=${addDays(targetDate, 1)}`
+    : `&forecast_days=3`;
   for (const g of groups) {
-    const url = `${OM}/forecast?latitude=${g.map((x) => x.p.lat).join(",")}` +
+    const url = `${host}/forecast?latitude=${g.map((x) => x.p.lat).join(",")}` +
       `&longitude=${g.map((x) => x.p.lon).join(",")}` +
-      `&hourly=${HOURLY}&daily=sunrise,sunset&forecast_days=2&timezone=auto&wind_speed_unit=ms`;
+      `&hourly=${HOURLY}&daily=sunrise,sunset${range}&timezone=auto&wind_speed_unit=ms`;
+    const r = await openMeteo(url);
+    if (!r) continue;
     try {
-      const r = await fetch(url, { headers: { "User-Agent": UA } });
-      if (!r.ok) continue;
       const body = await r.json();
       const arr = Array.isArray(body) ? body : [body];
       g.forEach((x, k) => { if (arr[k]?.hourly) out[x.i] = arr[k] as OMLoc; });
     } catch { /* a dropped chunk costs candidates, not the run */ }
   }
   return out;
+}
+
+/**
+ * Fetch from Open-Meteo, waiting out a throttle instead of dropping the chunk.
+ *
+ * THE BUG THIS FIXES, seen while reconstructing the 2026 season.
+ *
+ * Open-Meteo's free tier caps requests per minute as well as per day, and this
+ * function asks for twenty-five locations and thirty-odd hourly variables at a
+ * time. Running days back to back walks into that cap. The old code treated any
+ * non-OK response as "this chunk had no data" and moved on, so a throttled run
+ * scored nothing, picked nothing, and wrote a row with a day score of zero and
+ * a status of `error` — in eight seconds, looking for all the world like a day
+ * on which America had no weather. Eight consecutive days came out that way
+ * before the pattern was obvious.
+ *
+ * It is not only a backfill problem. The daily run at 04:25Z shares the free
+ * tier with every other module in the app; one busy minute and the Chase Target
+ * page has nothing to show for the day.
+ *
+ * So: a 429 or a 5xx is a wait, not an answer. Anything else is a request that
+ * will not improve on a second try.
+ */
+async function openMeteo(url: string, tries = 4): Promise<Response | null> {
+  for (let i = 0; i < tries; i++) {
+    try {
+      const r = await fetch(url, { headers: { "User-Agent": UA } });
+      if (r.ok) return r;
+      const body = await r.text().catch(() => "");
+      // The DAILY cap is not a throttle — it does not clear until midnight UTC,
+      // and retrying is both futile and rude. It has to be told apart from the
+      // per-minute cap, which clears in seconds and shares the same status.
+      if (r.status === 429 && /daily api request limit/i.test(body)) throw new QuotaExhausted();
+      if (r.status !== 429 && r.status < 500) return null;
+    } catch (e) {
+      if (e instanceof QuotaExhausted) throw e;
+      /* a network blip gets the same treatment as a throttle */
+    }
+    // Jitter, because every chunk of a run would otherwise retry in lockstep.
+    if (i < tries - 1) await sleep(1500 * 2 ** i + Math.floor(Math.random() * 500));
+  }
+  return null;
+}
+
+/**
+ * Open-Meteo's free tier is out of calls for the UTC day.
+ *
+ * This exists as its own type because it is the one weather failure that must
+ * stop the caller rather than cost it a data point. A backfill that keeps going
+ * writes a run for every remaining date in which nothing scored — see the guard
+ * in `runDay` — and a chunk that keeps going does the same for the next seven.
+ */
+class QuotaExhausted extends Error {
+  constructor() { super("Open-Meteo daily request limit exhausted"); this.name = "QuotaExhausted"; }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -409,13 +614,16 @@ function computeAt(loc: OMLoc, i: number): Params {
   const [u850, v850] = uv(pick(h, "wind_speed_850hPa", i), pick(h, "wind_direction_850hPa", i));
   const [u700, v700] = uv(pick(h, "wind_speed_700hPa", i), pick(h, "wind_direction_700hPa", i));
   const [u500, v500] = uv(pick(h, "wind_speed_500hPa", i), pick(h, "wind_direction_500hPa", i));
-  const levels: [number, number, number][] = [
+  // Annotated before `.sort`, not after: with the call in the way the literal
+  // loses its contextual type and every row widens to number[].
+  const rawLevels: [number, number, number][] = [
     [10, u10, v10],
     [Math.max(200, pick(h, "geopotential_height_925hPa", i, 780) - zBase), u925, v925],
     [Math.max(600, z850 - zBase), u850, v850],
     [Math.max(2000, z700 - zBase), u700, v700],
     [Math.max(4500, z500 - zBase), u500, v500],
-  ].sort((a, b) => a[0] - b[0]);
+  ];
+  const levels = rawLevels.sort((a, b) => a[0] - b[0]);
 
   const shear06 = mag(u500 - u10, v500 - v10);
   const shear01 = mag(u925 - u10, v925 - v10);
@@ -518,6 +726,8 @@ interface Scored {
   meteo: number;
   /** 0-100 after terrain and daylight. */
   total: number;
+  /** What the terrain score was actually made of, for the page and the record. */
+  terrainDetail?: TerrainResult | null;
   mode: StormMode;
   bustPct: number;
   terrain: number;     // 0-100, higher is easier country to chase
@@ -560,11 +770,35 @@ function classifyMode(p: Params): StormMode {
   return "Messy multicell clusters";
 }
 
-/** HP / classic / LP, the way it is actually judged: mid-level moisture and shear. */
+/**
+ * HP, classic or LP.
+ *
+ * THE OLD RULE COULD NOT PRODUCE AN LP, EVER.
+ * It asked for `rh700 <= 42 AND mixr <= 12`. Across a hundred and forty
+ * reconstructed targets the mixing ratio never once went below 10.3 g/kg and
+ * its tenth percentile was 15.5 — a 12 g/kg cap is roughly a 61 °F dewpoint, so
+ * the AND threw away every genuinely dry-mid-level case the first clause had
+ * correctly found. LP fired zero times. HP, meanwhile, only needed two moist
+ * numbers, so nearly everything with any moisture read HP.
+ *
+ * What actually separates the three is a balance, not a pair of gates: how moist
+ * the mid-levels are, how rich the boundary layer is, and how high the cloud
+ * base sits. A High Plains storm on a 55 °F dewpoint with a 1,600 m LCL and dry
+ * air at 700 mb is an LP whatever its mixing ratio says; a Gulf-fed storm with
+ * saturated mid-levels and a 400 m base is an HP.
+ *
+ * So each of the three votes, and the sum leans. LP still needs a real LP
+ * environment — it stays rare in July, which is correct, rather than impossible,
+ * which is what it was.
+ */
 function supercellFlavour(p: Params): "HP" | "Classic" | "LP" | "n/a" {
   if (p.scp < 1 && p.shear06 < 15) return "n/a";
-  if (p.rh700 >= 72 && p.mixr >= 13) return "HP";
-  if (p.rh700 <= 42 && p.mixr <= 12) return "LP";
+  let lean = 0;                       // negative leans LP, positive leans HP
+  lean += p.rh700 >= 78 ? 2 : p.rh700 >= 66 ? 1 : p.rh700 <= 42 ? -2 : p.rh700 <= 52 ? -1 : 0;
+  lean += p.dewF >= 72 ? 2 : p.dewF >= 66 ? 1 : p.dewF <= 58 ? -2 : p.dewF <= 63 ? -1 : 0;
+  lean += p.lclAglM <= 500 ? 1 : p.lclAglM >= 1400 ? -2 : p.lclAglM >= 1000 ? -1 : 0;
+  if (lean >= 4) return "HP";
+  if (lean <= -3) return "LP";
   return "Classic";
 }
 
@@ -586,6 +820,63 @@ function bustProbability(p: Params, mode: StormMode): number {
   return clamp(Math.round(risk), 3, 96);
 }
 
+/**
+ * The national day score, 0-10.
+ *
+ * WHY THIS WAS REWRITTEN
+ * The old formula was `best_target / 10 + category_rank * 0.35`. Reconstructing
+ * the 2026 season exposed what that produces: seventy days scored between 6.3
+ * and 10.0, with a MARGINAL risk averaging 7.0. Every day was a seven or an
+ * eight, so the Yearly tab — whose whole job is to say how today ranks against
+ * the year — could not separate anything. A chaser reading "7.0" learned
+ * nothing, because it was always about to say 7.0.
+ *
+ * Two things caused it. `best / 10` starts around 6.5 for any day with a risk
+ * area anywhere in the country, because the target score is a weighted blend
+ * that lands mid-range by construction; and the category, the single most
+ * informative thing on the page, was worth at most 1.75 points.
+ *
+ * So the category becomes the spine. SPC's forecasters have seen mesoscale
+ * detail no point model has, and their category IS the day's ceiling; the
+ * computed numbers then say where inside that ceiling the day lands.
+ *
+ *   base       what the category is worth on its own
+ *   tornado    the strongest single discriminator inside a category
+ *   secondary  hail and wind count, but they do not make a chase day
+ *   target     the best point the engine found, ±1.1 around the category
+ *   bust       the engine already computes how likely the day is to fail
+ *
+ * Against the same seventy days this gives 1.8 to 10.0, median 5.8: marginals
+ * in the twos and threes, slights in the fives, enhanced in the eights, the one
+ * moderate at the top. Nines stay reachable — a strong enhanced day with 15%
+ * tornado probability and a clean target reaches 9.6 — but they are earned.
+ */
+const DAY_BASE: Record<string, number> = {
+  TSTM: 1.3, MRGL: 2.9, SLGT: 4.9, ENH: 6.9, MDT: 7.6, HIGH: 9.2,
+};
+
+function nationalDayScore(
+  catMax: string | null,
+  probs: Record<string, number>,
+  best: Scored | null,
+): number {
+  if (!best) return 0;
+  const base = catMax ? (DAY_BASE[catMax] ?? 0.3) : 0.3;
+
+  const t = probs.torn ?? 0;
+  const tornado = t >= 30 ? 1.1 : t >= 15 ? 0.8 : t >= 10 ? 0.55 : t >= 5 ? 0.3 : t >= 2 ? 0.12 : 0;
+
+  const h = probs.hail ?? 0, w = probs.wind ?? 0;
+  const secondary = (h >= 45 ? 0.3 : h >= 30 ? 0.18 : 0) + (w >= 45 ? 0.25 : w >= 30 ? 0.15 : 0);
+
+  // 68 is the middle of the observed target range; eleven points of target
+  // score is worth one point of day score.
+  const target = clamp((best.total - 68) / 11, -1.1, 1.1);
+  const bust = clamp((45 - best.bustPct) / 60, -0.5, 0.5);
+
+  return round(clamp(base + tornado + secondary + target + bust, 0, 10), 1);
+}
+
 /** Daylight left after initiation is the difference between a chase and a drive. */
 function daylightScore(p: Params): number {
   const h = p.hoursToSunset;
@@ -598,37 +889,48 @@ function daylightScore(p: Params): number {
 // ─────────────────────────────────────────────────────────────────────────────
 // 5. Terrain — a perfect sounding over a forest is not a chase target
 // ─────────────────────────────────────────────────────────────────────────────
-async function terrainScores(points: { lat: number; lon: number }[]): Promise<number[]> {
-  // Sample the point and four neighbours ~15 km out. The spread between them is
-  // the honest, free proxy for "can you see anything and can you drive it".
-  const OFF: [number, number][] = [[0, 0], [0.14, 0], [-0.14, 0], [0, 0.17], [0, -0.17]];
-  const flatLat: number[] = [], flatLon: number[] = [];
-  for (const p of points) for (const [dy, dx] of OFF) { flatLat.push(round(p.lat + dy, 3)); flatLon.push(round(p.lon + dx, 3)); }
+// The measurement itself lives in ./terrain.ts. What is here is the cache it
+// reads and writes, which is the only part that needs to know about Postgres.
+//
+// 62 is the neutral prior: what a location scores when all three data sources
+// refuse to answer. It is deliberately mid-range and deliberately not flattering
+// — an unmeasured location should not outrank a measured Kansas one.
+const TERRAIN_UNKNOWN = 62;
 
-  const elev: number[] = [];
-  for (const g of chunk(flatLat.map((la, i) => [la, flatLon[i]] as [number, number]), 100)) {
-    try {
-      const r = await fetch(`${OM}/elevation?latitude=${g.map((x) => x[0]).join(",")}&longitude=${g.map((x) => x[1]).join(",")}`,
-        { headers: { "User-Agent": UA } });
-      if (!r.ok) { elev.push(...g.map(() => NaN)); continue; }
-      const b = await r.json() as { elevation?: number[] };
-      const e = b.elevation ?? [];
-      for (let i = 0; i < g.length; i++) elev.push(typeof e[i] === "number" ? e[i] : NaN);
-    } catch { elev.push(...g.map(() => NaN)); }
-  }
-
-  return points.map((_, i) => {
-    const set = OFF.map((_, k) => elev[i * OFF.length + k]).filter((v) => Number.isFinite(v));
-    if (set.length < 3) return 62;                        // unknown, not zero
-    const mean = set.reduce((a, b) => a + b, 0) / set.length;
-    const sd = Math.sqrt(set.reduce((a, b) => a + (b - mean) ** 2, 0) / set.length);
-    // <40 m of relief over 15 km is Plains-flat; >250 m is not chaseable country.
-    const relief = clamp(100 - ((sd - 35) / 215) * 100, 8, 100);
-    // High plains are fine; genuinely high terrain is not.
-    const altitude = mean > 2200 ? 55 : mean > 1600 ? 80 : 100;
-    return Math.round(clamp((relief * 0.78 + altitude * 0.22), 5, 100));
-  });
-}
+const terrainCache: TerrainCache = {
+  async get(keys) {
+    const out = new Map<string, TerrainResult>();
+    const { data, error } = await admin
+      .from("chase_terrain_cache")
+      .select("cell_key, score, trees, rugged, sight, roads, confidence, detail")
+      .in("cell_key", keys);
+    if (error || !data) return out;
+    for (const r of data) {
+      out.set(r.cell_key as string, {
+        score: Number(r.score),
+        trees: r.trees as number | null, rugged: r.rugged as number | null,
+        sight: r.sight as number | null, roads: r.roads as number | null,
+        confidence: Number(r.confidence ?? 1),
+        detail: (r.detail ?? {}) as TerrainResult["detail"],
+      });
+    }
+    return out;
+  },
+  async put(rows) {
+    if (!rows.length) return;
+    const { error } = await admin.from("chase_terrain_cache").upsert(
+      rows.map((r) => ({
+        cell_key: r.key, lat: r.lat, lon: r.lon,
+        score: r.result.score, trees: r.result.trees, rugged: r.result.rugged,
+        sight: r.result.sight, roads: r.result.roads,
+        confidence: r.result.confidence, detail: r.result.detail,
+        measured_at: new Date().toISOString(),
+      })),
+      { onConflict: "cell_key" },
+    );
+    if (error) console.warn("terrain cache write failed:", error.message);
+  },
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // 6. Naming the target
@@ -658,7 +960,10 @@ const FIPS: Record<string, string> = {
  * town. The county is still useful. Bare coordinates mean something broke, and
  * the page shows them rather than inventing a place name.
  */
-async function reverseName(lat: number, lon: number): Promise<{ name: string; state: string }> {
+async function reverseName(
+  lat: number,
+  lon: number,
+): Promise<{ name: string; state: string; inUs: boolean }> {
   try {
     const url = `https://geocoding.geo.census.gov/geocoder/geographies/coordinates` +
       `?x=${lon}&y=${lat}&benchmark=Public_AR_Current&vintage=Current_Current` +
@@ -668,7 +973,9 @@ async function reverseName(lat: number, lon: number): Promise<{ name: string; st
       const b = await r.json() as { result?: { geographies?: Record<string, { NAME?: string; STATE?: string }[]> } };
       const g = b.result?.geographies ?? {};
       const hit = g["Incorporated Places"]?.[0] ?? g["Census Designated Places"]?.[0] ?? g["Counties"]?.[0];
-      if (hit?.NAME) return { name: hit.NAME, state: FIPS[hit.STATE ?? ""] ?? "" };
+      // A Census answer is itself proof of country: the service covers United
+      // States soil and nothing else.
+      if (hit?.NAME) return { name: hit.NAME, state: FIPS[hit.STATE ?? ""] ?? "", inUs: true };
     }
   } catch { /* fall through to Nominatim */ }
 
@@ -677,12 +984,18 @@ async function reverseName(lat: number, lon: number): Promise<{ name: string; st
       `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lon}&zoom=10&addressdetails=1`,
       { headers: { "User-Agent": UA, Accept: "application/json" } },
     );
-    if (!r.ok) return { name: "", state: "" };
+    if (!r.ok) return { name: "", state: "", inUs: true };
     const b = await r.json() as { address?: Record<string, string>; name?: string };
     const a = b.address ?? {};
     const name = a.city || a.town || a.village || a.hamlet || a.county || b.name || "";
-    return { name, state: a["ISO3166-2-lvl4"]?.replace("US-", "") ?? "" };
-  } catch { return { name: "", state: "" }; }
+    // `inUs` is false only when a service positively says somewhere else. An
+    // outage must never empty the board — an unnamed target still beats none.
+    const country = (a.country_code ?? "").toLowerCase();
+    return {
+      name, state: a["ISO3166-2-lvl4"]?.replace("US-", "") ?? "",
+      inUs: country === "" || country === "us",
+    };
+  } catch { return { name: "", state: "", inUs: true }; }
 }
 
 /** Two targets closer than this are one chase, not two. */
@@ -942,41 +1255,61 @@ async function authorize(req: Request): Promise<{ trigger: string } | Response> 
   return json({ ok: false, error: "Unauthorized" }, 401);
 }
 
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+interface RunOpts {
+  /** Score and return without writing. */
+  dryRun: boolean;
+  /** Read SPC from the outlook archive and Open-Meteo from the model archive. */
+  historical: boolean;
+  /** Skip the narrative call. The backfill wants numbers, not prose. */
+  skipAi: boolean;
+  trigger: string;
+}
 
-  const auth = await authorize(req);
-  if (auth instanceof Response) return auth;
-
-  let body: Record<string, unknown> = {};
-  try { body = await req.json(); } catch { /* empty body is fine */ }
-  const dryRun = body.dryRun === true || body.action === "dry-run";
-  const outlookDate = new Date().toISOString().slice(0, 10);
+/**
+ * One convective day, start to finish.
+ *
+ * Pulled out of the request handler so that the daily run and the historical
+ * backfill are the same code path rather than two that drift. Everything that
+ * used to be implied by "now" — which SPC product, which model hours, which
+ * calendar day the row belongs to — is a parameter.
+ */
+// deno-lint-ignore no-explicit-any
+async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
+  const { dryRun, historical, skipAi } = opts;
+  const nextDate = addDays(outlookDate, 1);
   const started = Date.now();
 
-  try {
+  {
     // ── candidates ───────────────────────────────────────────────────────────
-    const { areas, catMax, probs } = await ingestRisk();
+    const { areas, catMax, probs, outlook, valid } = await ingestRisk(outlookDate, historical);
     const gen = generateCandidates(areas);
     const candidates = thin(gen.list, 120, gen.source === "national-fallback" ? 1.4 : gen.step * 1.4);
 
     // ── score ────────────────────────────────────────────────────────────────
-    const wx = await fetchWeather(candidates);
+    const wx = await fetchWeather(candidates, outlookDate, historical);
     const scored: Scored[] = [];
     for (let i = 0; i < candidates.length; i++) {
       const loc = wx[i];
       if (!loc?.hourly?.time?.length) continue;
       const h = loc.hourly;
 
-      // Only the convective window matters: 15:00 local today through 02:00 the
-      // next morning. Overnight MCS potential is real, but it is not a chase.
+      // Only the convective window matters: 14:00 local on the chase day through
+      // 02:00 the next morning. Overnight MCS potential is real, but it is not
+      // a chase.
+      //
+      // The window is matched against the date being forecast, not against
+      // whichever day happens to come first in the response. That used to be
+      // `daily.time[0]`, which is correct at half past eight in the morning and
+      // wrong at half past four, when the response still begins with yesterday
+      // in Mountain and Pacific time — the engine would have scored the day
+      // that had already ended while stamping the row with tomorrow's date.
       let best: Params | null = null, bestScore = -1;
       for (let j = 0; j < h.time.length; j++) {
+        const day = h.time[j].slice(0, 10);
         const hr = Number(h.time[j].slice(11, 13));
-        const dayIdx = h.time[j].slice(0, 10) === loc.daily.time[0] ? 0 : 1;
-        if (dayIdx === 1 && hr > 2) continue;
-        if (dayIdx === 0 && (hr < 14 || hr > 23)) continue;
+        if (day === nextDate) { if (hr > 2) continue; }
+        else if (day === outlookDate) { if (hr < 14 || hr > 23) continue; }
+        else continue;
         const p = computeAt(loc, j);
         const s = scoreMeteo(p);
         if (s > bestScore) { bestScore = s; best = p; }
@@ -987,7 +1320,7 @@ Deno.serve(async (req: Request) => {
       scored.push({
         cand: candidates[i], best, meteo: round(bestScore, 1), total: round(bestScore, 1),
         mode, bustPct: bustProbability(best, mode),
-        terrain: 62, daylight: Math.round(daylightScore(best)),
+        terrain: TERRAIN_UNKNOWN, daylight: Math.round(daylightScore(best)),
       });
     }
 
@@ -1009,58 +1342,110 @@ Deno.serve(async (req: Request) => {
     // written. Thinning the candidate list first means every pair the model can
     // choose is already a legal pair, so the words and the pins cannot disagree.
     const finalists = spreadOut(scored, 10, MIN_SEPARATION_KM);
-    const terr = await terrainScores(finalists.map((s) => ({ lat: s.cand.lat, lon: s.cand.lon })));
+    const terr = await terrainFor(
+      finalists.map((s) => ({ lat: s.cand.lat, lon: s.cand.lon })),
+      terrainCache, TERRAIN_UNKNOWN,
+    );
+    // Terrain carries more weight than it used to, because it now means
+    // something. At 14% a score that was 100 everywhere moved nothing; at 22% a
+    // score that separates the High Plains from the Ozarks by sixty points is
+    // worth up to thirteen points of ranking, which is roughly what a chaser
+    // would trade for being able to see the storm.
     finalists.forEach((s, i) => {
-      s.terrain = terr[i];
-      s.total = round(clamp(s.total * 0.86 + s.terrain * 0.14, 0, 100), 1);
+      s.terrain = Math.round(terr[i].score);
+      s.terrainDetail = terr[i].result;
+      s.total = round(clamp(s.total * 0.78 + s.terrain * 0.22, 0, 100), 1);
     });
     finalists.sort((a, b) => b.total - a.total);
 
+    // Name the finalists so the AI has somewhere to point — and, on the way,
+    // throw out the ones that are not in this country.
+    //
+    // The candidate grid is clipped to a CONUS bounding BOX, and a box drawn
+    // around the lower 48 necessarily contains southern Ontario and the Mexican
+    // bank of the Rio Grande. SPC's polygons reach across both borders, so
+    // those points are scored like any other. Reconstructing 7 March 2026 put
+    // "Southwestern Ontario" on the board as the day's second-best target on
+    // 40 J/kg of CAPE: not a chase, and not a country this module covers.
+    //
+    // The geocoder already knows the answer, so the border test is free. Naming
+    // therefore moves AHEAD of the pick and walks further down the ranked list
+    // whenever a point is rejected, instead of shipping a short board.
+    //
+    // The backfill still only names what it ships — six geocodes a day across a
+    // season is six hundred requests to the Census for names nobody will read.
+    const want = skipAi ? 2 : 6;
+    const named: Scored[] = [];
+    for (const s of finalists) {
+      if (named.length >= want) break;
+      const n = await reverseName(s.cand.lat, s.cand.lon);
+      await sleep(120);
+      if (!n.inUs) continue;
+      s.name = n.name; s.state = n.state;
+      named.push(s);
+    }
+
     // Two dots in one county is not two targets.
     const picks: Scored[] = [];
-    for (const s of finalists) {
+    for (const s of named) {
       if (picks.length >= 2) break;
       if (picks.every((p) => kmBetween(p.cand, s.cand) >= MIN_SEPARATION_KM)) picks.push(s);
     }
-    while (picks.length < 2 && finalists.length > picks.length) {
-      const next = finalists.find((f) => !picks.includes(f));
+    while (picks.length < 2 && named.length > picks.length) {
+      const next = named.find((f) => !picks.includes(f));
       if (!next) break;
       picks.push(next);
     }
 
-    // Name the finalists so the AI has somewhere to point.
-    const named = finalists.slice(0, 6);
-    for (const s of named) {
-      const n = await reverseName(s.cand.lat, s.cand.lon);
-      s.name = n.name; s.state = n.state;
-      await sleep(120);
-    }
-
-    const dayScoreRaw = picks.length
-      ? clamp(picks[0].total / 10 + (CAT_RANK[catMax ?? "TSTM"] ?? 0) * 0.35, 0, 10)
-      : 0;
-    const dayScore = round(dayScoreRaw, 1);
+    const dayScore = nationalDayScore(catMax, probs, picks[0] ?? null);
 
     const source = {
       spc_max_category: catMax, spc_category_name: catMax ? CAT_NAME[catMax] : null,
       spc_probs: probs, grid_step_deg: gen.step, candidate_source: gen.source,
       candidates_generated: gen.list.length, candidates_scanned: candidates.length,
       candidates_scored: scored.length, scanned_at: new Date().toISOString(),
+      // Which SPC product was used and what window it claimed. On a backfilled
+      // row this is the difference between "reconstructed from the archive" and
+      // "we do not know where this came from".
+      spc_outlook: outlook, spc_valid: valid,
+      reconstructed: historical || undefined,
     };
 
     if (dryRun) {
-      return json({
-        ok: true, dryRun: true, source,
+      return {
+        ok: true, dryRun: true, source, outlook_date: outlookDate,
         picks: picks.map((p) => ({
           lat: p.cand.lat, lon: p.cand.lon, name: p.name, state: p.state,
-          total: p.total, meteo: p.meteo, terrain: p.terrain, mode: p.mode, bust: p.bustPct,
+          total: p.total, meteo: p.meteo, terrain: p.terrain, terrain_detail: p.terrainDetail,
+          mode: p.mode, bust: p.bustPct,
           cape: Math.round(p.best.cape), shearKt: Math.round(p.best.shear06Kt),
           srh03: Math.round(p.best.srh03), stp: round(p.best.stp, 2), scp: round(p.best.scp, 2),
           ship: round(p.best.ship, 2), hailIn: p.best.hailIn, hour: p.best.hour,
         })),
         day_score: dayScore,
         ai_provider: GEMINI_API_KEY ? "gemini" : ANTHROPIC_API_KEY ? "anthropic" : null,
-      });
+      };
+    }
+
+    /*
+     * A day nothing scored is a failed run, not a quiet day — refuse to write it.
+     *
+     * `scoreMeteo` cannot return zero for 120 points across a continent; the
+     * only way `scored` comes back empty is that the weather never arrived.
+     * Writing the row anyway produced exactly what reconstructing the 2026
+     * season produced before this guard: fifty-eight rows reading `day_score: 0`
+     * with no targets and no explanation, indistinguishable on the page from a
+     * day on which America had no weather.
+     *
+     * Throwing instead puts the failure in `chase_runs`, where a failure
+     * belongs, and leaves the date missing — so `chase_missing_dates` offers it
+     * again on the next pass instead of counting it as done.
+     */
+    if (!scored.length) {
+      throw new Error(
+        `no candidate scored for ${outlookDate} ` +
+        `(${candidates.length} points from ${gen.source}); weather data did not arrive`,
+      );
     }
 
     // ── year context, for the Yearly tab ─────────────────────────────────────
@@ -1098,7 +1483,7 @@ Deno.serve(async (req: Request) => {
       `Date: ${outlookDate}.`,
       `SPC Day 1: ${catMax ? CAT_NAME[catMax] : "no risk area"}. Highest probabilities: tornado ${probs.torn}%, hail ${probs.hail}%, wind ${probs.wind}%.`,
       `Candidates were generated inside the SPC risk polygons on a ${gen.step}° grid (${source.candidates_scored} points scored).`,
-      `The computed national day score is ${dayScore} out of 10. Use it as an anchor; adjust by at most 1.5 either way and say why in the overview.`,
+      `The computed national day score is ${dayScore} out of 10, anchored on SPC's own category. Use it; adjust by at most 0.8 either way, and say why in the overview if you do.`,
       year
         ? `This year so far: ${year.days_scored ?? 0} days recorded, best ${year.best_score ?? "n/a"} on ${year.best_date ?? "n/a"}, median ${year.median_score ?? "n/a"}, ${year.above_seven ?? 0} days at 7 or better.`
         : `No year history recorded yet, so judge the yearly rank on the parameters alone and say that the record is thin.`,
@@ -1107,7 +1492,20 @@ Deno.serve(async (req: Request) => {
       JSON.stringify(aiCandidates, null, 1),
     ].join("\n");
 
-    const ai = await aiJSON(SYSTEM, user, GEMINI_SCHEMA, ANTHROPIC_SCHEMA);
+    /*
+     * The backfill does not write prose, and this is the reason.
+     *
+     * A narrative about a Tuesday in April, generated in September, would read
+     * exactly like the one written on the morning it mattered while being a
+     * retrospective guess — and it would sit in the same field, indistinguishable.
+     * Every deterministic fallback below already says what the numbers say, and
+     * `day_score` (the only thing the Yearly tab reads) does not need a voice.
+     * Skipping the call also takes a backfilled day from about ninety seconds
+     * to about fifteen, which is what makes a season fit inside a cron budget.
+     */
+    const ai = skipAi
+      ? { ok: false as const, reason: "backfill" as const }
+      : await aiJSON(SYSTEM, user, GEMINI_SCHEMA, ANTHROPIC_SCHEMA);
 
     // ── assemble ─────────────────────────────────────────────────────────────
     // deno-lint-ignore no-explicit-any
@@ -1154,6 +1552,9 @@ Deno.serve(async (req: Request) => {
         why: String(t.why ?? deterministicWhy(s)),
         peak_hour: p.hour, sunset: p.sunsetLocal, hours_to_sunset: round(p.hoursToSunset, 1),
         terrain_score: s.terrain, daylight_score: s.daylight,
+        // What the terrain number is made of. The page can show a chaser why a
+        // target scored 41 instead of asking them to take it on faith.
+        terrain_detail: s.terrainDetail ?? null,
         params: {
           cape: Math.round(p.cape), cin: Math.round(p.cin), lifted_index: round(p.li, 1),
           temp_f: Math.round((p.tempC * 9) / 5 + 32), dew_f: Math.round(p.dewF),
@@ -1193,22 +1594,39 @@ Deno.serve(async (req: Request) => {
     });
 
     const aiScore = typeof aiData.day_score === "number" ? aiData.day_score : null;
-    const finalScore = aiScore !== null ? round(clamp(aiScore, Math.max(0, dayScore - 1.5), Math.min(10, dayScore + 1.5)), 1) : dayScore;
+    // Narrowed from 1.5 to 0.8. The computed score is now calibrated against a
+    // season of real days, and a model free to move it a point and a half in
+    // either direction can put a marginal risk back in the sevens — which is
+    // exactly the behaviour the recalibration exists to end.
+    const finalScore = aiScore !== null ? round(clamp(aiScore, Math.max(0, dayScore - 0.8), Math.min(10, dayScore + 0.8)), 1) : dayScore;
 
     const yearlyRank = clamp(Math.round(Number(
       aiData.yearly_rank ?? (finalScore >= 8.5 ? 5 : finalScore >= 7 ? 4 : finalScore >= 5.5 ? 3 : finalScore >= 3.5 ? 2 : 1),
     )), 1, 5);
 
+    /*
+     * `status` is not a description of the AI, it is the flag the year ledger
+     * filters on — `chase_year_context` counts rows where status = 'ok'. A
+     * backfilled day has no narrative by design, and marking it 'error' for
+     * that would keep the entire reconstructed season out of the very tab the
+     * reconstruction exists to fill. So: a run that produced real targets from
+     * real data is 'ok', whether or not anybody wrote about it.
+     */
+    const scoredOk = targets.length > 0;
+    const status = skipAi
+      ? (scoredOk ? "ok" : "error")
+      : ai.ok ? "ok" : ("reason" in ai && ai.reason === "no_key" ? "skipped" : "error");
+
     const row = {
       outlook_date: outlookDate,
-      status: ai.ok ? "ok" : ("reason" in ai && ai.reason === "no_key" ? "skipped" : "error"),
-      model: ai.ok ? ai.model : null,
+      status,
+      model: ai.ok && "model" in ai ? ai.model : null,
       day_score: finalScore,
       day_label: shortLabel(aiData.day_label, labelFor(finalScore), 3),
-      headline: String(aiData.headline ?? (catMax ? `${CAT_NAME[catMax]} risk today` : "No organised severe weather expected")),
+      headline: String(aiData.headline ?? (catMax ? `${CAT_NAME[catMax]} risk` : "No organised severe weather expected")),
       overview: String(aiData.overview ?? (targets.length
-        ? `Two areas came out on top of ${source.candidates_scored} points scored inside today's SPC risk area. ${targets[0].why}`
-        : "No candidate points scored today. Either SPC has no risk area out or the model data did not return.")),
+        ? `Two areas came out on top of ${source.candidates_scored} points scored inside the SPC risk area for ${outlookDate}. ${targets[0].why}`
+        : "No candidate points scored. Either SPC had no risk area out or the model data did not return.")),
       targets,
       yearly: {
         rank: yearlyRank,
@@ -1221,8 +1639,10 @@ Deno.serve(async (req: Request) => {
       tips: Array.isArray(aiData.tips) ? aiData.tips.map(String).slice(0, 4) : [],
       safety: String(aiData.safety ?? "Chase with a partner, keep an escape route east or south, and never core-punch a rain-wrapped supercell."),
       source,
-      error: ai.ok ? null : ("reason" in ai ? "no AI key set (GEMINI_API_KEY or ANTHROPIC_API_KEY)" : ai.error),
-      generated_at: ai.ok ? new Date().toISOString() : null,
+      error: ai.ok || skipAi
+        ? null
+        : ("reason" in ai ? "no AI key set (GEMINI_API_KEY or ANTHROPIC_API_KEY)" : ai.error),
+      generated_at: ai.ok || skipAi ? new Date().toISOString() : null,
     };
 
     await admin.from("chase_outlook").upsert(row, { onConflict: "outlook_date" });
@@ -1258,19 +1678,197 @@ Deno.serve(async (req: Request) => {
     // it ran fine. A run log that can fail quietly is worse than no run log:
     // it looks like evidence.
     const logged = await admin.from("chase_runs").insert({
-      outlook_date: outlookDate, status: row.status, model: row.model, trigger: auth.trigger,
+      outlook_date: outlookDate, status: row.status, model: row.model, trigger: opts.trigger,
       duration_ms: Date.now() - started, candidates: candidates.length, scored: scored.length,
       detail: row.error,
     });
     if (logged.error) console.error("chase_runs insert failed:", logged.error.message);
 
-    return json({ ok: true, status: row.status, outlook_date: outlookDate, day_score: finalScore, targets: targets.length, scored: scored.length });
+    return {
+      ok: true, status: row.status, outlook_date: outlookDate, day_score: finalScore,
+      targets: targets.length, scored: scored.length,
+      terrain: targets.map((t) => t.terrain_score),
+      duration_ms: Date.now() - started,
+    };
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. The historical backfill
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Fill in the days the module was not running for.
+ *
+ * The Yearly tab's whole job is to say where today sits against the season, and
+ * it was doing that against seven rows. Everything it needs can be rebuilt from
+ * two public archives — SPC's outlook archive for the risk areas and
+ * Open-Meteo's historical forecast archive for the soundings — so it is, day by
+ * day, from the same code that scores a live morning.
+ *
+ * Nothing here invents weather. A date whose archives do not answer is left
+ * missing and picked up on a later pass rather than filled with a plausible
+ * number.
+ *
+ * Restartability is the design constraint: each invocation asks the database
+ * which dates are still missing, does as many as its time budget allows, and
+ * returns. Days already written are never regenerated, so the work only ever
+ * goes forwards and the job costs nothing once the season is complete.
+ */
+async function runBackfill(opts: { trigger: string; limit?: number; from?: string; budgetMs: number }) {
+  const { data: cfgRow } = await admin.from("app_config").select("value").eq("key", "chase_backfill").maybeSingle();
+  const cfg = (cfgRow?.value ?? {}) as { from?: string; days_per_run?: number; enabled?: boolean };
+  if (cfg.enabled === false) return { ok: true, skipped: "disabled" };
+
+  const from = opts.from && IS_DATE.test(opts.from) ? opts.from : (cfg.from ?? "2026-03-07");
+  // Yesterday, not today: today is the live run's job, and a day that has not
+  // happened yet has no archive to reconstruct it from.
+  const to = addDays(new Date().toISOString().slice(0, 10), -1);
+  /*
+   * Two days, not eight, and the ceiling is the platform rather than politeness.
+   *
+   * A chunk of eight came back `546 WORKER_RESOURCE_LIMIT` — "not having enough
+   * compute resources" — every single time, and because the worker is KILLED
+   * rather than returning, none of the per-day error rows this function writes
+   * on failure ever got written either. From outside it looked like the cron
+   * firing and doing nothing at all, which is exactly how it looked for hours.
+   *
+   * A reconstructed day is roughly forty seconds of work: the SPC archive, five
+   * Open-Meteo requests, terrain for up to ten finalists across three public
+   * services, and two geocodes. Two of those fit inside an edge invocation with
+   * room to spare; eight never could.
+   */
+  const limit = Math.max(1, Math.min(40, opts.limit ?? cfg.days_per_run ?? 2));
+
+  const { data: missing, error } = await admin.rpc("chase_missing_dates", {
+    p_from: from, p_to: to, p_limit: limit,
+  });
+  if (error) return { ok: false, error: error.message };
+
+  const dates = (Array.isArray(missing) ? missing : []).map(String);
+  if (!dates.length) return { ok: true, done: true, remaining: 0, filled: [], from, to };
+
+  const started = Date.now();
+  const filled: { date: string; day_score: number | null; status: string }[] = [];
+  const failed: { date: string; error: string }[] = [];
+  let quotaSpent = false;
+
+  for (const d of dates) {
+    // Stop before the platform stops us. A half-finished day is not written at
+    // all, so an interrupted pass loses time and never leaves a bad row.
+    if (Date.now() - started > opts.budgetMs) break;
+    try {
+      const r = await runDay(d, { dryRun: false, historical: true, skipAi: true, trigger: opts.trigger });
+      filled.push({ date: d, day_score: r?.day_score ?? null, status: String(r?.status ?? "?") });
+    } catch (e) {
+      const msg = String(e instanceof Error ? e.message : e);
+      const quota = e instanceof QuotaExhausted;
+      failed.push({ date: d, error: msg });
+      /*
+       * `status` decides whether this date gets a strike, and running out of
+       * quota is not the date's fault.
+       *
+       * `chase_missing_dates` retires a date after three rows of `status =
+       * 'error'`, which exists so the job stops grinding on a Tuesday whose
+       * archive genuinely has a hole in it. But it counted every failure the
+       * same way, and this branch wrote `error` for quota exhaustion too — so
+       * the newest unfilled date, which is always the one the ordering hands
+       * back first, took a strike every time the free tier ran dry. Three days
+       * of that and a perfectly reconstructable date was retired for ever;
+       * then the next one down became "newest unfilled" and began collecting
+       * its own three. The backfill did not stop so much as walk backwards
+       * abandoning good days, which from outside looked exactly like it had
+       * stalled on one date.
+       *
+       * Recorded as `quota` instead: still visible to anyone reading the run
+       * log, invisible to the three-strikes rule, which only ever meant to
+       * count reasons that will still be true tomorrow.
+       */
+      await admin.from("chase_runs").insert({
+        outlook_date: d, status: quota ? "quota" : "error",
+        trigger: opts.trigger, detail: `backfill: ${msg}`,
+      }).then(() => {}, () => {});
+      // The free tier is spent until midnight UTC. Every remaining date in this
+      // chunk would fail the same way, so stop and let the next run have them.
+      if (quota) { quotaSpent = true; break; }
+    }
+  }
+
+  const { data: left } = await admin.rpc("chase_missing_dates", { p_from: from, p_to: to, p_limit: 400 });
+  return {
+    ok: true, from, to,
+    filled, failed,
+    // Surfaced rather than buried in `failed`, because "out of quota until
+    // midnight" and "this date cannot be reconstructed" want different answers
+    // from whoever is reading: wait, versus look at it.
+    quota_exhausted: quotaSpent || undefined,
+    remaining: Array.isArray(left) ? left.length : null,
+    duration_ms: Date.now() - started,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. Request handling
+// ─────────────────────────────────────────────────────────────────────────────
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
+  if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
+
+  const auth = await authorize(req);
+  if (auth instanceof Response) return auth;
+
+  let body: Record<string, unknown> = {};
+  try { body = await req.json(); } catch { /* empty body is fine */ }
+
+  const action = String(body.action ?? "");
+  const dryRun = body.dryRun === true || action === "dry-run";
+
+  if (action === "backfill") {
+    try {
+      const out = await runBackfill({
+        trigger: auth.trigger,
+        limit: typeof body.limit === "number" ? body.limit : undefined,
+        from: typeof body.from === "string" ? body.from : undefined,
+        // Leave headroom inside the platform's wall clock for the final
+        // bookkeeping queries.
+        // Well under the platform's own limit rather than close to it. At 115s
+        // the function was still working when the worker was cut off, so the
+        // budget never got the chance to end the pass cleanly — and a pass that
+        // is killed writes no record of why.
+        budgetMs: typeof body.budgetMs === "number" ? body.budgetMs : 80_000,
+      });
+      return json(out, out.ok ? 200 : 500);
+    } catch (e) {
+      return json({ ok: false, error: String(e instanceof Error ? e.message : e) }, 500);
+    }
+  }
+
+  /*
+   * Which day is this?
+   *
+   * The UTC date, because the run is scheduled at 04:25Z and 13:35Z and at both
+   * of those the UTC date is the United States calendar date of the coming
+   * convective afternoon. An explicit `date` overrides it, which is how a
+   * single day can be re-run by hand without waiting for a cron slot.
+   *
+   * Nothing else in the pipeline reads the clock. Once this string is decided,
+   * the SPC product, the model hours and the sunset all follow from it.
+   */
+  const requested = typeof body.date === "string" && IS_DATE.test(body.date) ? body.date : null;
+  const outlookDate = requested ?? new Date().toISOString().slice(0, 10);
+  const historical = requested !== null && requested < new Date().toISOString().slice(0, 10);
+
+  try {
+    const out = await runDay(outlookDate, {
+      dryRun, historical,
+      skipAi: body.skipAi === true,
+      trigger: auth.trigger,
+    });
+    return json(out);
   } catch (e) {
     const msg = String(e instanceof Error ? e.message : e);
     try {
       await admin.from("chase_runs").insert({
-        outlook_date: outlookDate, status: "error", trigger: auth.trigger,
-        duration_ms: Date.now() - started, detail: msg,
+        outlook_date: outlookDate, status: "error", trigger: auth.trigger, detail: msg,
       });
     } catch { /* best-effort */ }
     return json({ ok: false, error: msg }, 500);

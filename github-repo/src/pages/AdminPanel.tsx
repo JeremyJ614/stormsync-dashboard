@@ -19,7 +19,6 @@ import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
 import { useDraft } from "../lib/draft";
 import { markUnsaved, releaseUnsaved } from "../lib/unsavedWork";
 import { AdminNavTab } from "../components/AdminNavTab";
-import { useSticky } from "../lib/stickyState";
 import { setScrollVariant } from "../components/ScrollMemory";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
@@ -38,6 +37,7 @@ import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
 import { AdminTiersTab } from "../components/admin/AdminTiersTab";
 import { AdminChasesTab } from "../components/admin/AdminChasesTab";
 import { AdminRafflesTab } from "../components/admin/AdminRafflesTab";
+import { AdminShell, OVERVIEW, type ShellGroup } from "../components/admin/AdminShell";
 // Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
 // when somebody opens the News tab, not when they open the admin panel.
 const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
@@ -55,7 +55,8 @@ import { Shield, Users, Crown, Route, Ticket, Bell, BellRing, Mail, MessageSquar
 type Tab =
   | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
   | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings"
-  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles";
+  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles"
+  | typeof OVERVIEW;
 
 /**
  * Every tab that exists, as data.
@@ -93,20 +94,16 @@ const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: st
 export default function AdminPanel() {
   const { user } = useAuth();
   /**
-   * The open section, remembered.
+   * The panel opens on the map of itself.
    *
-   * This was plain state, so opening a member's profile, following a link out,
-   * or closing the browser and coming back all dropped you on Members again —
-   * having scrolled to the top of it. Admin work is long and interrupted by
-   * design: you go and look something up, then come back. The validator
-   * matters as much as the storage: a section stored by an older build and
-   * since renamed would leave the panel showing nothing at all, with no way to
-   * tell why.
+   * This used to restore whichever section you were last in, which sounds
+   * helpful and is not: an admin panel is opened cold far more often than it is
+   * resumed, and landing straight inside one of twenty-two sections with no
+   * view of the other twenty-one is exactly the complaint. The overview lists
+   * everything, marks where you were last, and is one press away from the
+   * masthead and the rail at all times.
    */
-  const [tab, setTab] = useSticky<Tab>(
-    "admin.tab", "users",
-    (v): v is Tab => typeof v === "string" && TABS.some((t) => t.id === v),
-  );
+  const [tab, setTab] = useState<Tab>(OVERVIEW);
 
   /**
    * Scroll is remembered per SECTION, not per URL.
@@ -125,7 +122,19 @@ export default function AdminPanel() {
   useEffect(() => { reloadBadges(); }, [reloadBadges]);
   useEffect(() => { getAdminLayout().then(setLayout).catch(() => {}); }, []);
 
-  const groups = useMemo(() => resolveLayout(layout, TABS), [layout]);
+  /**
+   * The saved layout, folded together with the registry so the rail has icons.
+   * `resolveLayout` deliberately knows nothing about icons — it arranges tabs —
+   * so the lookup happens here, where the registry lives.
+   */
+  const groups = useMemo<ShellGroup[]>(() => {
+    const iconOf = new Map(TABS.map((t) => [t.id, t.icon]));
+    return resolveLayout(layout, TABS).map((g) => ({
+      id: g.id,
+      label: g.label,
+      tabs: g.tabs.map((t) => ({ ...t, icon: iconOf.get(t.id as Tab) ?? Settings })),
+    }));
+  }, [layout]);
 
   if (!user || !user.isAdmin) {
     return (
@@ -139,40 +148,12 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center gap-2">
-        <Shield className="w-6 h-6 text-yellow-400" />
-        <h1 className="text-2xl font-bold tracking-wide uppercase">Admin Panel</h1>
-      </div>
-
-
-      {/* Tabs, grouped by the layout saved in app_config. */}
-      <div className="space-y-2 border-b border-border pb-2">
-        {groups.map((g) => (
-          <div key={g.id} className="flex items-center gap-2 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground w-20 shrink-0">
-              {g.label}
-            </span>
-            <div className="flex gap-1 flex-wrap">
-              {g.tabs.map((t) => {
-                const meta = TABS.find((x) => x.id === t.id)!;
-                const Icon = meta.icon;
-                const on = tab === t.id;
-                return (
-                  <button key={t.id} onClick={() => setTab(t.id as Tab)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 ${
-                      on ? "text-primary" : "text-muted-foreground hover:text-foreground hover:bg-white/5"}`}
-                    style={on ? { background: "hsl(var(--primary) / 0.14)", border: "1px solid hsl(var(--primary) / 0.35)" }
-                              : { border: "1px solid transparent" }}>
-                    <Icon className="w-3.5 h-3.5" /> {t.label}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
+    <AdminShell
+      groups={groups}
+      value={tab}
+      onChange={(id) => setTab(id as Tab)}
+      operator={{ name: user.name, role: "Administrator" }}
+    >
       {tab === "users" && <AdminUsersTab badgeDefs={badgeDefs} onCreate={() => setShowCreate(true)} />}
       {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />}
       {tab === "tiers" && <AdminTiersTab />}
@@ -196,7 +177,7 @@ export default function AdminPanel() {
       {tab === "billing" && <AdminBillingTab />}
       {tab === "invoices" && <AdminInvoicesTab />}
       {tab === "settings" && <SettingsTab />}
-    </div>
+    </AdminShell>
   );
 }
 

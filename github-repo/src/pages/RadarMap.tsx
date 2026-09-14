@@ -7,37 +7,52 @@ import {
 } from "../components/map/BaseMap";
 import {
   Radar, Satellite, Layers as LayersIcon, ExternalLink, RefreshCw, AlertTriangle,
-  Eye, Crosshair, Loader2, X,
+  Eye, Crosshair, Loader2, X, CloudRain,
 } from "lucide-react";
 import { BASE_API } from "../config";
+import { motion, AnimatePresence } from "framer-motion";
+import { MapConsole, ConsoleSection, ProductRow, RampLegend } from "../components/map/MapConsole";
+import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
 /**
  * Radar & MRMS (P-3.3 overhaul).
  *
- * Three product groups — Radar, MRMS, Satellite — five verified layers each, all
- * served as standard XYZ tiles from two free public sources:
- *   • IEM  (mesonet.agron.iastate.edu) — national NEXRAD reflectivity composites
+ * Four product groups — Radar, MRMS, QPE, Satellite — from three free public
+ * sources, every one of them probed live and confirmed to return real imagery:
+ *   • IEM  (mesonet.agron.iastate.edu) — NEXRAD composites, MRMS SeamlessHSR
  *   • SSEC RealEarth — NEXRAD/MRMS derived products + GOES-East ABI imagery
+ *   • NOAA mapservices.weather.noaa.gov — the official MRMS QPE image service
  *
- * Every product id below was probed live and confirmed to return imagery. Where a
- * product I wanted has no public XYZ service (single-site base/storm-relative
- * velocity, correlation coefficient, MRMS MESH and rotation tracks), I substituted
- * the closest national equivalent and say so in the layer description rather than
- * shipping a dead tab.
+ * WHAT IS NOT HERE, AND WHY
+ * MRMS also produces MESH, maximum estimated hail size, probability of severe
+ * hail, hail swaths and 0-2 km / 3-6 km rotation tracks. None of them has a
+ * public tile or WMS service. That is not a guess: RealEarth's full catalogue
+ * (821 products), IEM's tile and WMS listings, NOAA's own raster and
+ * event-driven map services, NCEP's GeoServer (972 layers) and nowCOAST were all
+ * enumerated and none carries them. NSSL's own server does publish them behind
+ * its product viewer, but it serves a certificate that will not verify against
+ * any standard trust store, and turning verification off to reach a hail
+ * product is not a trade worth making.
+ *
+ * So they are absent rather than approximated. VIL is kept where it was, as VIL,
+ * described as the field MESH is derived from — a stand-in that says it is one
+ * is honest; a tab labelled "MESH" showing something else is not.
  *
  * Tile errors used to fail silently, so a renamed or offline product just
  * looked like clear weather. The viewer tracks tile load/error counts per layer
  * and says so plainly when a product returns nothing at all.
  */
 
-type Group = "radar" | "mrms" | "satellite";
-type Source = "iem" | "realearth";
+type Group = "radar" | "mrms" | "qpe" | "satellite";
+type Source = "iem" | "realearth" | "nws-image";
 interface Swatch { color: string; label: string }
 interface RadarLayer {
   id: string; label: string; group: Group; source: Source; code: string;
   desc: string; legend: Swatch[]; note?: string; maxZoom?: number;
+  /** `nws-image` only: the mosaic row and the server-side colour ramp to use. */
+  arcgis?: { dataset: string; render: string };
 }
 
 const REFLECTIVITY_LEGEND: Swatch[] = [
@@ -70,6 +85,13 @@ const CLASS_LEGEND: Swatch[] = [
   { color: "#f97316", label: "Mixed" },
   { color: "#ef4444", label: "Hail" },
 ];
+const QPE_LEGEND: Swatch[] = [
+  { color: "#7ec8e3", label: "A trace" },
+  { color: "#2ecc71", label: "Under half an inch" },
+  { color: "#f1c40f", label: "An inch or so" },
+  { color: "#e67e22", label: "Two to four" },
+  { color: "#c0392b", label: "Flooding rain" },
+];
 const WV_LEGEND: Swatch[] = [
   { color: "#0f172a", label: "Dry" },
   { color: "#38bdf8", label: "Moist" },
@@ -80,10 +102,10 @@ const LAYERS: RadarLayer[] = [
   // ── Radar ────────────────────────────────────────────────────────────────
   { id: "n0q", label: "Base Reflectivity", group: "radar", source: "iem", code: "nexrad-n0q-900913",
     desc: "National NEXRAD base reflectivity mosaic — the standard 'where is it raining and how hard' view.",
-    legend: REFLECTIVITY_LEGEND, maxZoom: 12 },
+    legend: REFLECTIVITY_LEGEND, maxZoom: 14 },
   { id: "n0r", label: "Legacy Reflectivity", group: "radar", source: "iem", code: "nexrad-n0r-900913",
     desc: "Legacy 8-bit reflectivity mosaic. Coarser than base reflectivity but often updates when N0Q lags.",
-    legend: REFLECTIVITY_LEGEND, maxZoom: 12 },
+    legend: REFLECTIVITY_LEGEND, maxZoom: 14 },
   { id: "nexrdhr", label: "Hybrid-Scan Reflectivity", group: "radar", source: "realearth", code: "nexrdhr",
     desc: "Lowest usable radar bin at every point — the closest look at what is actually reaching the ground.",
     legend: REFLECTIVITY_LEGEND },
@@ -112,6 +134,25 @@ const LAYERS: RadarLayer[] = [
   { id: "nexrphase", label: "Precipitation Phase", group: "mrms", source: "realearth", code: "nexrphase",
     desc: "Rain vs freezing rain vs sleet vs snow across the country.",
     legend: CLASS_LEGEND },
+
+  { id: "q2hsr", label: "Reflectivity at Lowest Altitude", group: "mrms", source: "iem", code: "q2-hsr",
+    desc: "MRMS SeamlessHSR — the reflectivity at the lowest usable altitude at every point, stitched across every radar in the country.",
+    legend: REFLECTIVITY_LEGEND,
+    note: "This is the MRMS lowest-altitude reflectivity family. Away from a radar the beam is already thousands of feet up, so \u201clowest\u201d means lowest AVAILABLE, not ground level." },
+
+  // ── QPE ──────────────────────────────────────────────────────────────────
+  // NOAA's own MRMS QPE image service, radar-only estimates at 1 km. Seven
+  // accumulation windows, each a separate mosaic row on the same service with
+  // its own published colour ramp, so the styling is NOAA's rather than ours.
+  ...([1, 3, 6, 12, 24, 48, 72] as const).map((h): RadarLayer => ({
+    id: `qpe${h}`,
+    label: h === 1 ? "1-Hour QPE" : `${h}-Hour QPE`,
+    group: "qpe", source: "nws-image",
+    code: `conus_QPE_${String(h).padStart(2, "0")}H`,
+    arcgis: { dataset: `conus_QPE_${String(h).padStart(2, "0")}H`, render: `rft_${h}hr` },
+    desc: `Radar-estimated rainfall over the past ${h === 1 ? "hour" : `${h} hours`}, at 1 km resolution.`,
+    legend: QPE_LEGEND,
+  })),
 
   // ── Satellite ────────────────────────────────────────────────────────────
   { id: "truecolor", label: "True Color", group: "satellite", source: "realearth", code: "G19-ABI-CONUS-true-color",
@@ -190,14 +231,64 @@ function probColor(v: number): string {
   return out;
 }
 
+/**
+ * One line per product, for the console rows.
+ *
+ * The full description still appears under the map; this is the version that
+ * has to fit on a phone next to the name, and it exists because a rail reading
+ * "N0Q / N0R / nexrdhr" asks the reader to already know the answer.
+ */
+const HINT: Record<string, string> = {
+  n0q: "the standard rain-and-how-hard view",
+  n0r: "coarser, but often fresher",
+  nexrdhr: "closest to what reaches the ground",
+  nexreet: "how tall the storms are",
+  nexrhhc: "rain, snow, mixed or hail",
+  nexrcomp: "every radar, one mosaic",
+  MERGEDREF: "quality-controlled 3-D field",
+  q2hsr: "lowest usable beam, nationwide",
+  nexrdvl: "water held aloft — hail signal",
+  nexr1hpcp: "last hour's rainfall",
+  nexrphase: "what is falling, where",
+  truecolor: "daylight natural colour",
+  band13: "cloud-top temperature, day or night",
+  wv: "mid-level moisture",
+  airmass: "warm, dry and stratospheric air",
+  sandwich: "texture plus temperature",
+};
+
 const GROUPS: { id: Group; label: string; icon: typeof Radar }[] = [
   { id: "radar", label: "Radar", icon: Radar },
   { id: "mrms", label: "MRMS", icon: LayersIcon },
+  { id: "qpe", label: "QPE", icon: CloudRain },
   { id: "satellite", label: "Satellite", icon: Satellite },
 ];
 
+/**
+ * NOAA's MRMS QPE is an ArcGIS ImageServer, not a tile pyramid.
+ *
+ * There is no /tile/{z}/{y}/{x} endpoint on it, but `exportImage` takes a bbox,
+ * and MapLibre substitutes `{bbox-epsg-3857}` into a raster source's URL for
+ * exactly this case — the same mechanism it uses for WMS. One mosaic row per
+ * accumulation window, and the colour ramp is the service's own published
+ * rendering rule, so the picture is NOAA's rather than a palette invented here.
+ */
+function arcgisImageUrl(l: RadarLayer, bust: number): string {
+  const q = new URLSearchParams({
+    bboxSR: "3857", imageSR: "3857", size: "512,512",
+    format: "png32", transparent: "true", f: "image",
+    mosaicRule: JSON.stringify({ where: `name='${l.arcgis!.dataset}'` }),
+    renderingRule: JSON.stringify({ rasterFunction: l.arcgis!.render }),
+    _: String(bust),
+  });
+  // bbox is appended raw: encoding the token would stop MapLibre replacing it.
+  return "https://mapservices.weather.noaa.gov/raster/rest/services/obs/mrms_qpe/ImageServer/exportImage"
+    + `?bbox={bbox-epsg-3857}&${q}`;
+}
+
 function tileUrl(l: RadarLayer, bust: number): string {
   // IEM codes already carry their projection suffix (…-900913); RealEarth ids do not.
+  if (l.source === "nws-image") return arcgisImageUrl(l, bust);
   return l.source === "iem"
     ? `https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/${l.code}/{z}/{x}/{y}.png?_=${bust}`
     : `https://realearth.ssec.wisc.edu/tiles/${l.code}/{z}/{x}/{y}.png?_=${bust}`;
@@ -224,6 +315,7 @@ export default function RadarMap({ location }: Props) {
   const [tiles, setTiles] = useState({ loaded: 0, errored: 0, done: false });
 
   const mapHandle = useRef<BaseMapHandle>(null);
+  const still = prefersReducedMotion();
 
   const layer = useMemo(() => LAYERS.find(l => l.id === layerId) ?? LAYERS[0], [layerId]);
   const groupLayers = useMemo(() => LAYERS.filter(l => l.group === group), [group]);
@@ -244,7 +336,24 @@ export default function RadarMap({ location }: Props) {
     id: `product-${layer.id}`,
     url: tileUrl(layer, bust),
     opacity,
-    maxZoom: layer.maxZoom ?? 12,
+    /*
+     * 14, not 12 — the one resolution knob that was actually on our side.
+     *
+     * A raster source's `maxZoom` is the deepest level MapLibre will REQUEST.
+     * Past it the last tile is stretched by the browser, so zooming in stopped
+     * fetching sharper imagery at z12 and started magnifying a 256px PNG
+     * instead. That soft, smeared look at close range was the cap, not the
+     * services: probed against the live pyramids over Oklahoma City, both IEM
+     * and RealEarth return real tiles at z13 and z14.
+     *
+     * What this does NOT do is add meteorological detail. MRMS is a 1 km grid
+     * and the NEXRAD composites are about the same, so z12 already oversamples
+     * the data — this removes the browser's upscaling, nothing more. Tile
+     * traffic is unchanged: a viewport needs the same dozen tiles at any zoom,
+     * they are just different ones.
+     */
+    maxZoom: layer.maxZoom ?? 14,
+    tileSize: layer.source === "nws-image" ? 512 : 256,
     underLabels: true,
   }], [layer, bust, opacity]);
 
@@ -352,39 +461,10 @@ export default function RadarMap({ location }: Props) {
       }
     >
 
-      {/* Group tabs */}
-      <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
-        {GROUPS.map(g => {
-          const Icon = g.icon;
-          const active = group === g.id;
-          return (
-            <button key={g.id}
-              onClick={() => { setGroup(g.id); setLayerId(LAYERS.find(l => l.group === g.id)!.id); }}
-              className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 transition-colors ${active ? "bg-primary/15 text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-              <Icon className="w-4 h-4" /> {g.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Product rail */}
-      <div className="flex gap-2 overflow-x-auto pb-1 px-1 -mx-1 max-w-full">
-        {groupLayers.map(l => (
-          <button key={l.id} onClick={() => setLayerId(l.id)}
-            className={`shrink-0 px-3 py-2 rounded-lg text-xs font-semibold border transition-colors ${
-              layerId === l.id ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/20 border-border text-muted-foreground hover:text-foreground"}`}>
-            <span className="whitespace-nowrap">{l.label}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* Map */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        {/* The height lives here, not on BaseMap: the map is sized `h-full`, so
-            the wrapper is what a percentage resolves against. Phones keep the
-            420px the Leaflet version used; desktops get the extra room a radar
-            loop actually wants. */}
-        <div className="sswx-map-shell h-[420px] md:h-[560px]">
+      {/* ── the map, with its controls on it ──────────────────────────────── */}
+      <div className="relative rounded-2xl overflow-hidden"
+           style={{ border: `1px solid ${ROYAL.hairline}`, boxShadow: "0 26px 60px -40px rgba(0,0,0,1)" }}>
+        <div className="sswx-map-shell h-[560px] md:h-[calc(100vh-16rem)] md:min-h-[560px] md:max-h-[820px]">
           <BaseMap
             ref={mapHandle}
             center={{ lat: location.lat, lon: location.lon }}
@@ -396,8 +476,111 @@ export default function RadarMap({ location }: Props) {
             className="w-full h-full"
           />
 
-          {/* data-state badge */}
-          <div className="absolute top-2 left-2 z-10 flex flex-col gap-1.5 items-start">
+          {/* The product change, as a change.
+              A raster swap is otherwise instant and invisible — one field
+              replaces another between frames and nothing tells you it happened.
+              A single pass of light across the map, keyed to the layer id, is
+              enough to say "this is a different product now" without pretending
+              to be a radar sweep. */}
+          <AnimatePresence>
+            <motion.span
+              key={layerId}
+              aria-hidden
+              className="absolute inset-0 z-10 pointer-events-none"
+              initial={still ? { opacity: 0 } : { opacity: 0.55, x: "-100%" }}
+              animate={still ? { opacity: 0 } : { opacity: 0, x: "100%" }}
+              transition={{ duration: still ? 0 : 0.85, ease: EASE }}
+              style={{
+                background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)`,
+                mixBlendMode: "screen",
+              }}
+            />
+          </AnimatePresence>
+
+          {/* ── console ──────────────────────────────────────────────────── */}
+          <MapConsole title="Layers" summary={`${GROUPS.find(g => g.id === group)?.label} · ${layer.label}`}>
+            <ConsoleSection label="Product group">
+              <div className="grid grid-cols-4 gap-1">
+                {GROUPS.map((g) => {
+                  const Icon = g.icon;
+                  const on = group === g.id;
+                  return (
+                    <button
+                      key={g.id}
+                      onClick={() => { setGroup(g.id); setLayerId(LAYERS.find(l => l.group === g.id)!.id); }}
+                      className="relative py-1.5 rounded-lg flex flex-col items-center gap-0.5 transition-colors"
+                      aria-pressed={on}
+                      style={{
+                        background: on ? ROYAL.goldFaint : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${on ? ROYAL.goldSoft : "transparent"}`,
+                        color: on ? ROYAL.gold : ROYAL.dim,
+                      }}
+                    >
+                      <Icon className="w-3.5 h-3.5" />
+                      <span className="text-[9.5px] font-bold uppercase tracking-wider">{g.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </ConsoleSection>
+
+            <ConsoleSection label="Product">
+              <div className="space-y-0.5">
+                {groupLayers.map((l) => (
+                  <ProductRow
+                    key={l.id}
+                    label={l.label}
+                    hint={HINT[l.id]}
+                    active={layerId === l.id}
+                    onClick={() => setLayerId(l.id)}
+                    layoutId="radar-product"
+                  />
+                ))}
+              </div>
+            </ConsoleSection>
+
+            <ConsoleSection label="Opacity">
+              <div className="flex items-center gap-2">
+                <Eye className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.dim }} />
+                <input
+                  type="range" min={0.2} max={1} step={0.05} value={opacity}
+                  onChange={(e) => setOpacity(Number(e.target.value))}
+                  aria-label="Overlay opacity"
+                  className="flex-1 min-w-0 accent-[#d9b775]"
+                />
+                <span className="text-[11px] tabular-nums w-8 text-right shrink-0" style={{ color: ROYAL.text }}>
+                  {Math.round(opacity * 100)}%
+                </span>
+              </div>
+            </ConsoleSection>
+
+            <button
+              onClick={() => setShowProb(v => !v)}
+              className="w-full flex items-center gap-2 px-2.5 py-2 rounded-xl transition-colors"
+              aria-pressed={showProb}
+              style={{
+                background: showProb ? "rgba(204,204,255,0.10)" : "rgba(255,255,255,0.03)",
+                border: `1px solid ${showProb ? ROYAL.irisSoft : ROYAL.hairline}`,
+              }}
+            >
+              <Crosshair className="w-3.5 h-3.5 shrink-0" style={{ color: showProb ? ROYAL.iris : ROYAL.dim }} />
+              <span className="text-[12px] font-semibold flex-1 text-left"
+                    style={{ color: showProb ? ROYAL.text : ROYAL.dim }}>ProbSevere</span>
+              <span className="text-[10px] tabular-nums" style={{ color: ROYAL.dim }}>
+                {showProb && prob.state === "ok" ? `${prob.data.features.length} storms` : "off"}
+              </span>
+            </button>
+
+            {(layer.legend.length > 0 || showProb) && (
+              <div className="space-y-2.5 pt-0.5">
+                {layer.legend.length > 0 && <RampLegend title={layer.label} swatches={layer.legend} />}
+                {showProb && <RampLegend title="ProbSevere" swatches={PROB_LEGEND} />}
+              </div>
+            )}
+          </MapConsole>
+
+          {/* data-state badges — top right, clear of the console */}
+          <div className="absolute top-2 right-2 z-10 flex flex-col gap-1.5 items-end max-w-[60%]">
             {!tiles.done && (
               <span className="px-2 py-1 rounded-md bg-black/75 text-[10px] text-white flex items-center gap-1.5">
                 <Loader2 className="w-3 h-3 animate-spin" /> Loading {layer.label}…
@@ -423,7 +606,7 @@ export default function RadarMap({ location }: Props) {
             )}
             {showProb && prob.state === "ok" && (
               <span className="px-2 py-1 rounded-md bg-black/75 text-[10px] text-white flex items-center gap-1.5">
-                <Crosshair className="w-3 h-3 text-primary" />
+                <Crosshair className="w-3 h-3" style={{ color: ROYAL.iris }} />
                 {prob.data.features.length === 0
                   ? "ProbSevere — no storms tracked nationally"
                   : `ProbSevere — ${prob.data.features.length} storms · peak ${Math.round(probPeak)}%`}
@@ -431,103 +614,82 @@ export default function RadarMap({ location }: Props) {
             )}
           </div>
 
-          {/* legend — the active product's, plus ProbSevere's ramp when it is on */}
-          {(layer.legend.length > 0 || showProb) && (
-            <div className="absolute bottom-2 right-2 z-10 bg-black/80 rounded-lg px-3 py-2 space-y-1 pointer-events-none">
-              {layer.legend.length > 0 && (
-                <>
-                  <div className="text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1">{layer.label}</div>
-                  {layer.legend.map(sw => (
-                    <div key={sw.label} className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-sm" style={{ background: sw.color }} />
-                      <span className="text-[10px] text-white whitespace-nowrap">{sw.label}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-              {showProb && (
-                <>
-                  <div className={`text-[9px] uppercase tracking-[0.2em] text-white/55 mb-1 ${layer.legend.length > 0 ? "pt-1.5 border-t border-white/10" : ""}`}>
-                    ProbSevere
-                  </div>
-                  {PROB_LEGEND.map(sw => (
-                    <div key={sw.label} className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-sm" style={{ background: sw.color }} />
-                      <span className="text-[10px] text-white whitespace-nowrap">{sw.label}</span>
-                    </div>
-                  ))}
-                </>
-              )}
-            </div>
-          )}
-
           {/* Tapped storm. Sits over the map rather than in the controls below,
               because the polygon it describes is small and the member needs the
               two next to each other. */}
           {probPick && (
-            <div className="absolute bottom-2 left-2 z-10 max-w-[min(320px,calc(100%-1rem))] bg-black/88 border border-white/12 rounded-lg p-3">
+            <motion.div
+              initial={still ? { opacity: 0 } : { opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
+              className="absolute bottom-2 right-2 z-20 max-w-[min(320px,calc(100%-1rem))] rounded-xl p-3"
+              style={{
+                background: "rgba(8,8,18,0.9)",
+                border: `1px solid ${ROYAL.hairline}`,
+                backdropFilter: "blur(12px)",
+              }}
+            >
               <div className="flex items-start gap-2 mb-1.5">
                 <span className="text-lg font-black tabular-nums leading-none"
-                      style={{ color: probColor(probPick.prob) }}>
+                      style={{ color: probColor(probPick.prob), fontFamily: HEADING }}>
                   {Math.round(probPick.prob)}%
                 </span>
-                <span className="text-[10px] uppercase tracking-[0.18em] text-white/55 pt-1 flex-1">
+                <span className="text-[10px] uppercase tracking-[0.18em] pt-1 flex-1" style={{ color: ROYAL.dim }}>
                   chance severe
                 </span>
                 <button onClick={() => setProbPick(null)} aria-label="Close storm details"
-                        className="text-white/50 hover:text-white shrink-0">
+                        className="shrink-0" style={{ color: ROYAL.dim }}>
                   <X className="w-3.5 h-3.5" />
                 </button>
               </div>
               {probPick.summary && (
-                <div className="text-[11px] text-white leading-relaxed">{probPick.summary}</div>
+                <div className="text-[11px] leading-relaxed" style={{ color: ROYAL.text }}>{probPick.summary}</div>
               )}
               {probPick.detail && (
-                <div className="mt-1.5 pt-1.5 border-t border-white/10 text-[10px] text-white/70 leading-relaxed whitespace-pre-line max-h-32 overflow-y-auto">
+                <div className="mt-1.5 pt-1.5 text-[10px] leading-relaxed whitespace-pre-line max-h-32 overflow-y-auto"
+                     style={{ borderTop: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
                   {probPick.detail}
                 </div>
               )}
-            </div>
+            </motion.div>
           )}
-        </div>
-
-        {/* controls */}
-        <div className="p-3 border-t border-border space-y-2.5">
-          <div className="flex items-center gap-3 flex-wrap">
-            <label className="flex items-center gap-2 text-xs text-muted-foreground flex-1 min-w-[180px]">
-              <Eye className="w-3.5 h-3.5 shrink-0" />
-              <span className="shrink-0">Opacity</span>
-              <input type="range" min={0.2} max={1} step={0.05} value={opacity}
-                onChange={e => setOpacity(Number(e.target.value))} className="flex-1 accent-primary min-w-0" />
-              <span className="tabular-nums w-8 text-right shrink-0">{Math.round(opacity * 100)}%</span>
-            </label>
-            <label className="flex items-center gap-1.5 text-xs cursor-pointer shrink-0">
-              <input type="checkbox" checked={showProb} onChange={e => setShowProb(e.target.checked)} className="accent-primary w-3.5 h-3.5" />
-              <Crosshair className="w-3.5 h-3.5 text-primary" /> ProbSevere
-            </label>
-          </div>
-          <div className="text-[11px] text-muted-foreground leading-relaxed">{layer.desc}</div>
-          {layer.note && (
-            <div className="text-[10px] text-yellow-200/80 bg-yellow-400/10 border border-yellow-400/25 rounded-lg px-2.5 py-1.5 leading-relaxed">
-              {layer.note}
-            </div>
-          )}
-          {showProb && (
-            <div className="text-[10px] text-primary/85 bg-primary/10 border border-primary/25 rounded-lg px-2.5 py-1.5 leading-relaxed">
-              {PROBSEVERE.note}
-              {prob.at && (
-                <span className="block mt-1 text-muted-foreground/70 tabular-nums">
-                  Feed read {new Date(prob.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
-                </span>
-              )}
-            </div>
-          )}
-          <div className="text-[10px] text-muted-foreground/70 tabular-nums">
-            Updated {updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · auto-refreshes every 4 min ·
-            source {layer.source === "iem" ? "Iowa Environmental Mesonet" : "SSEC RealEarth"}
-          </div>
         </div>
       </div>
+
+      {/* ── what you are looking at ───────────────────────────────────────── */}
+      <motion.div
+        key={layerId}
+        initial={still ? { opacity: 0 } : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: still ? 0.15 : 0.3, ease: EASE }}
+        className="rounded-2xl p-4 space-y-2"
+        style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}
+      >
+        <h2 className="text-sm font-bold" style={{ fontFamily: HEADING, color: ROYAL.text }}>{layer.label}</h2>
+        <p className="text-[12px] leading-relaxed" style={{ color: ROYAL.dim }}>{layer.desc}</p>
+        {layer.note && (
+          <div className="text-[11px] rounded-lg px-2.5 py-1.5 leading-relaxed"
+               style={{ color: "#f2e0b4", background: "rgba(217,183,117,0.10)", border: `1px solid ${ROYAL.goldSoft}` }}>
+            {layer.note}
+          </div>
+        )}
+        {showProb && (
+          <div className="text-[11px] rounded-lg px-2.5 py-1.5 leading-relaxed"
+               style={{ color: "#d7d7ff", background: "rgba(204,204,255,0.08)", border: `1px solid ${ROYAL.irisSoft}` }}>
+            {PROBSEVERE.note}
+            {prob.at && (
+              <span className="block mt-1 tabular-nums" style={{ color: ROYAL.dim }}>
+                Feed read {new Date(prob.at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}.
+              </span>
+            )}
+          </div>
+        )}
+        <div className="text-[10px] tabular-nums pt-0.5" style={{ color: ROYAL.dim }}>
+          Updated {updated.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })} · auto-refreshes every 4 min ·
+          source {layer.source === "iem" ? "Iowa Environmental Mesonet"
+                 : layer.source === "nws-image" ? "NOAA/NWS MRMS QPE" : "SSEC RealEarth"}
+        </div>
+      </motion.div>
 
       {/* External tools */}
       <div className="bg-card border border-border rounded-xl p-4">

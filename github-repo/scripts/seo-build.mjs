@@ -134,6 +134,57 @@ const ld = (obj) =>
 
 /* ── head assembly ──────────────────────────────────────────────────────── */
 
+/**
+ * The general FAQ, read out of `faqDefaults.ts`.
+ *
+ * `faqSchema()` has existed in `src/lib/seo.ts` since the SEO work went in, and
+ * `FAQ.tsx` calls it — but only at RUN time, so the block lands in the DOM
+ * after React mounts and is absent from the HTML every crawler is actually
+ * served. Building it here puts it in the file.
+ *
+ * Only the General FAQ, deliberately. The Module Guide section is generated
+ * from `moduleGuide.ts` and is thirty-eight entries of product description
+ * rather than questions anybody typed into a search box, and padding FAQPage
+ * markup with things that are not questions is how a site loses the markup's
+ * benefit of the doubt.
+ *
+ * Worth being honest about the ceiling: since 2023 Google has shown FAQ rich
+ * results only for government and health sites, so this is not going to draw an
+ * accordion under the listing. What it still does is let Bing, and the answer
+ * engines that read structured data rather than rendering pages, quote the
+ * answers instead of guessing at them.
+ */
+function parseFaq(src) {
+  const block = src.match(/const GENERAL: DefaultEntry\[\] = \[([\s\S]*?)\n\];/);
+  if (!block) throw new Error("seo-build: could not find the GENERAL FAQ array");
+  const out = [];
+  for (const entry of block[1].split(/\n  \{/).slice(1)) {
+    const q = entry.match(/title: "((?:[^"\\]|\\.)*)"/)?.[1];
+    // The first section's body. A section with a heading is a sub-answer; the
+    // first one is the answer, and concatenating all of them produces a wall
+    // of text no answer engine would quote.
+    const a = entry.match(/S\("(?:[^"\\]|\\.)*",\s*"((?:[^"\\]|\\.)*)"\)/)?.[1];
+    if (q && a) out.push({ q: unesc(q), a: unesc(a) });
+  }
+  if (!out.length) throw new Error("seo-build: parsed no FAQ entries");
+  return out;
+}
+
+const unesc = (v) => v.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+
+const faqEntries = parseFaq(
+  await readFile(join(ROOT, "src/lib/faqDefaults.ts"), "utf8"));
+
+const faqPage = {
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqEntries.map((e) => ({
+    "@type": "Question",
+    name: e.q,
+    acceptedAnswer: { "@type": "Answer", text: e.a },
+  })),
+};
+
 function headFor(page) {
   const url = canonical(page.path);
   const label = page.title.split("—")[0].trim();
@@ -143,6 +194,7 @@ function headFor(page) {
 
   const schemas = [organization, website];
   if (page.path === "/") schemas.push(application);
+  if (page.path === "/faq") schemas.push(faqPage);
   schemas.push(breadcrumb(page.path, label));
 
   return [
@@ -157,8 +209,12 @@ function headFor(page) {
     `<meta property="og:title" content="${esc(page.title)}" />`,
     `<meta property="og:description" content="${esc(page.description)}" />`,
     `<meta property="og:image" content="${OG_IMAGE}" />`,
-    `<meta property="og:image:width" content="1200" />`,
-    `<meta property="og:image:height" content="630" />`,
+    // The real dimensions of public/opengraph.jpg. These said 1200x630, which
+    // is the usual recommendation but not what the file is — and a crawler that
+    // trusts the declared size to lay out a card before the image arrives lays
+    // out the wrong box.
+    `<meta property="og:image:width" content="1280" />`,
+    `<meta property="og:image:height" content="720" />`,
     `<meta property="og:image:alt" content="StormSync Media severe weather tracking" />`,
     `<meta name="twitter:card" content="summary_large_image" />`,
     `<meta name="twitter:url" content="${url}" />`,
@@ -289,16 +345,24 @@ await writeFile(join(DIST, "llms.txt"),
   + `## Open pages\n\n`
   + indexable.map((p) => `- [${p.title}](${canonical(p.path)}): ${p.description}`).join("\n")
   + `\n\n## What the app does\n\n`
-  + `- SPC convective outlooks, days 1 through 8, with the real risk polygons\n`
+  + `- SPC convective outlooks, days 1 through 8, with the real risk polygons and SPC's conditional intensity tiers\n`
   + `- Live National Weather Service watches and warnings\n`
   + `- Hurricane and tropical tracking from the National Hurricane Center, with an archive\n`
-  + `- Radar, satellite and lightning\n`
+  + `- Radar, GOES satellite and eight MRMS products including rainfall totals from one hour to three days\n`
+  + `- Model maps rendered here from NOAA's own files: HRRR at 3 km, GFS, and HREF, a 21-member ensemble — 84 parameters, four cycles a day, with playback\n`
+  + `- Live lightning from GOES-East's geostationary lightning mapper, plus LightningCast's probability of a flash in the next hour\n`
+  + `- Daily storm-chase targets, scored inside the SPC risk areas on instability, shear, helicity, cloud base, cap and terrain\n`
   + `- A national storm-activity score, and a local severe threat index\n`
-  + `- Thunder-day climatology, tornado climatology and severe weather history\n`
+  + `- National outlooks in one place: WPC rainfall and HeatRisk, CPC 6-10 and 8-14 day, drought, and autumn foliage\n`
+  + `- Winter Center: winter storm severity, snow on the ground, and hour-by-hour precipitation type\n`
+  + `- Thunder-day climatology, 74 years of tornado climatology, and ten years of tornado tracks filterable by month, EF rating and state\n`
+  + `- River and flood gauges, air quality and pollen, fire weather, and roughly 6,500 public traffic cameras\n`
+  + `- Weather news from seven publishers, with the full text readable in the app where the publisher syndicates it\n`
   + `- A daily forecasting game and trivia, scored against real storm reports\n\n`
   + `## Note\n\n`
   + `Most modules require an account. The pages listed above are open to everyone.\n`);
 
 console.log(
-  `seo-build: ${written.length} pages (${written.join(", ")}), app.html fallback, `
+  `seo-build: ${written.length} pages (${written.join(", ")}), `
+  + `${faqEntries.length} FAQ questions, app.html fallback, `
   + `sitemap with ${indexable.length} urls, robots.txt, llms.txt`);

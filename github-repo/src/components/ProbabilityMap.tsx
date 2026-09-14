@@ -8,7 +8,8 @@
  */
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Download, Share2 } from "lucide-react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import "../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 

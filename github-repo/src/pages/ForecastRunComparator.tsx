@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { REGIONS, regionSourceRect, regionAspect } from "../lib/modelProjection";
+import { REGIONS, regionSourceRect, regionAspect, plateFor, type Plate } from "../lib/modelProjection";
+import { Transport } from "../components/models/Transport";
 import { ROYAL, HEADING } from "../lib/royal";
 import { ModuleShell } from "../components/ModuleShell";
 import { NowcastTab } from "../components/models/NowcastTab";
 import type { Location } from "../hooks/useLocation";
 import { useQuery } from "@tanstack/react-query";
 import {
-  Satellite, Play, Pause, ChevronLeft, ChevronRight, Download, Share2,
+  Satellite, Download, Share2,
   Loader2, AlertTriangle, Clock,
 } from "lucide-react";
 import {
@@ -15,7 +16,7 @@ import {
 } from "../lib/modelRuns";
 
 /**
- * Model Runs — HRRR & GFS map viewer (Phase 4).
+ * Model Runs — HRRR, GFS and HREF map viewer.
  *
  * Frames are pre-rendered from the NOAA Open Data GRIB buckets by
  * `scripts/render_maps.py` and served from Supabase Storage, so the browser only
@@ -43,7 +44,7 @@ export default function ForecastRunComparator({ location }: Props) {
   // "nowcast" is not a model here — it is a third view. The maps are national
   // and pre-rendered four times a day; the nowcast is this one point, stepped
   // every fifteen minutes, and answers what a map structurally cannot.
-  const [view, setView] = useState<"hrrr" | "gfs" | "nowcast">("hrrr");
+  const [view, setView] = useState<"hrrr" | "gfs" | "href" | "nowcast">("hrrr");
   const model: ModelId = view === "nowcast" ? "hrrr" : view;
   const setModel = (m: ModelId) => setView(m);
   const [runIdx, setRunIdx] = useState(0);
@@ -55,9 +56,15 @@ export default function ForecastRunComparator({ location }: Props) {
   const [loaded, setLoaded] = useState<Set<string>>(new Set());
   const [failed, setFailed] = useState<Set<string>>(new Set());
   // The decoded frames themselves. Playback draws from these onto a canvas, so
-  // stepping a frame is one drawImage rather than an <img> src swap the browser
-  // has to re-decode and re-lay-out — which is what made it stutter.
-  const decoded = useRef<Map<string, HTMLImageElement>>(new Map());
+  // stepping a frame is one blit rather than an <img> src swap the browser has
+  // to re-decode and re-lay-out — which is what made it stutter.
+  const decoded = useRef<Map<string, CanvasImageSource & { width: number; height: number }>>(new Map());
+  // Playback reads these rather than closing over render values, so the loop
+  // below never has to be torn down and rebuilt just because a frame advanced.
+  const framesRef = useRef<ModelFrame[]>([]);
+  const frameRef = useRef<ModelFrame | undefined>(undefined);
+  const idxRef = useRef(0);
+  const settled = useRef<Set<string>>(new Set());
 
   const runs = useQuery({
     queryKey: ["model-runs", model],
@@ -84,18 +91,44 @@ export default function ForecastRunComparator({ location }: Props) {
     () => (run && paramKey ? run.frames[paramKey] ?? [] : []), [run, paramKey]);
   const frame = frames[Math.min(frameIdx, Math.max(0, frames.length - 1))];
   const param = run?.params.find((p) => p.key === paramKey);
+  framesRef.current = frames;
+  frameRef.current = frame;
 
-  // ── preload the active parameter, in order, a few at a time ──
-  // Firing all ~19 frames at once left most of them still in flight while the
-  // loop was already running, and an unloaded frame renders at low opacity —
-  // which is why playback looked like it only had three or four frames. A small
-  // concurrency window means frames finish in the order they are played.
+  // ── preload the active parameter, in order, a few at a time ──────────────
+  //
+  // Three things matter here and only one of them was right before.
+  //
+  // Order: firing all ~19 frames at once left most of them in flight while the
+  // loop was already running. A small concurrency window means frames finish in
+  // the order they will be played. That part was already correct.
+  //
+  // Decode: `drawImage(HTMLImageElement)` can still cost a decode on the draw
+  // itself, which lands in the middle of a frame and shows up as a hitch. These
+  // are decoded once, up front, into `ImageBitmap`s — GPU-ready, and a draw from
+  // one is a blit. Browsers without `createImageBitmap` keep the old path.
+  //
+  // Re-renders: every completed frame used to call `setLoaded(new Set(...))`,
+  // so loading a parameter re-rendered the whole page nineteen times, each one
+  // re-running the paint effect. Completions are collected in a ref and flushed
+  // on an animation frame, so a burst of arrivals costs one render.
   useEffect(() => {
     if (!frames.length) return;
     let cancelled = false;
-    const imgs: HTMLImageElement[] = [];
+    const els: HTMLImageElement[] = [];
     let next = 0;
     const CONCURRENCY = 4;
+
+    // Batch completions rather than rendering per frame.
+    const pendingOk = new Set<string>();
+    const pendingBad = new Set<string>();
+    let flushRaf = 0;
+    const flush = () => {
+      flushRaf = 0;
+      if (cancelled) return;
+      if (pendingOk.size) { const add = [...pendingOk]; pendingOk.clear(); setLoaded((s0) => { const n = new Set(s0); add.forEach((u) => n.add(u)); return n; }); }
+      if (pendingBad.size) { const add = [...pendingBad]; pendingBad.clear(); setFailed((s0) => { const n = new Set(s0); add.forEach((u) => n.add(u)); return n; }); }
+    };
+    const scheduleFlush = () => { if (!flushRaf) flushRaf = requestAnimationFrame(flush); };
 
     const pump = () => {
       if (cancelled || next >= frames.length) return;
@@ -106,20 +139,44 @@ export default function ForecastRunComparator({ location }: Props) {
       // and leaves the door open to reading pixels back later (a hover readout,
       // an export) instead of silently closing it.
       img.crossOrigin = "anonymous";
-      imgs.push(img);
+      els.push(img);
       const done = (ok: boolean) => {
         if (cancelled) return;
-        if (ok) { decoded.current.set(f.url, img); setLoaded((s) => new Set(s).add(f.url)); }
-        else setFailed((s) => new Set(s).add(f.url));
+        if (ok) pendingOk.add(f.url); else pendingBad.add(f.url);
+        scheduleFlush();
         pump();
       };
-      img.onload = () => done(true);
+      img.onload = () => {
+        if (cancelled) return;
+        if (typeof createImageBitmap === "function") {
+          createImageBitmap(img).then(
+            (bmp) => { if (cancelled) { bmp.close?.(); return; } decoded.current.set(f.url, bmp); done(true); },
+            () => { decoded.current.set(f.url, img); done(true); },
+          );
+        } else {
+          decoded.current.set(f.url, img);
+          done(true);
+        }
+      };
       img.onerror = () => done(false);
       img.src = f.url;
     };
     for (let i = 0; i < CONCURRENCY; i++) pump();
 
-    return () => { cancelled = true; imgs.forEach((i) => { i.onload = null; i.onerror = null; }); };
+    return () => {
+      cancelled = true;
+      if (flushRaf) cancelAnimationFrame(flushRaf);
+      els.forEach((i) => { i.onload = null; i.onerror = null; });
+      // Release the bitmaps for the parameter being left. Without this, walking
+      // through a dozen parameters holds a dozen full frame sets in memory,
+      // which on a phone is where the player used to start dropping frames.
+      const keep = new Set(frames.map((f) => f.url));
+      for (const [url, bmp] of decoded.current) {
+        if (keep.has(url)) continue;
+        if (typeof ImageBitmap !== "undefined" && bmp instanceof ImageBitmap) bmp.close();
+        decoded.current.delete(url);
+      }
+    };
   }, [frames]);
 
   const buffered = frames.filter((f) => loaded.has(f.url)).length;
@@ -134,7 +191,18 @@ export default function ForecastRunComparator({ location }: Props) {
   // browser re-decode and re-lay-out mid-loop.
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  const paint = useCallback((url: string | undefined) => {
+  /**
+   * The plate the container should be shaped to.
+   *
+   * Read off the frame on screen rather than assumed, so the box does not jump
+   * when the first newly-rendered run replaces the last letterboxed one.
+   */
+  const [plate, setPlate] = useState<Plate>(() => plateFor());
+
+  /** What is currently on the canvas, so a repaint that changes nothing is free. */
+  const painted = useRef<{ url?: string; w: number; h: number; region: string }>({ w: 0, h: 0, region: "" });
+
+  const paint = useCallback((url: string | undefined, force = false) => {
     const cv = canvasRef.current;
     if (!cv) return;
     const img = url ? decoded.current.get(url) : undefined;
@@ -146,69 +214,121 @@ export default function ForecastRunComparator({ location }: Props) {
     const dpr = Math.min(2, window.devicePixelRatio || 1);
     const w = Math.round(box.width * dpr);
     const h = Math.round(box.height * dpr);
-    if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    const resized = cv.width !== w || cv.height !== h;
+    if (resized) { cv.width = w; cv.height = h; }
 
-    const ctx = cv.getContext("2d");
+    const p = painted.current;
+    if (!force && !resized && p.url === url && p.w === w && p.h === h && p.region === region) return;
+    painted.current = { url, w, h, region };
+
+    const ctx = cv.getContext("2d", { alpha: false });
     if (!ctx) return;
     ctx.fillStyle = "#0b0e17";
     ctx.fillRect(0, 0, w, h);
-    if (!img || !img.naturalWidth) return;
+    if (!img || !img.width) { painted.current.url = undefined; return; }
 
-    const r = regionSourceRect(region);
+    const framePlate = plateFor(img.width, img.height);
+    setPlate((prev) => (prev === framePlate ? prev : framePlate));
+
+    // Which plate this frame is drawn on comes from the frame itself. Storage
+    // holds both shapes while retention rolls the old ones off, and a frame
+    // knows its own geometry better than any constant we could keep in step.
+    const r = regionSourceRect(region, framePlate);
     ctx.imageSmoothingEnabled = true;
     ctx.imageSmoothingQuality = "high";
     ctx.drawImage(
       img,
-      r.left * img.naturalWidth, r.top * img.naturalHeight,
-      r.width * img.naturalWidth, r.height * img.naturalHeight,
+      r.left * img.width, r.top * img.height,
+      r.width * img.width, r.height * img.height,
       0, 0, w, h,
     );
   }, [region]);
 
-  // Repaint on frame, region or size change. The frame the loop advances to is
-  // always one that has finished decoding, so this never paints a blank.
+  // Repaint when React is the one that moved the frame — a step, a scrub, a
+  // parameter change, or a late arrival for the frame already on screen. During
+  // playback the loop below has already painted and `painted.current` makes this
+  // a no-op, which is the point: the canvas is never waiting on a commit.
   useEffect(() => { paint(frame?.url); }, [paint, frame?.url, loaded]);
   useEffect(() => {
     const cv = canvasRef.current;
     if (!cv || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => paint(frame?.url));
+    const ro = new ResizeObserver(() => paint(frameRef.current?.url, true));
     ro.observe(cv);
     return () => ro.disconnect();
-  }, [paint, frame?.url]);
+  }, [paint]);
 
-  // ── playback ──
+  // ── playback ───────────────────────────────────────────────────────────────
   //
-  // Driven by requestAnimationFrame rather than setInterval. An interval fires
-  // on its own clock and the paint happens whenever the browser next gets to
-  // it, so the gap between frames wobbles by up to a frame either way — which
-  // is most of what "not smooth" was. This advances *on* a paint, so every
-  // frame is shown for as close to the chosen duration as the display allows.
-  const settled = useRef<Set<string>>(new Set());
-  settled.current = new Set([...loaded, ...failed]);
+  // THE BUG THIS FIXES
+  // The loop was already on requestAnimationFrame, which is right, but the tick
+  // only called `setFrameIdx`. The canvas was then drawn by a `useEffect`, which
+  // React runs *after* the commit — so every frame was painted a commit late,
+  // and by however much React's scheduling varied. That variance is precisely
+  // what "stiff and glitchy" was: the timing of the paint had nothing to do with
+  // the timing of the tick.
+  //
+  // Now the tick paints. React state is still updated so the scrubber and the
+  // hour readout follow, but nothing visual waits on it, and the repaint effect
+  // above short-circuits because the canvas already holds that frame.
+  //
+  // The clock accumulates instead of resetting (`due += speed`), so a frame that
+  // arrives 3 ms late does not push every later frame 3 ms further out. If the
+  // tab has been backgrounded and the deficit is more than two frames, the debt
+  // is written off rather than replayed as a burst.
+  useEffect(() => { settled.current = new Set([...loaded, ...failed]); }, [loaded, failed]);
+
   useEffect(() => {
     if (!playing || frames.length < 2) return;
     let raf = 0;
-    let last = performance.now();
+    let due = performance.now() + speed;
+
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (now - last < speed) return;
-      last = now;
-      setFrameIdx((i) => {
-        const next = (i + 1) % frames.length;
-        // Hold rather than flash through a frame that has not arrived. With the
-        // canvas this cannot show a partial image, but it can show the previous
-        // one twice, which reads as a stall rather than as corruption.
-        return settled.current.has(frames[next].url) ? next : i;
-      });
+      if (now < due) return;
+      due += speed;
+      if (now - due > speed * 2) due = now + speed;   // came back from a background tab
+
+      const list = framesRef.current;
+      if (list.length < 2) return;
+      const next = (idxRef.current + 1) % list.length;
+      // Hold rather than flash through a frame that has not arrived. With the
+      // canvas this cannot show a partial image, but it can show the previous
+      // one twice, which reads as a stall rather than as corruption.
+      if (!settled.current.has(list[next].url)) return;
+
+      idxRef.current = next;
+      paint(list[next].url);        // ← the frame is on screen now, not next commit
+      setFrameIdx(next);            // ← and the readout catches up whenever React does
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [playing, speed, frames]);
+  }, [playing, speed, frames.length, paint]);
+
+  // React-driven moves (step, scrub, parameter change) own the index too.
+  useEffect(() => { idxRef.current = Math.min(frameIdx, Math.max(0, frames.length - 1)); }, [frameIdx, frames.length]);
+
+  /**
+   * Scrubbing, painted on the input event.
+   *
+   * Dragging the slider used to set state and wait for the effect, so the image
+   * trailed the thumb by a commit — the same lag as playback, and far more
+   * obvious because your finger is the reference. Painting first makes the
+   * image track the thumb exactly.
+   */
+  const scrubTo = useCallback((i: number) => {
+    const list = framesRef.current;
+    const n = Math.max(0, Math.min(list.length - 1, i));
+    idxRef.current = n;
+    paint(list[n]?.url);
+    setFrameIdx(n);
+  }, [paint]);
 
   const step = useCallback((d: number) => {
     setPlaying(false);
-    setFrameIdx((i) => (i + d + frames.length) % Math.max(1, frames.length));
-  }, [frames.length]);
+    const n = frames.length;
+    if (!n) return;
+    scrubTo(((idxRef.current + d) % n + n) % n);
+  }, [frames.length, scrubTo]);
 
   // keyboard: arrows step, space toggles play
   useEffect(() => {
@@ -253,13 +373,21 @@ export default function ForecastRunComparator({ location }: Props) {
     <ModuleShell
       eyebrow="NOAA · NOMADS"
       title="Model Runs"
-      subtitle="HRRR and GFS severe-weather maps rendered from NOAA model data, plus a fifteen-minute nowcast for your location."
+      subtitle="HRRR, GFS and HREF ensemble maps rendered from NOAA model data, plus a fifteen-minute nowcast for your location."
     >
       {/* Views */}
-      <div className="grid grid-cols-3 gap-2 bg-card border border-border rounded-xl p-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 bg-card border border-border rounded-xl p-1.5">
         {([
+          // The grid each one is RENDERED from, which is the honest answer to
+          // "why is GFS softer". "13 km" was wrong and was the source of the
+          // question: that is roughly the GFS's native spectral resolution, but
+          // the public GRIB product this reads is `pgrb2.0p25` — a quarter
+          // degree, about 25 km at these latitudes, so eight times coarser than
+          // HRRR in each direction and sixty-odd times fewer points over the
+          // same ground. No amount of rendering recovers that.
           { id: "hrrr", label: "HRRR · 3 km" },
-          { id: "gfs", label: "GFS · 13 km" },
+          { id: "gfs", label: "GFS · 0.25° (~25 km)" },
+          { id: "href", label: "HREF · 3 km ensemble" },
           { id: "nowcast", label: "Nowcast · 15 min" },
         ] as const).map((v) => (
           <button key={v.id} onClick={() => setView(v.id)}
@@ -313,7 +441,7 @@ export default function ForecastRunComparator({ location }: Props) {
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Resolution</div>
-              <div className="text-sm font-semibold">{model === "hrrr" ? "3 km" : "13 km"}</div>
+              <div className="text-sm font-semibold">{model === "hrrr" ? "3 km" : model === "href" ? "3 km · 10 members" : "13 km"}</div>
             </div>
           </>
         )}
@@ -363,7 +491,7 @@ export default function ForecastRunComparator({ location }: Props) {
 
         <div
           className="relative bg-[#0b0e17] overflow-hidden"
-          style={{ minHeight: 220, aspectRatio: String(regionAspect(region)) }}
+          style={{ minHeight: 220, aspectRatio: String(regionAspect(region, plate)) }}
         >
           {frame ? (
             <>
@@ -408,68 +536,28 @@ export default function ForecastRunComparator({ location }: Props) {
             </div>
           )}
 
-          {/* buffering bar */}
-          {frames.length > 0 && !ready && (
-            <div className="absolute bottom-2 left-2 right-2 flex items-center gap-2">
-              <span className="text-[10px] text-white/80 bg-black/70 rounded px-1.5 py-0.5 shrink-0">
-                Buffering {buffered}/{frames.length}
-              </span>
-              <div className="flex-1 h-1 rounded bg-black/50 overflow-hidden">
-                <div className="h-full bg-primary transition-all"
-                  style={{ width: `${(buffered / frames.length) * 100}%` }} />
-              </div>
-            </div>
-          )}
+          {/* Buffer state lives on the filmstrip below, where it is per-frame
+              rather than a single percentage. */}
         </div>
 
         {/* Controls */}
-        <div className="p-3 border-t border-border space-y-3">
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => step(-1)} disabled={!frames.length}
-              className="p-2 rounded-lg bg-muted/30 border border-border disabled:opacity-40" aria-label="Previous hour">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button onClick={() => setPlaying((p) => !p)} disabled={frames.length < 2}
-              className="p-2 rounded-lg bg-primary/20 border border-primary/40 text-primary disabled:opacity-40" aria-label="Play or pause">
-              {playing ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
-            </button>
-            <button onClick={() => step(1)} disabled={!frames.length}
-              className="p-2 rounded-lg bg-muted/30 border border-border disabled:opacity-40" aria-label="Next hour">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-
-            <div className="ml-1 min-w-0">
-              <div className="text-sm font-bold tabular-nums">
-                {frame ? `FORECAST HOUR ${frame.fhr}` : "—"}
-              </div>
-              <div className="text-[11px] text-muted-foreground truncate">
-                {frame ? `Valid ${validLabel(frame.valid)}` : ""}
-              </div>
-            </div>
-
-            <div className="ml-auto flex gap-1">
-              {SPEEDS.map((s) => (
-                <button key={s.ms} onClick={() => setSpeed(s.ms)}
-                  className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${
-                    speed === s.ms ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/20 border-border text-muted-foreground"}`}>
-                  {s.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* scrubber */}
-          <div>
-            <input type="range" min={0} max={Math.max(0, frames.length - 1)} step={1}
-              value={Math.min(frameIdx, Math.max(0, frames.length - 1))}
-              onChange={(e) => { setPlaying(false); setFrameIdx(Number(e.target.value)); }}
-              disabled={frames.length < 2}
-              className="w-full accent-primary" aria-label="Forecast hour" />
-            <div className="flex justify-between text-[10px] text-muted-foreground tabular-nums">
-              <span>F{String(frames[0]?.fhr ?? 0).padStart(3, "0")}</span>
-              <span>F{String(frames[frames.length - 1]?.fhr ?? 0).padStart(3, "0")}</span>
-            </div>
-          </div>
+        <div className="p-3.5 space-y-3" style={{ borderTop: `1px solid ${ROYAL.hairline}` }}>
+          <Transport
+            frames={frames}
+            index={Math.min(frameIdx, Math.max(0, frames.length - 1))}
+            playing={playing}
+            loadedCount={buffered}
+            isLoaded={(u) => loaded.has(u)}
+            isFailed={(u) => failed.has(u)}
+            onToggle={() => setPlaying((p) => !p)}
+            onStep={step}
+            onScrub={(i) => { setPlaying(false); scrubTo(i); }}
+            hourLabel={frame ? `FORECAST HOUR ${frame.fhr}` : undefined}
+            validLabel={frame ? `Valid ${validLabel(frame.valid)}` : undefined}
+            speeds={SPEEDS}
+            speed={speed}
+            onSpeed={setSpeed}
+          />
 
           {/* legend */}
           {param && param.legend.length > 0 && (
@@ -505,8 +593,9 @@ export default function ForecastRunComparator({ location }: Props) {
       </div>
 
       <p className="text-[11px] text-muted-foreground leading-relaxed">
-        Rendered from NOAA HRRR &amp; GFS data on the AWS Open Data registry. HRRR updates four
-        times daily out to F018; GFS out to F048 in 3-hour steps. Model guidance is not a
+        Rendered from NOAA HRRR &amp; GFS data on the AWS Open Data registry, and HREF ensemble
+        probabilities from NOMADS. HRRR updates four times daily out to F018; GFS out to F048 in
+        3-hour steps; HREF hourly to F036. Model guidance is not a
         forecast — always defer to official NWS products.
       </p>
       </>)}

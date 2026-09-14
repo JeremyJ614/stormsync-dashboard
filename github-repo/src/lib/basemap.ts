@@ -21,7 +21,7 @@
  * It is also a style *object* rather than a URL, so MapLibre skips the
  * style.json round trip entirely and starts fetching tiles on the first frame.
  */
-import type maplibregl from "maplibre-gl";
+import type * as maplibregl from "maplibre-gl";
 import type { StyleSpecification } from "maplibre-gl";
 
 /** The map's own palette. Cool greys, so the gold UI stays the only warm thing. */

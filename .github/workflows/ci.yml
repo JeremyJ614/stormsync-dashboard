@@ -1,0 +1,49 @@
+name: CI
+
+# WHY THIS FILE MOVED
+# It lived at `github-repo/.github/workflows/ci.yml`, and GitHub only ever scans
+# the REPOSITORY ROOT for workflows. So this job has never run — not on main,
+# not on any branch, not once. The only checks on a pull request here were
+# Vercel's own, which report that a build succeeded without ever running
+# `tsc --noEmit`, so a green tick meant considerably less than it looked like.
+#
+# The app is a subdirectory of this repo, so every step works from there.
+
+on:
+  push:
+  pull_request:
+
+# Cancel superseded runs on the same ref to save CI minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: github-repo
+
+jobs:
+  build:
+    name: Typecheck & Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          # The lockfile is not at the repo root, and without this the cache
+          # step fails outright with "no file matched".
+          cache-dependency-path: github-repo/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build
+        run: npm run build

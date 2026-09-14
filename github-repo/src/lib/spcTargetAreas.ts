@@ -39,14 +39,13 @@ function mergeBox(a: Box, b: Box): Box {
 
 export function computeTargetAreas(
   features: GeoJSON.Feature[],
-  levelOf: (f: GeoJSON.Feature) => number | "sig" | null,
+  levelOf: (f: GeoJSON.Feature) => number | null,
   minLevel = 2,
   maxTargets = 3,
 ): TargetArea[] {
   let boxes: Box[] = [];
   for (const f of features) {
-    const lvl = levelOf(f);
-    const numeric = lvl === "sig" ? minLevel : lvl; // treat a "significant" hatch as meeting the threshold
+    const numeric = levelOf(f);
     if (numeric === null || numeric < minLevel) continue;
     const b = featureBox(f);
     if (!b) continue;

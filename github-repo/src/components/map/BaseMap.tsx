@@ -16,7 +16,8 @@
  * the data layers, not the vendor.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import * as maplibregl from "maplibre-gl";
+import "../../lib/maplibreWorker";
 import type { DataDrivenPropertyValueSpecification } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { applyRoyalBasemap, STORMSYNC_DARK } from "../../lib/basemap";
@@ -30,6 +31,12 @@ export interface RasterOverlay {
   url: string;
   opacity?: number;
   maxZoom?: number;
+  /**
+   * Source tile size. 256 for an ordinary XYZ pyramid; 512 for a bbox-templated
+   * service (`{bbox-epsg-3857}`) asked for a 512 px image, which is what keeps
+   * NOAA's MRMS QPE sharp instead of upscaled.
+   */
+  tileSize?: 256 | 512;
   /** Draw beneath the basemap's boundary lines so borders stay readable. */
   underLabels?: boolean;
 }
@@ -185,7 +192,7 @@ export const BaseMap = forwardRef<BaseMapHandle, Props>(function BaseMap(
         mounted.current.delete(o.id);
       }
       m.addSource(sid, {
-        type: "raster", tiles: [o.url], tileSize: 256,
+        type: "raster", tiles: [o.url], tileSize: o.tileSize ?? 256,
         maxzoom: o.maxZoom ?? 12, attribution: "",
       });
       m.addLayer(

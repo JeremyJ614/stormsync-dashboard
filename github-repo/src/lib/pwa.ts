@@ -8,6 +8,7 @@
  * silently when they are not looking, and ask when they are.
  */
 import { hasUnsavedWork, noteEditableInput } from "./unsavedWork";
+import { logger } from "./logger";
 
 type BeforeInstallPromptEvent = Event & {
   prompt: () => Promise<void>;
@@ -100,6 +101,9 @@ export function initPwa(): void {
       lastInteraction = Date.now();
     }
   }, { passive: true, capture: true });
+
+  // Repair a poisoned asset cache before anything else asks for a chunk.
+  void repairPoisonedCaches();
 
   if ("serviceWorker" in navigator && import.meta.env.PROD) {
     window.addEventListener("load", () => {
@@ -211,4 +215,64 @@ export async function promptInstall(): Promise<boolean> {
 export function isStandalone(): boolean {
   return window.matchMedia("(display-mode: standalone)").matches ||
     (navigator as unknown as { standalone?: boolean }).standalone === true;
+}
+
+
+/**
+ * Delete cache entries that can never answer the request they are filed under.
+ *
+ * THE BUG THIS REPAIRS
+ * A missing file does not 404 on this host — the single-page rewrite answers it
+ * with index.html, 200 OK, `text/html`. The service worker's asset strategy
+ * only checked `res.ok`, so it stored that HTML *under the asset's own URL*. A
+ * cache entry keyed by URL does not care that its body is the wrong media type.
+ *
+ * Two things then broke, and both were reported as separate faults:
+ *
+ *   • MapLibre v6's worker was briefly missing from the build, so every client
+ *     cached a page of HTML as `/assets/maplibre-gl-worker.mjs`. Tile parsing
+ *     lives in that worker, so every map mounted, painted its background and
+ *     waited for ever — long after the file was correct on the server.
+ *
+ *   • Every route in this app is a lazy import. When a deploy changes a chunk
+ *     hash, a stale shell asks for the old name, gets HTML, and caches it.
+ *     `lazyRoute` reloads once and then rethrows, which the error boundary
+ *     renders as a broken page — the "Storm Chasing shows an error page".
+ *
+ * The service worker no longer creates these entries and no longer serves them,
+ * but a fixed worker cannot help a browser that is still being controlled by
+ * the old one: this worker deliberately waits for a quiet moment rather than
+ * reloading the page out from under whoever is using it. So the page repairs
+ * the cache itself, from the window, where `caches` is the same storage the
+ * worker writes to and no handover is required.
+ *
+ * Surgical rather than a purge: only entries whose stored media type cannot
+ * serve their own URL are removed, so a healthy cache keeps working offline.
+ */
+async function repairPoisonedCaches(): Promise<void> {
+  if (typeof caches === "undefined") return;
+  // Anything that must parse as code or decode as an image. A document body
+  // under one of these is always wrong; under an HTML URL it is correct.
+  const CODE = /\.(m?js|css|json|png|jpe?g|webp|svg|woff2?|mjs)(\?|$)/i;
+  try {
+    const names = await caches.keys();
+    let removed = 0;
+    for (const name of names) {
+      const cache = await caches.open(name);
+      for (const req of await cache.keys()) {
+        if (!CODE.test(new URL(req.url).pathname)) continue;
+        const res = await cache.match(req);
+        const type = res?.headers.get("content-type")?.toLowerCase() ?? "";
+        if (!type.includes("text/html")) continue;
+        await cache.delete(req);
+        removed++;
+      }
+    }
+    if (removed > 0) {
+      logger.warn("cleared poisoned cache entries", { scope: "pwa", data: { removed } });
+    }
+  } catch {
+    // Storage can be unavailable (private windows, evicted quota). A cache we
+    // cannot read is not one we can poison either.
+  }
 }

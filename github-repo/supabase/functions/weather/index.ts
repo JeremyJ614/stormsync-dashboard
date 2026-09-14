@@ -90,8 +90,119 @@ function pick(block: string, tag: string): string {
   const m = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i"));
   return m ? decodeEntities(m[1]).trim() : "";
 }
-interface RssItem { title: string; link: string; description: string; source: string; pubDate: string }
-function parseRssItems(xml: string): RssItem[] {
+interface RssItem {
+  title: string; link: string; description: string; source: string; pubDate: string;
+  /** Syndicated article text, when the publisher actually syndicates any. */
+  body?: string;
+  /** The publisher's own lead image, from the feed's enclosure or media tag. */
+  image?: string;
+  /** True when `body` is long enough to be worth reading in place. */
+  readable?: boolean;
+}
+
+/**
+ * Where the Weather News tab gets its stories.
+ *
+ * WHY THERE ARE SEVEN FEEDS AND NOT JUST GOOGLE NEWS
+ *
+ * The tab used to be Google News alone, and Google News cannot be read in
+ * place — not as a design choice but because there is nothing to read. Its RSS
+ * `<description>` is the headline repeated inside an anchor plus the publisher
+ * name in grey, and nothing else; checked against the live feed, a 386-byte
+ * description contains 89 characters of text and all of them are the title.
+ * The `<link>` is a `news.google.com/rss/articles/CBMi…` token that does not
+ * redirect: fetching it returns a JavaScript page whose canonical URL is
+ * itself, so the destination cannot be resolved server-side either. All the
+ * `<source url>` gives is the publisher's home page.
+ *
+ * What Google News is genuinely good at is BREADTH — it aggregates the local
+ * outlets that actually cover a tornado in Guernsey County. So it stays, as
+ * headlines that link out.
+ *
+ * Alongside it are feeds published by the people who wrote the articles, where
+ * the syndicated text is the point. Measured against the live feeds: NOAA runs
+ * to about 5,300 characters an item with images and is a work of the United
+ * States government; the National Hurricane Center's tropical outlooks are the
+ * full product text; ScienceDaily, Severe Weather Europe and Phys.org run a
+ * few hundred characters of real summary. Those are readable in place, which
+ * is the whole request, and they are readable because their publishers put
+ * them in a feed for exactly this.
+ *
+ * Nothing here scrapes an article page. A publisher's feed is an offer; their
+ * page is not, and the difference is the reason this list exists.
+ */
+const NEWS_FEEDS: { url: string; source: string; readable: boolean; onTopic?: boolean }[] = [
+  // `onTopic` feeds are about weather by definition. The others are general
+  // earth-science feeds that happen to carry weather — they are filtered.
+  { url: "https://www.noaa.gov/rss.xml", source: "NOAA", readable: true, onTopic: true },
+  { url: "https://www.nhc.noaa.gov/index-at.xml", source: "National Hurricane Center", readable: true, onTopic: true },
+  { url: "https://www.sciencedaily.com/rss/earth_climate/severe_weather.xml", source: "ScienceDaily", readable: true, onTopic: true },
+  { url: "https://www.severe-weather.eu/feed/", source: "Severe Weather Europe", readable: true, onTopic: true },
+  { url: "https://phys.org/rss-feed/earth-news/", source: "Phys.org", readable: true },
+  { url: "https://yaleclimateconnections.org/feed/", source: "Yale Climate Connections", readable: true },
+];
+
+/**
+ * Is this story actually about weather?
+ *
+ * Phys.org and Yale Climate Connections carry excellent long-form text, which
+ * is why they are here, but their feeds are earth science broadly: run without
+ * this, the readable half of the tab filled up with disposable vapes,
+ * microplastics in Switzerland and urban food emissions. All real science, none
+ * of it what somebody opened a severe-weather app to read.
+ *
+ * Deliberately generous — it is a relevance filter, not a taxonomy — and only
+ * applied to the feeds that need it.
+ */
+const WEATHER_WORDS = /\b(weather|storm|storms|stormy|tornado|tornadic|hurricane|typhoon|cyclone|thunderstorm|lightning|hail|blizzard|snow|snowfall|ice storm|flood|flooding|flash flood|drought|heat wave|heatwave|wildfire|monsoon|derecho|squall|supercell|forecast|forecasting|rainfall|downpour|wind gust|gusts|atmospheric river|el ni|la ni|jet stream|nor.easter|tropical (storm|depression|wave)|severe)\b/i;
+
+function onTopic(it: RssItem): boolean {
+  return WEATHER_WORDS.test(it.title) || WEATHER_WORDS.test(it.description);
+}
+
+/** Strip markup to readable text, keeping paragraph breaks. */
+function feedText(html: string): string {
+  /*
+   * Two kinds of break, because the feeds carry two kinds of document.
+   *
+   * A closing BLOCK tag becomes a blank line — that is a new paragraph —
+   * while a `<br>`, a list item, or a newline already in the source stays a
+   * single break. The client splits paragraphs on blank lines and renders what
+   * is left as `pre-line`, which is what lets a National Hurricane Center
+   * product keep its teletype line breaks while a Phys.org article still reads
+   * as prose.
+   *
+   * Written the other way round first, with every break a paragraph: the
+   * hurricane outlook came out as thirty one-line paragraphs, each with a gap
+   * after it.
+   */
+  return decodeEntities(html)
+    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, "")
+    .replace(/<\/(p|div|h[1-6]|figure|section|ul|ol|blockquote)\s*>/gi, "\n\n")
+    .replace(/<\/li\s*>/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/[ \t\u00a0]+/g, " ")
+    .split("\n").map((l) => l.trim()).join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** The publisher's lead image, wherever this feed happens to put it. */
+function feedImage(block: string): string {
+  for (const re of [
+    /<enclosure[^>]+url="([^"]+)"[^>]*type="image/i,
+    /<media:(?:content|thumbnail)[^>]+url="([^"]+)"/i,
+    /<itunes:image[^>]+href="([^"]+)"/i,
+  ]) {
+    const m = block.match(re);
+    if (m) return decodeEntities(m[1]);
+  }
+  const inline = block.match(/<img[^>]+src="([^"]+)"/i);
+  return inline ? decodeEntities(inline[1]) : "";
+}
+
+function parseRssItems(xml: string, feedSource = "", canRead = false): RssItem[] {
   const out: RssItem[] = [];
   const blocks = xml.split(/<item>/i).slice(1);
   for (const raw of blocks) {
@@ -99,13 +210,31 @@ function parseRssItems(xml: string): RssItem[] {
     const rawTitle = pick(block, "title");
     const link = pick(block, "link");
     if (!rawTitle || !link) continue;
-    const source = pick(block, "source") || (rawTitle.includes(" - ") ? rawTitle.split(" - ").pop()! : "Google News");
+    const source = feedSource || pick(block, "source") ||
+      (rawTitle.includes(" - ") ? rawTitle.split(" - ").pop()! : "Google News");
     // Google News prefixes the title with the headline and " - Source"; trim the source suffix.
     const title = source && rawTitle.endsWith(` - ${source}`) ? rawTitle.slice(0, -(source.length + 3)) : rawTitle;
-    const description = decodeEntities(pick(block, "description").replace(/<[^>]+>/g, " "))
-      .replace(/\s+/g, " ").trim().slice(0, 200);
-    const pubDate = pick(block, "pubDate");
-    out.push({ title, link, description, source, pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString() });
+
+    // `content:encoded` is where a feed puts the article when it syndicates
+    // one; `description` is the summary. Longest wins — some feeds fill only
+    // one of them, and a few fill both with the same text.
+    const parts = [pick(block, "content:encoded"), pick(block, "description")]
+      .map(feedText)
+      .sort((a, b) => b.length - a.length);
+    const full = parts[0] ?? "";
+    const description = full.replace(/\s+/g, " ").trim().slice(0, 240);
+    // 320 characters is about a paragraph. Below that, expanding in place shows
+    // the reader the same sentence twice and wastes the tap.
+    const readable = canRead && full.length >= 320;
+    const pubDate = pick(block, "pubDate") || pick(block, "updated") || pick(block, "published");
+    const image = feedImage(block);
+
+    out.push({
+      title, link, description, source,
+      pubDate: pubDate ? new Date(pubDate).toISOString() : new Date().toISOString(),
+      ...(readable ? { body: full.slice(0, 9000), readable: true } : {}),
+      ...(image ? { image } : {}),
+    });
   }
   return out;
 }
@@ -671,13 +800,75 @@ Deno.serve(async (req) => {
       const key = `news:${topic}`;
       const cached = await cacheGet(key, 600);
       if (cached) return json(cached, 200, 600);
-      const feed = `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en`;
+      const google = `https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en`;
       try {
-        const r = await fetch(feed, { headers: { "User-Agent": UA } });
-        if (!r.ok) return json({ items: [] }, 200, 120);
-        const xml = await r.text();
-        const items = parseRssItems(xml).slice(0, 12);
-        const out = { items };
+        // All of them at once. One slow publisher should cost the tab a few
+        // hundred milliseconds, not the sum of seven timeouts, and any feed
+        // that fails simply contributes nothing.
+        const jobs = [
+          fetch(google, { headers: { "User-Agent": UA } })
+            .then((r) => (r.ok ? r.text() : ""))
+            .then((x) => (x ? parseRssItems(x) : []))
+            .catch(() => [] as RssItem[]),
+          ...NEWS_FEEDS.map((f) =>
+            fetch(f.url, { headers: { "User-Agent": UA } })
+              .then((r) => (r.ok ? r.text() : ""))
+              .then((x) => (x ? parseRssItems(x, f.source, f.readable) : []))
+              .then((list) => (f.onTopic ? list : list.filter(onTopic)))
+              .catch(() => [] as RssItem[])),
+        ];
+        const all = (await Promise.all(jobs)).flat();
+
+        // Same story from two feeds is one story. Titles are the only key the
+        // feeds share — the links are per-publisher and Google's is a token.
+        const seen = new Set<string>();
+        const merged: RssItem[] = [];
+        // Readable first within the dedupe, so the copy that can be read in
+        // place is the one that survives a collision.
+        all.sort((a, b) => Number(!!b.readable) - Number(!!a.readable));
+        for (const it of all) {
+          const k = it.title.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 80);
+          if (!k || seen.has(k)) continue;
+          seen.add(k);
+          merged.push(it);
+        }
+        /*
+         * Readable stories first, then the headline stream — NOT one list by
+         * date.
+         *
+         * Sorting the lot by date was the obvious version and it deleted the
+         * feature. Google News alone returns a hundred items and they are all
+         * from the last few hours, so a straight date sort put twenty-three
+         * headlines and one readable story in the top twenty-four: the
+         * publishers who actually syndicate their text were drowned by the one
+         * source that syndicates none of it.
+         *
+         * Each group stays in date order inside itself, so the top of each is
+         * still the newest thing there.
+         */
+        const byDate = (a: RssItem, b: RssItem) => b.pubDate.localeCompare(a.pubDate);
+
+        /*
+         * At most three readable stories from any one publisher.
+         *
+         * Without the cap, Phys.org — which posts several times a day and
+         * syndicates every one in full — took eight of the ten readable slots
+         * and pushed NOAA and the hurricane centre off the tab entirely. A cap
+         * is cruder than weighting by recency and it is the right crude: the
+         * value of this half of the tab is that it comes from several desks.
+         */
+        const perSource = new Map<string, number>();
+        const readable: RssItem[] = [];
+        for (const it of merged.filter((i) => i.readable).sort(byDate)) {
+          const n = perSource.get(it.source) ?? 0;
+          if (n >= 3) continue;
+          perSource.set(it.source, n + 1);
+          readable.push(it);
+          if (readable.length >= 10) break;
+        }
+        const headlines = merged.filter((i) => !i.readable).sort(byDate).slice(0, 14);
+        const items = [...readable, ...headlines];
+        const out = { items, readable: items.filter((i) => i.readable).length };
         if (items.length) await cacheSet(key, out);
         return json(out, 200, 600);
       } catch {

@@ -8,6 +8,10 @@ import {
   CAT_LABEL, CAT_COLOR, type PatternDay, type SeasonTile,
 } from "../lib/patternData";
 import { Brain, AlertTriangle, CalendarRange, BarChart3, TrendingUp, TrendingDown, Loader2, Flame } from "lucide-react";
+import { NationalSummary } from "../components/patterns/NationalSummary";
+import { HistoryRecap } from "../components/patterns/HistoryRecap";
+import { loadNationalSummary, loadPeriods } from "../lib/patternSummary";
+import { prefersReducedMotion } from "../lib/royal";
 import { format, parseISO } from "date-fns";
 
 interface Props { location: Location }
@@ -144,6 +148,24 @@ export default function WeatherPatternIndex(_: Props) {
     queryKey: ["surveyTiles"], queryFn: getSurveyTiles, staleTime: 60 * 60_000,
   });
 
+  /**
+   * Today's concerns, and the periods behind us.
+   *
+   * Both are independent of the brief: if the nightly generation fails or the
+   * model is down, the page still states what SPC, WPC and CPC have posted and
+   * what the ledger recorded. That separation is deliberate — the last time
+   * these numbers went stale it was because they were downstream of a language
+   * model.
+   */
+  const national = useQuery({
+    queryKey: ["nationalSummary"], queryFn: loadNationalSummary,
+    staleTime: 15 * 60_000, retry: 1,
+  });
+  const recap = useQuery({
+    queryKey: ["patternPeriods"], queryFn: loadPeriods, staleTime: 15 * 60_000, retry: 1,
+  });
+  const still = prefersReducedMotion();
+
   const anyRisk = (week.data ?? []).some((d) =>
     REGIONS.some((r) => d.cells[r.id]?.rank > 0));
 
@@ -157,23 +179,32 @@ export default function WeatherPatternIndex(_: Props) {
 
       {isLoading && <PageSkeleton />}
 
-      {!isLoading && brief && (
-        <div className="bg-card border border-border rounded-xl p-6 flex flex-col md:flex-row items-center gap-6">
+      {/* ── the national picture ──────────────────────────────────────────
+          The summary leads, because "so what and where" is the question
+          everybody arrives with. The gauge keeps its place beside it: it is a
+          good at-a-glance reading and a poor opening sentence. */}
+      <NationalSummary
+        summary={national.data}
+        loading={national.isPending}
+        headline={brief?.headline}
+        prose={brief?.summary}
+        still={still}
+      />
+
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px] items-start">
+        <HistoryRecap periods={recap.data ?? []} loading={recap.isPending} still={still} />
+
+        <div className="rounded-2xl p-5 flex flex-col items-center gap-1"
+             style={{ background: "rgba(10,10,22,0.5)", border: "1px solid rgba(204,204,255,0.09)" }}>
           <WPIGauge score={score} />
-          <div className="flex-1">
-            <h4 className="font-semibold mb-2">{brief.headline ?? "Pattern Summary"}</h4>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              {brief.summary ?? "National severe-weather pattern overview."}
-            </p>
-            {brief.content.confidence && (
-              <div className="mt-3 inline-flex items-center gap-1.5 text-xs">
-                <span className="text-muted-foreground uppercase tracking-wider">Confidence</span>
-                <span className="font-semibold text-primary capitalize">{brief.content.confidence}</span>
-              </div>
-            )}
-          </div>
+          {brief?.content.confidence && (
+            <div className="mt-2 inline-flex items-center gap-1.5 text-xs">
+              <span className="text-muted-foreground uppercase tracking-wider">Confidence</span>
+              <span className="font-semibold text-primary capitalize">{brief.content.confidence}</span>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* ── 7-day regional breakdown ── */}
       <div className="bg-card border border-border rounded-xl p-4 space-y-3">

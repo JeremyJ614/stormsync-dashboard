@@ -9,7 +9,24 @@
 // version plus cache-first meant a stale index.html could keep pointing at
 // chunk hashes that no longer exist after a deploy — every route is a lazy
 // import, so that renders as a page that simply never appears.
-const CACHE_VERSION = "sswx-v6";
+//
+// v7: this cache poisoned itself and then could not recover.
+//
+// A missing asset does not 404 on this host — the SPA rewrite answers it with
+// index.html, 200 OK, `text/html`. The asset strategy below saw `res.ok`, so it
+// stored that HTML under the ASSET's URL. When MapLibre v6's worker file was
+// briefly missing from the build, every client cached a page of HTML as
+// `/assets/maplibre-gl-worker.mjs`, and a cache entry keyed by URL does not
+// care that its body is the wrong media type. Those clients kept being handed
+// HTML by their own service worker long after the server was fixed — which is
+// why "the file is correct on the server" and "the maps still do not load" were
+// both true at the same time.
+//
+// It could not heal itself either: stale-while-revalidate returned the cached
+// copy and left the revalidation running outside `event.waitUntil`, so the
+// browser was free to kill the worker before the good response was ever
+// written back. Both are fixed below.
+const CACHE_VERSION = "sswx-v7";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
@@ -53,6 +70,21 @@ self.addEventListener("activate", (event) => {
 // Hosts whose GET responses are worth caching for offline "last forecast/alerts".
 const DATA_HOSTS = ["api.open-meteo.com", "api.weather.gov", "www.spc.noaa.gov", "services.swpc.noaa.gov"];
 const isWeatherFn = (url) => url.pathname.includes("/functions/v1/weather");
+/**
+ * Could this response ever answer this request?
+ *
+ * Script, worker, style and image requests cannot be satisfied by an HTML
+ * document. On a single-page app every missing file comes back as one, so this
+ * is the difference between a cache that survives a bad deploy and a cache that
+ * memorises it.
+ */
+const NEEDS_CODE = ["script", "worker", "sharedworker", "serviceworker", "style", "image", "font"];
+function isWrongType(req, res) {
+  if (!NEEDS_CODE.includes(req.destination)) return false;
+  const type = (res.headers.get("content-type") || "").toLowerCase();
+  return type.includes("text/html");
+}
+
 const isSupabaseApi = (url) => url.pathname.includes("/rest/") || url.pathname.includes("/auth/") || url.pathname.includes("/functions/v1/storm-engine") || url.pathname.includes("/functions/v1/relay");
 
 self.addEventListener("fetch", (event) => {
@@ -107,17 +139,32 @@ self.addEventListener("fetch", (event) => {
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.match(req).then((cached) => {
+        // A cached response whose media type cannot possibly answer this
+        // request is the SPA rewrite's HTML, stored back when the real file was
+        // missing. Ignore it and go to the network, or the app stays broken
+        // until something else clears the cache.
+        const usable = cached && !isWrongType(req, cached) ? cached : null;
+        if (cached && !usable) caches.open(ASSET_CACHE).then((c) => c.delete(req)).catch(() => {});
+
         const network = fetch(req).then((res) => {
-          if (res.ok) {
+          // Only store something that could actually serve this request next
+          // time. This single check is what stopped the cache poisoning itself.
+          if (res.ok && !isWrongType(req, res)) {
             const copy = res.clone();
             caches.open(ASSET_CACHE).then((c) => c.put(req, copy)).catch(() => {});
           }
           return res;
         }).catch((err) => {
-          if (cached) return cached;
+          if (usable) return usable;
           throw err;
         });
-        return cached || network;
+
+        // Keep the worker alive until the revalidation finishes. Without this
+        // the browser may terminate it the moment `respondWith` resolves from
+        // cache, so the background refresh never lands and a bad entry can
+        // survive indefinitely.
+        event.waitUntil(network.catch(() => {}));
+        return usable || network;
       }),
     );
   }

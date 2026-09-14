@@ -3,6 +3,7 @@ node_modules/
 
 # Build output
 dist/
+dist-test/
 build/
 
 # Environment (never commit real secrets/keys)

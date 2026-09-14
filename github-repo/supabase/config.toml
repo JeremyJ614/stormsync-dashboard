@@ -1,0 +1,85 @@
+# Supabase CLI configuration.
+#
+# THE ONLY THING THIS FILE IS FOR, AND WHY IT HAD TO EXIST
+#
+# `supabase functions deploy` sets JWT verification from this file, and with no
+# file it defaults to ON. Fifteen of these functions are deployed with it OFF
+# on purpose — they are called by pg_cron, by Stripe's webhook, or by the app
+# with an engine secret, none of which carry a user JWT — so deploying any of
+# them from a checkout without this file would turn every one of those callers
+# into a 401. `chase-target` and `storm-engine` are exactly that case: both
+# check authorisation themselves, in code, and both are woken by cron.
+#
+# The values below were read back from the project's live functions, so a
+# deploy reproduces what is already running rather than guessing.
+#
+# Anything not listed keeps the CLI default (verification ON), which is the
+# right default for a function a signed-in member calls directly.
+
+project_id = "stormsync-dashboard"
+
+[functions.admin-users]
+verify_jwt = true
+
+[functions.alerts-fanout]
+verify_jwt = false
+
+[functions.chase-target]
+verify_jwt = false
+
+[functions.daily-digest]
+verify_jwt = false
+
+[functions.flood-outlook]
+verify_jwt = false
+
+[functions.invoice]
+verify_jwt = false
+
+[functions.model-retention]
+verify_jwt = false
+
+[functions.nhc]
+verify_jwt = false
+
+[functions.nhc-radii]
+verify_jwt = false
+
+[functions.owner-dispatch]
+verify_jwt = false
+
+[functions.push-ack]
+verify_jwt = false
+
+[functions.push-dispatch]
+verify_jwt = false
+
+[functions.relay]
+verify_jwt = false
+
+[functions.signup]
+verify_jwt = false
+
+[functions.snap-route]
+verify_jwt = true
+
+[functions.storm-engine]
+verify_jwt = false
+
+[functions.stripe-checkout]
+verify_jwt = true
+
+[functions.stripe-portal]
+verify_jwt = false
+
+[functions.stripe-webhook]
+verify_jwt = false
+
+[functions.trivia-generate]
+verify_jwt = false
+
+[functions.tropical]
+verify_jwt = false
+
+[functions.weather]
+verify_jwt = false

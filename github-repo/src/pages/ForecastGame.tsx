@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "wouter";
 import { useAuth } from "../hooks/useAuth";
 import { SubmittingAsNotice } from "../components/SubmittingAsNotice";
@@ -12,7 +12,11 @@ import { Leaderboard } from "../components/Leaderboard";
 import { gameDate, msUntilNextGameDay } from "../lib/gameDay";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import { geocodeLocation } from "../utils/weatherApi";
-import usStatesAlbers from "../data/usStatesAlbers.json";
+import { US_STATES, MAP_W, MAP_H, project, unproject } from "../lib/usAlbers";
+import { CHASE_CITIES } from "../data/usChaseCities";
+import { AlbersPanZoom } from "../components/map/AlbersPanZoom";
+import { motion } from "framer-motion";
+import { prefersReducedMotion } from "../lib/royal";
 import {
   Gamepad2, Search, Trophy, Calendar, Crown, Target, Info,
   ExternalLink, Zap, Tornado, Lock, Layers, RotateCcw, CheckCircle2, Timer,
@@ -21,70 +25,17 @@ import {
 type Tab = "play" | "leaderboard";
 type PinMode = "severe" | "tornado";
 
-const US_STATES = (usStatesAlbers as { states: { name: string; d: string }[] }).states;
-const MAP_W = 975;
-const MAP_H = 610;
-
-// Inverse Albers USA approximation: a calibrated affine fit mapping projected
-// (x,y) back to (lon,lat) — accurate to ~15-25 mi, well inside the 25 mi bullseye.
-const CITIES_CAL: { name: string; lat: number; lon: number; x: number; y: number }[] = [
-  { name: "Seattle",       lat: 47.61, lon: -122.33, x: 137, y: 116 },
-  { name: "Los Angeles",   lat: 34.05, lon: -118.24, x: 207, y: 357 },
-  { name: "Denver",        lat: 39.74, lon: -104.99, x: 422, y: 274 },
-  { name: "Chicago",       lat: 41.88, lon:  -87.63, x: 644, y: 254 },
-  { name: "Houston",       lat: 29.76, lon:  -95.37, x: 541, y: 466 },
-  { name: "Miami",         lat: 25.76, lon:  -80.19, x: 814, y: 522 },
-  { name: "New York",      lat: 40.71, lon:  -74.00, x: 838, y: 245 },
-  { name: "Atlanta",       lat: 33.75, lon:  -84.39, x: 715, y: 384 },
-  { name: "Oklahoma City", lat: 35.47, lon:  -97.52, x: 521, y: 372 },
-];
-function solveAffine() {
-  let sX = 0, sY = 0, sLon = 0, sLat = 0, sXLon = 0, sXLat = 0, sYLon = 0, sYLat = 0;
-  let sLonLon = 0, sLatLat = 0, sLonLat = 0;
-  const n = CITIES_CAL.length;
-  for (const c of CITIES_CAL) {
-    sX += c.x; sY += c.y; sLon += c.lon; sLat += c.lat;
-    sXLon += c.x * c.lon; sXLat += c.x * c.lat;
-    sYLon += c.y * c.lon; sYLat += c.y * c.lat;
-    sLonLon += c.lon * c.lon; sLatLat += c.lat * c.lat; sLonLat += c.lon * c.lat;
-  }
-  const A = [[n, sLon, sLat], [sLon, sLonLon, sLonLat], [sLat, sLonLat, sLatLat]];
-  function solve3(M: number[][], v: number[]): number[] {
-    const m = M.map((r, i) => [...r, v[i]]);
-    for (let i = 0; i < 3; i++) {
-      let p = i;
-      for (let k = i + 1; k < 3; k++) if (Math.abs(m[k][i]) > Math.abs(m[p][i])) p = k;
-      [m[i], m[p]] = [m[p], m[i]];
-      for (let k = i + 1; k < 3; k++) {
-        const f = m[k][i] / m[i][i];
-        for (let j = i; j < 4; j++) m[k][j] -= f * m[i][j];
-      }
-    }
-    const x = [0, 0, 0];
-    for (let i = 2; i >= 0; i--) {
-      let s = m[i][3];
-      for (let j = i + 1; j < 3; j++) s -= m[i][j] * x[j];
-      x[i] = s / m[i][i];
-    }
-    return x;
-  }
-  const [a, b, c] = solve3(A, [sX, sXLon, sXLat]);
-  const [d, e, f] = solve3(A, [sY, sYLon, sYLat]);
-  return { a, b, c, d, e, f };
-}
-const AFFINE = solveAffine();
-function project(lon: number, lat: number) {
-  const { a, b, c, d, e, f } = AFFINE;
-  return { x: a + b * lon + c * lat, y: d + e * lon + f * lat };
-}
-function unproject(x: number, y: number) {
-  const { a, b, c, d, e, f } = AFFINE;
-  const det = b * f - c * e;
-  return {
-    lon: (f * (x - a) - c * (y - d)) / det,
-    lat: (-e * (x - a) + b * (y - d)) / det,
-  };
-}
+/*
+ * The projection comes from lib/usAlbers now.
+ *
+ * This file used to carry its own copy of a six-parameter affine fitted to nine
+ * hand-recorded city pixels — the same approximation the SPC static map had, and
+ * wrong in the same way, because Albers is conic and an affine cannot bend. That
+ * mattered more here than anywhere else in the app: `unproject` turns a tap into
+ * the latitude and longitude that the game SCORES on, and the fit was out by up
+ * to 120 px. Players were being marked against a point that was not where they
+ * pressed.
+ */
 
 const GAME_CITIES: { name: string; lat: number; lon: number }[] = [
   { name: "Seattle", lat: 47.61, lon: -122.33 }, { name: "Portland", lat: 45.52, lon: -122.68 },
@@ -102,6 +53,42 @@ const GAME_CITIES: { name: string; lat: number; lon: number }[] = [
   { name: "Charlotte", lat: 35.23, lon: -80.84 }, { name: "Washington", lat: 38.90, lon: -77.04 },
   { name: "New York", lat: 40.71, lon: -74.00 }, { name: "Boston", lat: 42.36, lon: -71.06 },
 ];
+
+/**
+ * Which city labels to draw at a given magnification.
+ *
+ * Two tiers — the metros everyone can place from memory, then the chase-country
+ * towns that only matter once you are close enough to aim at one — and a greedy
+ * cull that keeps a label only if it is far enough from every label already
+ * kept, measured in SCREEN pixels. Because the threshold is divided by the zoom,
+ * the map thins itself out when you are looking at the whole country and fills
+ * in as you go down, instead of printing eighty overlapping names at every zoom.
+ */
+interface CityDot { name: string; x: number; y: number; major: boolean }
+const CITY_TIERS: CityDot[] = (() => {
+  const out: CityDot[] = [];
+  const seen = new Set<string>();
+  for (const c of GAME_CITIES) {
+    const p = project(c.lon, c.lat);
+    seen.add(c.name); out.push({ name: c.name, x: p.x, y: p.y, major: true });
+  }
+  for (const c of CHASE_CITIES) {
+    if (seen.has(c.name)) continue;
+    const p = project(c.lon, c.lat);
+    seen.add(c.name); out.push({ name: c.name, x: p.x, y: p.y, major: false });
+  }
+  return out;
+})();
+
+function visibleCities(k: number): CityDot[] {
+  const minGap = 58 / k;                 // 58 screen px between any two labels
+  const kept: CityDot[] = [];
+  for (const c of CITY_TIERS) {
+    if (!c.major && k < 2.2) continue;   // chase towns only once you are in close
+    if (kept.every((o) => Math.hypot(o.x - c.x, o.y - c.y) > minGap)) kept.push(c);
+  }
+  return kept;
+}
 
 // ── Overlays ────────────────────────────────────────────────────────────────
 // All four are SPC GeoJSON, so they run through the SAME affine as the basemap
@@ -245,7 +232,6 @@ export default function ForecastGame() {
   const [overlays, setOverlays] = useState<Record<string, OverlayData>>({});
 
   const { data: brief } = useDailyBrief();
-  const svgRef = useRef<SVGSVGElement>(null);
   const today = useGameDate();
   const yyyymm = today.slice(0, 7);
   const countdown = useLockCountdown();
@@ -290,12 +276,9 @@ export default function ForecastGame() {
     if (!locked && o && o.pin !== "both") setMode(o.pin);
   }
 
-  function handleMapClick(e: React.MouseEvent<SVGSVGElement>) {
-    if (!svgRef.current || locked) return;
+  function handleMapTap(x: number, y: number) {
+    if (locked) return;
     if (mode === "tornado" && quietDay) return;
-    const rect = svgRef.current.getBoundingClientRect();
-    const x = ((e.clientX - rect.left) / rect.width) * MAP_W;
-    const y = ((e.clientY - rect.top) / rect.height) * MAP_H;
     const { lat, lon } = unproject(x, y);
     const pin: Pin = { lat, lon, label: `${lat.toFixed(2)}, ${lon.toFixed(2)}` };
     if (mode === "severe") { setSeverePin(pin); setMode("tornado"); }
@@ -551,72 +534,63 @@ export default function ForecastGame() {
 
             {/* ── Map ── */}
             <div className="relative bg-black rounded-2xl overflow-hidden border border-border">
-              <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} onClick={handleMapClick}
-                className={`w-full h-auto ${locked ? "cursor-default" : "cursor-crosshair"}`}>
-                <defs>
-                  <radialGradient id="sswx-fg-bg" cx="50%" cy="40%" r="75%">
-                    <stop offset="0%" stopColor="#101a33" />
-                    <stop offset="100%" stopColor="#04060f" />
-                  </radialGradient>
-                  <filter id="sswx-fg-blur"><feGaussianBlur stdDeviation="7" /></filter>
-                </defs>
-                <rect width={MAP_W} height={MAP_H} fill="url(#sswx-fg-bg)" />
+              <AlbersPanZoom
+                width={MAP_W} height={MAP_H}
+                onTap={handleMapTap}
+                tapDisabled={locked || (mode === "tornado" && quietDay)}
+                ariaLabel="United States. Drag to pan, scroll or pinch to zoom, tap to place your pin."
+              >
+                {(k) => (
+                  <>
+                    <defs>
+                      <radialGradient id="sswx-fg-bg" cx="50%" cy="40%" r="75%">
+                        <stop offset="0%" stopColor="#101a33" />
+                        <stop offset="100%" stopColor="#04060f" />
+                      </radialGradient>
+                      <filter id="sswx-fg-blur"><feGaussianBlur stdDeviation="7" /></filter>
+                    </defs>
+                    <rect x={-MAP_W} y={-MAP_H} width={MAP_W * 3} height={MAP_H * 3} fill="url(#sswx-fg-bg)" />
 
-                {US_STATES.map((s, i) => (
-                  <path key={i} d={s.d} fill="#141d2e" stroke="#2c3b57" strokeWidth={0.8}>
-                    <title>{s.name}</title>
-                  </path>
-                ))}
+                    {US_STATES.map((st, i) => (
+                      <path key={i} d={st.d} fill="#141d2e" stroke="#2c3b57" strokeWidth={0.8 / k}>
+                        <title>{st.name}</title>
+                      </path>
+                    ))}
 
-                {/* soft glow pass under the crisp polygons — reads as weather, not vector art */}
-                <g filter="url(#sswx-fg-blur)" opacity={0.5} pointerEvents="none">
-                  {active.polys.map((p, i) => <path key={`b${overlayId}${i}`} d={p.d} fill={p.color} fillOpacity={0.5} />)}
-                </g>
-                {active.polys.map((p, i) => (
-                  <path key={`${overlayId}-${i}`} d={p.d} fill={p.color} fillOpacity={0.22}
-                    stroke={p.color} strokeOpacity={0.9} strokeWidth={1} pointerEvents="none" />
-                ))}
-
-                {GAME_CITIES.map((ci) => {
-                  const p = project(ci.lon, ci.lat);
-                  return (
-                    <g key={ci.name} pointerEvents="none">
-                      <circle cx={p.x} cy={p.y} r={2.2} fill="#e2e8f0" stroke="#000" strokeWidth={0.5} />
-                      <text x={p.x + 4} y={p.y + 3} fill="#cbd5e1" fontSize={8.5} fontFamily="system-ui"
-                        style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 1.6 }}>{ci.name}</text>
+                    {/* soft glow pass under the crisp polygons — reads as weather, not vector art */}
+                    <g filter="url(#sswx-fg-blur)" opacity={0.5} pointerEvents="none">
+                      {active.polys.map((p, i) => <path key={`b${overlayId}${i}`} d={p.d} fill={p.color} fillOpacity={0.5} />)}
                     </g>
-                  );
-                })}
+                    {active.polys.map((p, i) => (
+                      <path key={`${overlayId}-${i}`} d={p.d} fill={p.color} fillOpacity={0.22}
+                        stroke={p.color} strokeOpacity={0.9} strokeWidth={1 / k} pointerEvents="none" />
+                    ))}
 
-                {sevPt && (
-                  <g pointerEvents="none" className="sswx-fg-drop">
-                    <circle cx={sevPt.x} cy={sevPt.y} r={16} fill="none" stroke="#fde047" strokeWidth={2} opacity={0.7}>
-                      <animate attributeName="r" from="14" to="34" dur="1.6s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx={sevPt.x} cy={sevPt.y} r={13} fill="#fde047" stroke="#1a1400" strokeWidth={2} />
-                    <path d={boltPath(sevPt.x, sevPt.y)} fill="#1a1400" />
-                  </g>
-                )}
-                {torPt && (
-                  <g pointerEvents="none" className="sswx-fg-drop">
-                    <circle cx={torPt.x} cy={torPt.y} r={16} fill="none" stroke="#f87171" strokeWidth={2} opacity={0.7}>
-                      <animate attributeName="r" from="14" to="34" dur="1.6s" repeatCount="indefinite" />
-                      <animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite" />
-                    </circle>
-                    <circle cx={torPt.x} cy={torPt.y} r={13} fill="#ef4444" stroke="#2a0505" strokeWidth={2} />
-                    <path d={funnelPath(torPt.x, torPt.y)} fill="#2a0505" />
-                  </g>
-                )}
+                    {visibleCities(k).map((ci) => (
+                      <g key={ci.name} pointerEvents="none">
+                        <circle cx={ci.x} cy={ci.y} r={(ci.major ? 2.2 : 1.6) / k}
+                                fill={ci.major ? "#e2e8f0" : "#94a3b8"} stroke="#000" strokeWidth={0.5 / k} />
+                        <text x={ci.x + 4 / k} y={ci.y + 3 / k}
+                              fill={ci.major ? "#cbd5e1" : "#93a3ba"} fontSize={(ci.major ? 8.5 : 7.5) / k}
+                              fontFamily="system-ui"
+                              style={{ paintOrder: "stroke", stroke: "#000", strokeWidth: 1.6 / k }}>{ci.name}</text>
+                      </g>
+                    ))}
 
-                <text x={20} y={28} fill="#64748b" fontSize={11} fontFamily="monospace">
-                  {locked ? "PICKS LOCKED" : mode === "severe" ? "TAP TO PLACE ⚡ SEVERE PIN"
-                    : quietDay ? "QUIET DAY CALLED" : "TAP TO PLACE 🌪 TORNADO PIN"}
-                </text>
-              </svg>
+                    {sevPt && <GamePin x={sevPt.x} y={sevPt.y} k={k} tone="severe" />}
+                    {torPt && <GamePin x={torPt.x} y={torPt.y} k={k} tone="tornado" />}
+                  </>
+                )}
+              </AlbersPanZoom>
+
+              <div className="absolute top-2 left-2 px-2 py-1 rounded-md text-[10px] font-mono tracking-wide pointer-events-none"
+                   style={{ background: "rgba(4,6,15,0.72)", color: "#8fa0bd" }}>
+                {locked ? "PICKS LOCKED" : mode === "severe" ? "TAP TO PLACE ⚡ SEVERE PIN"
+                  : quietDay ? "QUIET DAY CALLED" : "TAP TO PLACE 🌪 TORNADO PIN"}
+              </div>
 
               {active.legend.length > 0 && (
-                <div className="absolute bottom-2 left-2 flex flex-wrap gap-1 max-w-[92%]">
+                <div className="absolute bottom-2 left-2 flex flex-wrap gap-1 max-w-[70%]">
                   {active.legend.map((l) => (
                     <span key={l.label} className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase tracking-wider border backdrop-blur-sm"
                       style={{ background: l.color + "33", color: l.color, borderColor: l.color + "80" }}>{l.label}</span>
@@ -790,6 +764,57 @@ export default function ForecastGame() {
 }
 
 /** Lightning bolt centred on (cx, cy), drawn inside the ⚡ pin disc. */
+/**
+ * A forecast pin, planted.
+ *
+ * The old marker faded in over 0.4 s with a small scale, which reads as an
+ * element appearing rather than as a pin going into a map. This one falls: it
+ * starts a pin-height above the point, overshoots on a stiff spring, and throws
+ * a shockwave ring outwards as it lands. Everything is divided by the zoom so
+ * the pin is the same size on screen whether you are looking at the country or
+ * at one county, and the standing pulse stays to mark the placement afterwards.
+ *
+ * `prefers-reduced-motion` gets the planted state with no travel and no ring.
+ */
+function GamePin({ x, y, k, tone }: { x: number; y: number; k: number; tone: "severe" | "tornado" }) {
+  const still = prefersReducedMotion();
+  const severe = tone === "severe";
+  const face = severe ? "#fde047" : "#ef4444";
+  const ink = severe ? "#1a1400" : "#2a0505";
+  const halo = severe ? "#fde047" : "#f87171";
+  const s = 1 / k;
+
+  return (
+    <motion.g
+      pointerEvents="none"
+      initial={still ? { opacity: 1 } : { opacity: 0, y: -46 / k }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={still ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 17, mass: 0.7 }}
+    >
+      {/* the landing shockwave: one ring, once */}
+      {!still && (
+        <motion.circle
+          cx={x} cy={y} fill="none" stroke={halo} strokeWidth={2.5 * s}
+          initial={{ r: 4 * s, opacity: 0.9 }}
+          animate={{ r: 46 * s, opacity: 0 }}
+          transition={{ duration: 0.75, delay: 0.12, ease: [0.16, 1, 0.3, 1] }}
+        />
+      )}
+      {/* the standing pulse that marks the placement from then on */}
+      <circle cx={x} cy={y} r={16 * s} fill="none" stroke={halo} strokeWidth={2 * s} opacity={0.7}>
+        <animate attributeName="r" from={14 * s} to={34 * s} dur="1.6s" repeatCount="indefinite" />
+        <animate attributeName="opacity" from="0.7" to="0" dur="1.6s" repeatCount="indefinite" />
+      </circle>
+      {/* the shadow it casts as it comes down */}
+      <ellipse cx={x} cy={y + 15 * s} rx={9 * s} ry={2.6 * s} fill="#000" opacity={0.45} />
+      <circle cx={x} cy={y} r={13 * s} fill={face} stroke={ink} strokeWidth={2 * s} />
+      <g transform={`translate(${x} ${y}) scale(${s}) translate(${-x} ${-y})`}>
+        <path d={severe ? boltPath(x, y) : funnelPath(x, y)} fill={ink} />
+      </g>
+    </motion.g>
+  );
+}
+
 function boltPath(cx: number, cy: number): string {
   const s = 0.6;
   const p = (dx: number, dy: number) => `${(cx + dx * s).toFixed(1)},${(cy + dy * s).toFixed(1)}`;

@@ -353,7 +353,31 @@ async function geminiOnce(
 }
 
 // schemaGemini uses UPPERCASE OpenAPI-subset types; schemaAnthropic uses JSON-Schema.
+/**
+ * How long this invocation may spend talking to an AI provider, in total.
+ *
+ * THE OUTAGE THIS EXISTS TO STOP
+ * Gemini answered 503 for three days running. The chain is three models tried
+ * twice with a five-second wait between passes, then Anthropic — and the brief
+ * is only the FIRST of two AI calls in a run. On 12 September that ran past the
+ * platform's wall clock and the function was killed part way through, so
+ * `daily_brief` had no row for the day at all and `severe_history` — the yearly
+ * statistics at the bottom of the Weather Patterns module — still carried the
+ * previous day's timestamp.
+ *
+ * Statistics must not be able to go stale because a language model is busy. The
+ * deadline is set once when the run starts; past it, every AI call returns
+ * immediately and the deterministic text is used.
+ */
+const AI_BUDGET_MS = 70_000;
+let aiDeadline = Number.POSITIVE_INFINITY;
+function startAiBudget(): void { aiDeadline = Date.now() + AI_BUDGET_MS; }
+function aiBudgetLeft(): boolean { return Date.now() < aiDeadline; }
+
 async function aiJSON(system: string, user: string, schemaGemini: unknown, schemaAnthropic: unknown): Promise<AIRun> {
+  if (!aiBudgetLeft()) {
+    return { ok: false, error: `AI budget of ${AI_BUDGET_MS / 1000}s exhausted for this run` };
+  }
   let geminiError = "";
   if (GEMINI_API_KEY) {
     // Actually walk the chain. Pinning one model is what silently reduced every
@@ -367,9 +391,15 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
     // chain after a short wait; hard failures (404 retirement, safety blocks)
     // still fall straight through.
     for (let attempt = 0; attempt < 2; attempt++) {
-      if (attempt > 0) await new Promise((r) => setTimeout(r, 5000));
+      // A second pass is only worth waiting five seconds for if there is still
+      // time left to use the answer.
+      if (attempt > 0) {
+        if (!aiBudgetLeft()) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
       let transient = false;
       for (const model of GEMINI_MODELS) {
+        if (!aiBudgetLeft()) { transient = false; break; }
         const res = await geminiOnce(model, system, user, schemaGemini);
         if (res.ok) return res;
         tried.push(`${model} -> ${res.error}`);
@@ -477,7 +507,7 @@ const BACKFILL_DAYS = 45;
 // filled if missing.
 const RESYNC_DAYS = 21;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-type PeriodId = "week" | "lastmonth" | "thismonth" | "thisyear";
+type PeriodId = "yesterday" | "week" | "lastweek" | "lastmonth" | "thismonth" | "thisyear";
 interface DayCount { report_date: string; tornado: number; hail: number; wind: number }
 interface PeriodAgg {
   id: PeriodId; label: string; start: string; end: string;
@@ -519,8 +549,15 @@ function aggregatePeriods(rows: DayCount[], today: Date): { periods: PeriodAgg[]
   const lastMonthEnd = new Date(Date.UTC(y, m, 0));
   const yearStart = new Date(Date.UTC(y, 0, 1));
   const lm = lastMonthStart.getUTCMonth(), lmy = lastMonthStart.getUTCFullYear();
+  const yesterday = new Date(today); yesterday.setUTCDate(today.getUTCDate() - 1);
+  const lastWeekEnd = new Date(today); lastWeekEnd.setUTCDate(today.getUTCDate() - 7);
+  const lastWeekStart = new Date(today); lastWeekStart.setUTCDate(today.getUTCDate() - 13);
   const defs: { id: PeriodId; label: string; start: string; end: string }[] = [
+    // Yesterday and the week before are what the Weather Patterns recap walks
+    // back through; without them those tabs had figures and no prose.
+    { id: "yesterday", label: "Yesterday", start: isoDate(yesterday), end: isoDate(yesterday) },
     { id: "week", label: "Past 7 days", start: isoDate(weekStart), end: isoDate(today) },
+    { id: "lastweek", label: "The 7 days before that", start: isoDate(lastWeekStart), end: isoDate(lastWeekEnd) },
     { id: "lastmonth", label: `${MONTHS[lm]} ${lmy}`, start: isoDate(lastMonthStart), end: isoDate(lastMonthEnd) },
     { id: "thismonth", label: `${MONTHS[m]} ${y} (so far)`, start: isoDate(thisMonthStart), end: isoDate(today) },
     { id: "thisyear", label: `${y} year-to-date`, start: isoDate(yearStart), end: isoDate(today) },
@@ -659,22 +696,46 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null; d
   const yearStart = isoDate(new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1)));
   const { data } = await admin.from("daily_report_counts").select("report_date,tornado,hail,wind").gte("report_date", yearStart).order("report_date");
   const { periods, trackingSince } = aggregatePeriods((data ?? []) as DayCount[], today);
-  // 4) AI narratives (deterministic fallback per period).
-  const { map, model } = await generateHistoryNarratives(periods);
+
+  /*
+   * 4) THE NUMBERS GO IN FIRST.
+   *
+   * This used to ask the AI for four narratives and only then write the row.
+   * Which meant the yearly statistics — the ones at the bottom of the Weather
+   * Patterns module — were downstream of a language model: if the provider was
+   * slow or the function was killed waiting on it, the counts silently kept
+   * yesterday's values and yesterday's timestamp. That is exactly what happened
+   * across 9-12 September, when Gemini returned 503 for three days.
+   *
+   * So the aggregate is written with the deterministic narrative immediately,
+   * and the AI is invited afterwards to improve the words. Nothing about the
+   * statistics depends on it any more: the worst an AI outage can now do is
+   * leave the prose plainer than usual.
+   */
   const now = new Date().toISOString();
   for (const p of periods) {
-    const ai = map[p.id];
     const det = deterministicPeriodNarrative(p);
     await admin.from("severe_history").upsert({
       period: p.id,
       period_label: p.label,
-      headline: ai?.headline ?? det.headline,
-      summary: ai?.summary ?? det.summary,
+      headline: det.headline,
+      summary: det.summary,
       stats: p.stats,
       events: p.events,
       tracking_since: trackingSince,
       updated_at: now,
     }, { onConflict: "period" });
+  }
+
+  // 5) Then the words, as an upgrade to rows that already exist and are correct.
+  const { map, model } = await generateHistoryNarratives(periods);
+  for (const p of periods) {
+    const ai = map[p.id];
+    if (!ai?.headline && !ai?.summary) continue;
+    const det = deterministicPeriodNarrative(p);
+    await admin.from("severe_history")
+      .update({ headline: ai.headline ?? det.headline, summary: ai.summary ?? det.summary })
+      .eq("period", p.id);
   }
   return { model, detailsBackfilled };
 }
@@ -995,11 +1056,33 @@ Deno.serve(async (req: Request) => {
   try {
     const src = await ingest();
     const overview = riskOverview(src);
+    startAiBudget();
 
     if (dryRun) {
       await logRun({ brief_date: briefDate, status: "dry-run", trigger: auth.trigger, duration_ms: Date.now() - started, detail: "dry run — no write" });
       return json({ ok: true, dryRun: true, source_data: src, risk_overview: overview, ai_key_configured: AI_KEY_SET, ai_provider: GEMINI_API_KEY ? "gemini" : ANTHROPIC_API_KEY ? "anthropic" : null });
     }
+
+    /*
+     * The ledger runs BEFORE the brief.
+     *
+     * Both want the AI, and only one of them is prose. If a run is going to be
+     * cut short — a slow provider, the platform's wall clock — the thing to
+     * lose is the narrative, not the day's storm-report counts and the yearly
+     * aggregate built from them. `updateHistory` now writes its numbers before
+     * it asks for any words, so running it first means the statistics are
+     * durable even if everything after this line fails.
+     *
+     * Still best-effort: a failure here must not stop the brief either.
+     */
+    let history: unknown = null;
+    try {
+      history = await updateHistory(src);
+    } catch (e) {
+      await logRun({ brief_date: briefDate, status: "history-error", trigger: auth.trigger,
+                     detail: String(e instanceof Error ? e.message : e) });
+    }
+
 
     const ai = await generateBrief(src);
 
@@ -1029,9 +1112,9 @@ Deno.serve(async (req: Request) => {
       await logRun({ brief_date: briefDate, status: "error", trigger: auth.trigger, duration_ms: Date.now() - started, detail: errMsg });
     }
 
-    // Secondary jobs are best-effort — they never fail the brief.
-    let history: unknown = null, game: unknown = null;
-    try { history = await updateHistory(src); } catch (e) { await logRun({ brief_date: briefDate, status: "history-error", trigger: auth.trigger, detail: String(e instanceof Error ? e.message : e) }); }
+    // Game scoring is best-effort — it never fails the brief. (The history
+    // ledger already ran, above the brief, for the reason given there.)
+    let game: unknown = null;
     try { game = await scoreGame(); } catch (e) { await logRun({ brief_date: briefDate, status: "game-error", trigger: auth.trigger, detail: String(e instanceof Error ? e.message : e) }); }
 
     return json({ ok: true, status: ai.ok ? "ok" : ("reason" in ai ? "skipped" : "error"), brief_date: briefDate, history, game });

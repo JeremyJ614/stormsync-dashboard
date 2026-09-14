@@ -93,15 +93,10 @@ function NewsTab({
   );
 }
 
-interface NewsItem {
-  title: string;
-  link: string;
-  source: string;
-  pubDate: string;
-  description: string;
-}
 
 import { BASE_API } from "../config";
+import { WeatherNewsFeed, type NewsItem } from "../components/home/WeatherNewsFeed";
+import { prefersReducedMotion } from "../lib/royal";
 
 export default function Home() {
   const [tab, setTab] = useState<Tab>("sswx");
@@ -250,43 +245,7 @@ export default function Home() {
       {tab === "updates" && <AppUpdatesTab />}
 
       {tab === "weather" && (
-        <div className="space-y-3">
-          <div className="text-xs text-muted-foreground">
-            Auto-pulled from Google News. Filter: severe weather, tornado, hurricane, storm. Refreshed every 10 minutes.
-          </div>
-          {newsLoading && news.length === 0 && (
-            <div className="bg-card border border-border rounded-xl p-10 text-center">
-              <div className="text-3xl mb-2 animate-pulse">📰</div>
-              <p className="text-sm text-muted-foreground">Pulling the latest weather headlines…</p>
-            </div>
-          )}
-          {!newsLoading && news.length === 0 && (
-            <div className="bg-card border border-border rounded-xl p-10 text-center">
-              <div className="text-3xl mb-2">🌤️</div>
-              <p className="text-sm text-muted-foreground">No headlines available right now. Try again shortly.</p>
-            </div>
-          )}
-          <div className="grid md:grid-cols-2 gap-3">
-            {news.slice(0, 10).map((n, i) => (
-              <a key={i} href={n.link} target="_blank" rel="noopener noreferrer"
-                className="block bg-card border border-border rounded-xl p-4 hover:border-primary/40 transition-colors">
-                <div className="flex items-start gap-2">
-                  <Newspaper className="w-4 h-4 text-primary shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-bold leading-snug line-clamp-2 break-words">{n.title}</div>
-                    {n.description && <div className="text-xs text-muted-foreground line-clamp-2 mt-1">{n.description}</div>}
-                    <div className="flex items-center gap-2 mt-2 text-[10px] text-muted-foreground/80">
-                      <span className="uppercase tracking-widest">{n.source}</span>
-                      <span>·</span>
-                      <span><Clock className="w-2.5 h-2.5 inline mr-0.5" /> {timeAgo(n.pubDate)}</span>
-                      <ExternalLink className="w-2.5 h-2.5 ml-auto text-primary" />
-                    </div>
-                  </div>
-                </div>
-              </a>
-            ))}
-          </div>
-        </div>
+        <WeatherNewsFeed items={news} loading={newsLoading} still={prefersReducedMotion()} timeAgo={timeAgo} />
       )}
 
       {tab === "sswx" && (

@@ -63,50 +63,56 @@ function Preview({ style }: { style: MenuStyle }) {
         </>
       )}
 
-      {style === "solari" && (
+      {style === "mercury" && (
         <>
-          {[14, 28, 42, 56, 70].map((t) => (
+          {/* The reservoir, and the stream beading below it — one neck still
+              attached, one already pinched. */}
+          <div className="absolute" style={{
+            left: 6, top: 8, right: 6, height: 5, borderRadius: 999,
+            background: "linear-gradient(180deg,#fffaf0,#c9aa6e 40%,#54472a 62%,#c6ab72)",
+          }} />
+          <div className="absolute" style={{
+            left: 24, top: 12, width: 4, height: 7,
+            background: "linear-gradient(180deg,#7d6839,#c9ad71 40%,#6f5c33)",
+            clipPath: "polygon(0 0, 100% 0, 62% 50%, 100% 100%, 0 100%, 38% 50%)",
+          }} />
+          {[19, 35, 51, 67].map((t, i) => (
             <div key={t} className="absolute" style={{
-              left: 5, top: t, right: 5, height: 11, borderRadius: 2,
-              background: "linear-gradient(180deg, rgba(255,255,255,.07) 0 45%, rgba(0,0,0,.5) 45% 55%, rgba(255,255,255,.03) 55%)",
-              border: `1px solid rgba(0,0,0,.5)`,
-            }} />
-          ))}
-          {[14, 28, 42, 56, 70].map((t, i) => (
-            <div key={`c-${t}`} className={box} style={{
-              left: 8, top: t + 4, width: 26 - i * 4, height: 3,
-              background: gold, opacity: i === 1 ? 0.4 : 0.85,
+              left: 8, top: t, right: 8, height: 10, borderRadius: 999,
+              background: "linear-gradient(180deg,#fffaf0 0%,#d0b177 30%,#544728 64%,#cdb179 88%,#8b7444 100%)",
+              opacity: i === 3 ? 0.55 : 1,
             }} />
           ))}
         </>
       )}
 
-      {style === "sweep" && (
+      {style === "vault" && (
         <>
-          <div className="absolute rounded-full" style={{
-            left: 26 - 26, top: 42 - 26, width: 52, height: 52,
-            border: `1px solid rgba(217,183,117,.22)`,
-          }} />
-          {[10, 17, 24].map((r) => (
-            <div key={r} className="absolute rounded-full" style={{
-              left: 26 - r, top: 42 - r, width: r * 2, height: r * 2,
-              border: `1px solid ${r === 24 ? ROYAL.goldSoft : "rgba(204,204,255,.12)"}`,
-            }} />
-          ))}
-          <div className="absolute" style={{
-            left: 26, top: 42, width: 0, height: 0,
-            borderLeft: `24px solid rgba(217,183,117,.22)`, borderBottom: "18px solid transparent",
-          }} />
-          <div className="absolute" style={{ left: 26, top: 42 - 24, width: 1, height: 24, background: gold }} />
-          {[[26, 18], [43, 42], [26, 66], [9, 42]].map(([l, t], i) => (
-            <div key={i} className="absolute rounded-full" style={{
-              left: l - 3.5, top: t - 3.5, width: 7, height: 7,
-              background: "rgba(10,10,22,.9)", border: `1px solid ${gold}`,
+          {/* The door on its wall, with the boxes behind it. */}
+          {[0, 1, 2].map((c) => (
+            <div key={c} className={box} style={{
+              left: 5 + c * 15, top: 62, width: 12, height: 15,
+              background: "linear-gradient(160deg,#e9d3a2,#a88c52 40%,#5f4d2a)",
             }} />
           ))}
           <div className="absolute rounded-full" style={{
-            left: 26 - 6, top: 42 - 6, width: 12, height: 12,
-            background: "rgba(217,183,117,.18)", border: `1px solid ${ROYAL.goldSoft}`,
+            left: 6, top: 8, width: 40, height: 40,
+            background: "repeating-conic-gradient(from 0deg, #31343d 0deg 5deg, #14161c 5deg 10deg)",
+            border: `1px solid rgba(217,183,117,.3)`,
+          }} />
+          <div className="absolute rounded-full" style={{
+            left: 10, top: 12, width: 32, height: 32,
+            background: "radial-gradient(120% 120% at 32% 22%, #3a3d47, #15171d 70%)",
+          }} />
+          {[0, 90].map((d) => (
+            <div key={d} className="absolute" style={{
+              left: 18, top: 26.5, width: 16, height: 3, borderRadius: 2,
+              transform: `rotate(${d}deg)`,
+              background: "linear-gradient(90deg,#7b6a3d,#f2e2bb 50%,#7b6a3d)",
+            }} />
+          ))}
+          <div className="absolute rounded-full" style={{
+            left: 23, top: 25, width: 6, height: 6, background: gold,
           }} />
         </>
       )}

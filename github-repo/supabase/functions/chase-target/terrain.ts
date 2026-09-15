@@ -64,11 +64,40 @@ function ramp(v: number, good: number, bad: number): number {
   return smooth(1 - (v - good) / (bad - good));
 }
 
-async function getJSON(url: string, timeoutMs = 20000, tries = 3): Promise<unknown> {
+/**
+ * The deadline the whole terrain stage must respect.
+ *
+ * Terrain is a refinement worth 22% of a score that is already complete before
+ * it starts. It must never be the reason a run produces nothing, so every
+ * request below is capped by this as well as by its own timeout.
+ */
+let stageDeadline = Infinity;
+export function setTerrainDeadline(at: number) { stageDeadline = at; }
+export function terrainDeadlinePassed(): boolean { return Date.now() >= stageDeadline; }
+
+/**
+ * Fetch JSON with a timeout that cannot outlive the stage deadline.
+ *
+ * THE BUG THIS FIXES
+ * `www.mrlc.gov` is a GeoServer, and under a burst it does not slow down — it
+ * hangs. Measured: fifteen simultaneous GetFeatureInfo requests, twelve back in
+ * about nine tenths of a second and three still at zero bytes received after a
+ * full minute. `coverAt` issues five per location and `terrainFor` ran three
+ * locations at once, so every wave was exactly that fifteen-wide burst.
+ *
+ * With a twenty-second timeout and two tries, one hung cover point cost forty
+ * seconds, four waves cost a hundred and sixty, and the platform killed the
+ * worker at a hundred and fifty — which is why the Storm Chasing page stopped
+ * updating. Nothing was written, not even a failure row, because the process
+ * was gone before the handler's catch could run.
+ */
+async function getJSON(url: string, timeoutMs = 8000, tries = 2): Promise<unknown> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < tries; attempt++) {
+    const left = stageDeadline - Date.now();
+    if (left <= 250) throw new Error("terrain deadline");
     const ctl = new AbortController();
-    const timer = setTimeout(() => ctl.abort(), timeoutMs);
+    const timer = setTimeout(() => ctl.abort(), Math.min(timeoutMs, left));
     try {
       const r = await fetch(url, {
         headers: { "User-Agent": UA, Accept: "application/json" },
@@ -78,12 +107,27 @@ async function getJSON(url: string, timeoutMs = 20000, tries = 3): Promise<unkno
       return await r.json();
     } catch (e) {
       lastErr = e;
-      await new Promise((res) => setTimeout(res, 400 * (attempt + 1)));
+      if (attempt < tries - 1) await new Promise((res) => setTimeout(res, 300));
     } finally {
       clearTimeout(timer);
     }
   }
   throw lastErr;
+}
+
+/** Run promises a few at a time, rather than all at once. */
+async function pooled<T, R>(items: T[], width: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(width, items.length) }, async () => {
+    for (;;) {
+      const i = next++;
+      if (i >= items.length) return;
+      out[i] = await fn(items[i]);
+    }
+  });
+  await Promise.all(workers);
+  return out;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -189,13 +233,23 @@ async function coverPoint(lat: number, lon: number): Promise<[number | null, num
     feature_count: "2",
   });
   try {
-    const b = await getJSON(`${MRLC}?${q}`, 20000, 2) as {
+    // Five seconds and no retry. This is the server that hangs rather than
+    // fails, so a generous timeout buys nothing but dead time: when it answers
+    // it answers in about nine tenths of a second, and when it does not, it
+    // never will. Cover is also the most expendable of the three signals —
+    // `blend` redistributes its weight over whatever did answer.
+    const b = await getJSON(`${MRLC}?${q}`, 5000, 1) as {
       features?: { properties?: { PALETTE_INDEX?: number } }[];
     };
     const f = b.features ?? [];
-    const lc = typeof f[0]?.properties?.PALETTE_INDEX === "number" ? f[0].properties!.PALETTE_INDEX! : null;
-    const cn = typeof f[1]?.properties?.PALETTE_INDEX === "number" ? f[1].properties!.PALETTE_INDEX! : null;
-    return [lc, cn];
+    // 255 is NLCD's no-data fill, not a measurement. Over water and outside the
+    // conterminous coverage every query returns it, and the old code carried it
+    // through as a canopy of 255% — which is where the cached ocean cells with
+    // `canopy_pct: 255` came from.
+    const ok = (v: unknown): v is number => typeof v === "number" && v >= 0 && v < 255;
+    const raw0 = f[0]?.properties?.PALETTE_INDEX;
+    const raw1 = f[1]?.properties?.PALETTE_INDEX;
+    return [ok(raw0) ? raw0 : null, ok(raw1) ? raw1 : null];
   } catch {
     return [null, null];
   }
@@ -208,7 +262,9 @@ async function coverAt(lat: number, lon: number): Promise<Cover | null> {
   const pts: [number, number][] = [
     [lat, lon], [lat + dLat, lon], [lat - dLat, lon], [lat, lon + dLon], [lat, lon - dLon],
   ];
-  const res = await Promise.all(pts.map(([a, o]) => coverPoint(a, o)));
+  // Two at a time, not five. See getJSON: this server hangs under a burst, and
+  // five points per location times three locations was a fifteen-wide burst.
+  const res = await pooled(pts, 2, ([a, o]) => coverPoint(a, o));
   const lcs = res.map((r) => r[0]).filter((v): v is number => v !== null);
   const cans = res.map((r) => r[1]).filter((v): v is number => v !== null);
   if (!lcs.length) return null;
@@ -236,6 +292,11 @@ async function roadsAt(lat: number, lon: number): Promise<Roads | null> {
     geometryType: "esriGeometryEnvelope", inSR: "4326", outSR: "4326",
     spatialRel: "esriSpatialRelIntersects", returnGeometry: "true",
     outFields: "", resultRecordCount: "4000",
+    // Five decimal places is about a metre. Measured against the full-precision
+    // response over Oklahoma City it moves road density by 0.01% and the grid
+    // fraction by 0.0003, for 44% fewer bytes — 2.35 MB down to 1.31 MB, and
+    // this runs once per finalist.
+    geometryPrecision: "5",
   });
   let d: { features?: { geometry?: { paths?: number[][][] } }[] };
   try {
@@ -322,10 +383,19 @@ export function blend(
 
   return {
     score: round(100 * (0.02 + 0.93 * raw ** GAMMA), 1),
-    trees: trees === null ? null : round(trees * 100),
-    rugged: rugged === null ? null : round(rugged * 100),
-    sight: sight === null ? null : round(sight * 100),
-    roads: road === null ? null : round(road * 100),
+    // Math.round, not the local `round`, whose default precision is ONE DECIMAL.
+    //
+    // THE BUG THIS FIXES, and it is why the terrain cache was empty.
+    // These four go into `smallint` columns. `round(trees * 100)` returned 83.6,
+    // Postgres rejected the whole upsert with `invalid input syntax for type
+    // smallint: "83.6"`, and the write was swallowed by a console.warn — so
+    // every run re-measured every cell from scratch, for ever. The only rows
+    // that ever survived were ten ocean cells whose sub-scores happened to come
+    // out whole (38, 100, 100), which is exactly what the table contained.
+    trees: trees === null ? null : Math.round(trees * 100),
+    rugged: rugged === null ? null : Math.round(rugged * 100),
+    sight: sight === null ? null : Math.round(sight * 100),
+    roads: road === null ? null : Math.round(road * 100),
     confidence: round(weight, 2),
     detail: {
       canopy_pct: cover ? round(cover.canopy) : null,
@@ -342,10 +412,22 @@ export function blend(
 
 /** Measure one location from scratch. Three requests' worth of work, roughly. */
 export async function measure(lat: number, lon: number): Promise<TerrainResult | null> {
+  // Timed individually, and named. Three services answer here and they fail
+  // differently: the elevation API throttles, the Census one is merely large,
+  // and the land-cover WMS hangs. Knowing WHICH one stalled is the difference
+  // between a five-minute diagnosis and an afternoon of it.
+  const timed = async <T>(name: string, p: Promise<T>): Promise<T | null> => {
+    const s = Date.now();
+    try { return await p; }
+    catch (e) {
+      console.log(`[terrain] ${name} failed after ${Date.now() - s}ms: ${e instanceof Error ? e.message : e}`);
+      return null;
+    }
+  };
   const [cover, relief, roads] = await Promise.all([
-    coverAt(lat, lon).catch(() => null),
-    reliefAt(lat, lon).catch(() => null),
-    roadsAt(lat, lon).catch(() => null),
+    timed("cover", coverAt(lat, lon)),
+    timed("relief", reliefAt(lat, lon)),
+    timed("roads", roadsAt(lat, lon)),
   ]);
   return blend(cover, relief, roads);
 }
@@ -383,7 +465,7 @@ export const CELL = 0.05;
  * stop matching, the cells are measured again, and the stale rows age out.
  * BUMP IT whenever `measure` or `blend` changes in a way that moves scores.
  */
-export const ALGO = 2;
+export const ALGO = 3;
 
 export function cellKey(lat: number, lon: number): string {
   return `v${ALGO}:${Math.round(lat / CELL)}:${Math.round(lon / CELL)}`;
@@ -403,7 +485,7 @@ export async function terrainFor(
   points: { lat: number; lon: number }[],
   cache: TerrainCache | null,
   fallback: number,
-  concurrency = 3,
+  concurrency = 2,
 ): Promise<{ score: number; result: TerrainResult | null }[]> {
   const keys = points.map((p) => cellKey(p.lat, p.lon));
   let hits = new Map<string, TerrainResult>();
@@ -424,6 +506,14 @@ export async function terrainFor(
   // One cell may appear twice in a batch; measure it once.
   const measured = new Map<string, TerrainResult | null>();
   for (let i = 0; i < todo.length; i += concurrency) {
+    // Out of time. Whatever is left keeps the caller's neutral prior; a run
+    // that reports partial terrain is worth far more than a run that is killed
+    // holding the complete answer.
+    if (terrainDeadlinePassed()) {
+      for (const idx of todo.slice(i)) out[idx] = { score: fallback, result: null };
+      console.log(`[terrain] deadline reached, ${todo.length - i} location(s) left unmeasured`);
+      break;
+    }
     const slice = todo.slice(i, i + concurrency);
     await Promise.all(slice.map(async (idx) => {
       const key = keys[idx];

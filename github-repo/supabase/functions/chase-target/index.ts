@@ -31,7 +31,7 @@
 // neither, every field falls back to a deterministic write so the page is never
 // dead — it just says less.
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { terrainFor, type TerrainCache, type TerrainResult } from "./terrain.ts";
+import { terrainFor, setTerrainDeadline, terrainDeadlinePassed, type TerrainCache, type TerrainResult } from "./terrain.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
@@ -1279,14 +1279,28 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
   const nextDate = addDays(outlookDate, 1);
   const started = Date.now();
 
+  /*
+   * Stage timings, kept in.
+   *
+   * This run talks to the SPC, Open-Meteo and three other public services, and
+   * when one of them hangs the only symptom used to be a killed worker and a
+   * page still showing yesterday. Six log lines turn that into a diagnosis: the
+   * pass that found the MRLC hang showed the meteorology finished at 1.6s and
+   * nothing after `rank` ever logged again.
+   */
+  const mark = (stage: string) => console.log(`[stage] ${stage} t=${Date.now() - started}ms`);
+
   {
     // ── candidates ───────────────────────────────────────────────────────────
     const { areas, catMax, probs, outlook, valid } = await ingestRisk(outlookDate, historical);
+    mark("ingestRisk");
     const gen = generateCandidates(areas);
     const candidates = thin(gen.list, 120, gen.source === "national-fallback" ? 1.4 : gen.step * 1.4);
 
     // ── score ────────────────────────────────────────────────────────────────
+    mark("candidates");
     const wx = await fetchWeather(candidates, outlookDate, historical);
+    mark("fetchWeather");
     const scored: Scored[] = [];
     for (let i = 0; i < candidates.length; i++) {
       const loc = wx[i];
@@ -1341,11 +1355,35 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
     // Tipton County, Tennessee, because the swap happened after the prose was
     // written. Thinning the candidate list first means every pair the model can
     // choose is already a legal pair, so the words and the pins cannot disagree.
+    mark("rank");
     const finalists = spreadOut(scored, 10, MIN_SEPARATION_KM);
+
+    /*
+     * Terrain gets a deadline, because it used to get the whole run.
+     *
+     * The meteorology above is finished about a second and a half in. Terrain
+     * then talks to three public services, one of which (the MRLC land-cover
+     * WMS) hangs rather than fails under load. With no deadline the stage ran
+     * until the platform killed the worker at 150 seconds, and a killed worker
+     * writes nothing at all — no row, and not even the failure record the
+     * handler's catch would have written. That is what "the module isn't
+     * updating" looked like: the page quietly kept showing the previous day.
+     *
+     * Forty seconds is comfortably more than a healthy pass needs (ten
+     * locations, a handful of requests each, most of them cached after the
+     * first day) and comfortably less than the budget for the rest of the run.
+     */
+    const TERRAIN_BUDGET_MS = 40_000;
+    setTerrainDeadline(Date.now() + TERRAIN_BUDGET_MS);
     const terr = await terrainFor(
       finalists.map((s) => ({ lat: s.cand.lat, lon: s.cand.lon })),
       terrainCache, TERRAIN_UNKNOWN,
     );
+    mark("terrain");
+    const terrainPartial = terrainDeadlinePassed();
+    if (terrainPartial) {
+      console.warn(`terrain stage hit its ${TERRAIN_BUDGET_MS}ms budget; some finalists keep the neutral prior`);
+    }
     // Terrain carries more weight than it used to, because it now means
     // something. At 14% a score that was 100 everywhere moved nothing; at 22% a
     // score that separates the High Plains from the Ozarks by sixty points is
@@ -1678,9 +1716,12 @@ async function runDay(outlookDate: string, opts: RunOpts): Promise<any> {
     // it ran fine. A run log that can fail quietly is worse than no run log:
     // it looks like evidence.
     const logged = await admin.from("chase_runs").insert({
-      outlook_date: outlookDate, status: row.status, model: row.model, trigger: opts.trigger,
+      outlook_date: outlookDate,
+      status: row.status, model: row.model, trigger: opts.trigger,
       duration_ms: Date.now() - started, candidates: candidates.length, scored: scored.length,
-      detail: row.error,
+      // A run whose terrain was cut short still succeeded — but it says so,
+      // rather than letting a neutral prior pass for a measurement.
+      detail: row.error ?? (terrainPartial ? "terrain partial: stage budget reached" : null),
     });
     if (logged.error) console.error("chase_runs insert failed:", logged.error.message);
 

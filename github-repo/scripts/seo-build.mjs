@@ -286,7 +286,25 @@ const fallback = pageHtml(template, {
     "Live severe weather tracking for storm chasers, spotters and weather enthusiasts.",
   index: false,
 }).replace(/\n\s*<link rel="canonical"[^>]*>/g, "");
-await writeFile(join(DIST, "app.html"), fallback);
+/*
+ * Written as `app/index.html`, NOT `app.html`.
+ *
+ * THE BUG THIS FIXES, and it was a total outage of the app's navigation.
+ * `vercel.json` sets `cleanUrls: true`, which makes Vercel serve `app.html` at
+ * `/app` and 308-REDIRECT `/app.html` to it. The catch-all rewrite pointed at
+ * `/app.html`, a path that therefore no longer resolves to a file — so every
+ * route without its own prerendered page returned Vercel's own 404. All
+ * forty-seven of them. `/`, `/plans`, `/faq`, `/contact` and `/login` worked,
+ * because those have real files; everything behind them — the dashboard, the
+ * radar, the game, every module a subscriber pays for — did not, on direct
+ * navigation, on refresh, and on every shared link.
+ *
+ * A directory index sidesteps the whole question: `/app` is served from
+ * `app/index.html` whether cleanUrls is on or off, so the rewrite destination
+ * cannot be transformed out from under it again.
+ */
+await mkdir(join(DIST, "app"), { recursive: true });
+await writeFile(join(DIST, "app", "index.html"), fallback);
 
 const indexable = PAGES.filter((p) => p.index);
 
@@ -364,5 +382,5 @@ await writeFile(join(DIST, "llms.txt"),
 
 console.log(
   `seo-build: ${written.length} pages (${written.join(", ")}), `
-  + `${faqEntries.length} FAQ questions, app.html fallback, `
+  + `${faqEntries.length} FAQ questions, app/ fallback, `
   + `sitemap with ${indexable.length} urls, robots.txt, llms.txt`);

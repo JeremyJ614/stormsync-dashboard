@@ -26,7 +26,11 @@
 // copy and left the revalidation running outside `event.waitUntil`, so the
 // browser was free to kill the worker before the good response was ever
 // written back. Both are fixed below.
-const CACHE_VERSION = "sswx-v7";
+// Bumped to v8 to evict the shell caches that were poisoned with the
+// platform's 404 page while the SPA rewrite was broken. Without this, clients
+// that cached it keep serving it from disk until something else bumps the
+// version.
+const CACHE_VERSION = "sswx-v8";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
@@ -96,7 +100,22 @@ self.addEventListener("fetch", (event) => {
   if (req.mode === "navigate") {
     event.respondWith(
       fetch(req).then((res) => {
-        caches.open(SHELL_CACHE).then((c) => c.put("/", res.clone())).catch(() => {});
+        // Only a GOOD response is allowed to become the shell.
+        //
+        // THE BUG THIS FIXES. This cached whatever came back, status and all.
+        // While the SPA rewrite was broken every navigation to /dashboard,
+        // /spc, /game and forty-four others returned the platform's 404 page —
+        // and this wrote that 404 into the shell cache under "/". From then on
+        // the offline fallback, and the first paint of any cold start served
+        // from cache, was a page saying "This page doesn't exist".
+        //
+        // The routing fault is fixed separately, but caching an error response
+        // as the app shell is wrong on its own: any transient 502 from the edge
+        // would do the same thing, and it persists until the cache version is
+        // bumped. A bad answer should never outlive the request that caused it.
+        if (res.ok && res.type !== "opaque") {
+          caches.open(SHELL_CACHE).then((c) => c.put("/", res.clone())).catch(() => {});
+        }
         return res;
       }).catch(() => caches.match("/").then((r) => r || caches.match("/index.html"))),
     );

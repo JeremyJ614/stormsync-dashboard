@@ -1,9 +1,10 @@
 import { useState } from "react";
+import { ModuleShell } from "../components/ModuleShell";
 import { useNWSPoints, useNWSDiscussion, useOpenMeteo } from "../hooks/useWeatherQuery";
 import { useDailyBrief } from "../hooks/useDailyBrief";
 import type { Location } from "../hooks/useLocation";
 import { CardSkeleton } from "../components/WeatherSkeleton";
-import { MessageSquare, Sparkles, MapPin } from "lucide-react";
+import { Sparkles, MapPin } from "lucide-react";
 import { format, parseISO } from "date-fns";
 import { WMO_DESCRIPTIONS } from "../config";
 import { cToF, msToMph } from "../utils/weatherCalc";
@@ -78,12 +79,11 @@ export default function ForecastDiscussion({ location }: Props) {
   const local = buildLocalBreakdown(location.name, weather);
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center gap-2">
-        <MessageSquare className="w-5 h-5 text-primary" />
-        <h2 className="text-xl font-bold">Forecast Discussion</h2>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name} · NWS Office: {office ?? "loading…"}</p>
+    <ModuleShell
+      eyebrow="NWS Area Forecast Discussion"
+      title={<>Forecast Discussion</>}
+      subtitle={`What the forecasters at ${office ?? "your local office"} are actually thinking, in their own words — and a plain-language read of it.`}
+    >
 
       {isLoading && <CardSkeleton rows={8} />}
 
@@ -174,6 +174,6 @@ export default function ForecastDiscussion({ location }: Props) {
           )}
         </>
       )}
-    </div>
+    </ModuleShell>
   );
 }

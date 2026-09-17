@@ -35,7 +35,11 @@ const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const ASSET_CACHE = `${CACHE_VERSION}-assets`;
 const DATA_CACHE = `${CACHE_VERSION}-data`;
 
-const SHELL_URLS = ["/", "/index.html", "/manifest.webmanifest", "/img/logo.webp", "/img/mark.webp", "/favicon.svg"];
+// `/offline.html` is the last resort when a navigation fails and no shell has
+// been cached yet — a first visit that goes offline mid-load, or a cache that
+// was cleared. Without it the browser's own error page is what people see,
+// which on a severe-weather product looks like the app is simply broken.
+const SHELL_URLS = ["/", "/index.html", "/offline.html", "/manifest.webmanifest", "/img/logo.webp", "/img/mark.webp", "/favicon.svg"];
 
 self.addEventListener("install", (event) => {
   // Cache shell URLs individually so one failure can't block the worker installing.
@@ -117,7 +121,22 @@ self.addEventListener("fetch", (event) => {
           caches.open(SHELL_CACHE).then((c) => c.put("/", res.clone())).catch(() => {});
         }
         return res;
-      }).catch(() => caches.match("/").then((r) => r || caches.match("/index.html"))),
+      }).catch(() =>
+        caches.match("/")
+          .then((r) => r || caches.match("/index.html"))
+          .then((r) => r || caches.match("/offline.html"))
+          // Even the precache can be missing — a failed install, or storage
+          // evicted under pressure. Answer with something rather than letting
+          // the fetch handler reject into the browser's error page.
+          .then((r) => r || new Response(
+            "<!doctype html><meta charset=utf-8><title>Offline</title>" +
+            "<body style=\"background:#070713;color:#f1f4ff;font:16px/1.6 system-ui;" +
+            "display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center\">" +
+            "<div><p>You're offline.</p><p style=\"color:#a3a3cc;font-size:14px\">" +
+            "Anything still on screen may be out of date.</p></div>",
+            { status: 503, headers: { "Content-Type": "text/html; charset=utf-8" } },
+          )),
+      ),
     );
     return;
   }

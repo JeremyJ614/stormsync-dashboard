@@ -1,7 +1,9 @@
 import { useEffect, useRef } from "react";
 import * as maplibregl from "maplibre-gl";
+import "../lib/maplibreWorker";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { WarningFeature, TornadoFeature } from "../lib/severeHistoryData";
+import { STORMSYNC_DARK } from "../lib/basemap";
 
 /**
  * Interactive severe-history map (P-3.2).
@@ -16,7 +18,7 @@ import type { WarningFeature, TornadoFeature } from "../lib/severeHistoryData";
  * the on-page legend and the downloadable poster can never drift apart again.
  */
 
-const DARK_MAP_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_MAP_STYLE = STORMSYNC_DARK;
 
 interface Props {
   mode: "warnings" | "tornadoes";

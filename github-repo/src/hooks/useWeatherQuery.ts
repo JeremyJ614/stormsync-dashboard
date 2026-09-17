@@ -14,6 +14,11 @@ export function useOpenMeteo(loc: LocationCoords) {
     queryKey: ["openmeteo", loc.lat.toFixed(3), loc.lon.toFixed(3)],
     queryFn: () => fetchOpenMeteo(loc.lat, loc.lon),
     enabled: !!loc,
+    // One retry, not the default three. Each attempt now carries its own ten
+    // second deadline, so three retries would mean the better part of a minute
+    // on a skeleton before anybody was told anything was wrong. A stalled
+    // request deserves one more go and then an honest answer.
+    retry: 1,
   });
 }
 

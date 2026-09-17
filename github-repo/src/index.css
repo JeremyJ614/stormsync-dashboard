@@ -14,6 +14,7 @@
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
   --color-card-border: hsl(var(--card-border));
+  --color-gold: hsl(var(--gold));
 
   --color-popover: hsl(var(--popover));
   --color-popover-foreground: hsl(var(--popover-foreground));
@@ -73,35 +74,40 @@
   --elevate-1: rgba(0,0,0, .03);
   --elevate-2: rgba(0,0,0, .08);
 
-  --background: 232 22% 7%;
-  --foreground: 210 20% 90%;
-  --border: 232 18% 16%;
-  --card: 232 20% 11%;
-  --card-foreground: 210 20% 90%;
-  --card-border: 232 18% 16%;
-  --sidebar: 232 24% 6%;
+  /* Royal ground: a deeper, bluer indigo than before, with borders lifted just
+     enough to read as hairlines rather than boxes. Shifting these tokens moves
+     every surface in the app at once — 60 files reference bg-card alone. */
+  --background: 236 30% 6%;
+  --foreground: 226 30% 94%;
+  --border: 234 20% 17%;
+  --card: 235 26% 10%;
+  --card-foreground: 226 30% 94%;
+  --card-border: 234 20% 17%;
+  /* Champagne — the signature accent, mirrored from lib/royal.ts. */
+  --gold: 40 57% 65%;
+  --sidebar: 238 32% 5%;
   --sidebar-foreground: 210 15% 80%;
   --sidebar-border: 232 18% 13%;
-  --sidebar-primary: 240 100% 90%;
+  --sidebar-primary: 40 57% 65%;
   --sidebar-primary-foreground: 232 24% 8%;
   --sidebar-accent: 232 18% 12%;
   --sidebar-accent-foreground: 210 15% 80%;
-  --sidebar-ring: 240 100% 90%;
-  --popover: 232 22% 9%;
+  --sidebar-ring: 40 57% 60%;
+  --popover: 236 26% 8%;
   --popover-foreground: 210 20% 90%;
   --popover-border: 232 18% 16%;
-  --primary: 240 100% 90%;
-  --primary-foreground: 232 24% 8%;
+  --primary: 40 57% 65%;
+  --primary-foreground: 236 40% 8%;
   --secondary: 232 18% 16%;
   --secondary-foreground: 210 15% 78%;
-  --muted: 232 18% 14%;
-  --muted-foreground: 215 12% 52%;
+  --muted: 235 20% 13%;
+  --muted-foreground: 232 14% 60%;
   --accent: 232 18% 16%;
   --accent-foreground: 210 20% 90%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --input: 232 18% 20%;
-  --ring: 240 100% 90%;
+  --ring: 40 57% 60%;
   --chart-1: 217 91% 60%;
   --chart-2: 262 75% 62%;
   --chart-3: 25 95% 53%;
@@ -147,35 +153,40 @@
   --elevate-1: rgba(255,255,255, .04);
   --elevate-2: rgba(255,255,255, .09);
 
-  --background: 232 22% 7%;
-  --foreground: 210 20% 90%;
-  --border: 232 18% 16%;
-  --card: 232 20% 11%;
-  --card-foreground: 210 20% 90%;
-  --card-border: 232 18% 16%;
-  --sidebar: 232 24% 6%;
+  /* Royal ground: a deeper, bluer indigo than before, with borders lifted just
+     enough to read as hairlines rather than boxes. Shifting these tokens moves
+     every surface in the app at once — 60 files reference bg-card alone. */
+  --background: 236 30% 6%;
+  --foreground: 226 30% 94%;
+  --border: 234 20% 17%;
+  --card: 235 26% 10%;
+  --card-foreground: 226 30% 94%;
+  --card-border: 234 20% 17%;
+  /* Champagne — the signature accent, mirrored from lib/royal.ts. */
+  --gold: 40 57% 65%;
+  --sidebar: 238 32% 5%;
   --sidebar-foreground: 210 15% 80%;
   --sidebar-border: 232 18% 13%;
-  --sidebar-primary: 240 100% 90%;
+  --sidebar-primary: 40 57% 65%;
   --sidebar-primary-foreground: 232 24% 8%;
   --sidebar-accent: 232 18% 12%;
   --sidebar-accent-foreground: 210 15% 80%;
-  --sidebar-ring: 240 100% 90%;
-  --popover: 232 22% 9%;
+  --sidebar-ring: 40 57% 60%;
+  --popover: 236 26% 8%;
   --popover-foreground: 210 20% 90%;
   --popover-border: 232 18% 16%;
-  --primary: 240 100% 90%;
-  --primary-foreground: 232 24% 8%;
+  --primary: 40 57% 65%;
+  --primary-foreground: 236 40% 8%;
   --secondary: 232 18% 16%;
   --secondary-foreground: 210 15% 78%;
-  --muted: 232 18% 14%;
-  --muted-foreground: 215 12% 52%;
+  --muted: 235 20% 13%;
+  --muted-foreground: 232 14% 60%;
   --accent: 232 18% 16%;
   --accent-foreground: 210 20% 90%;
   --destructive: 0 72% 51%;
   --destructive-foreground: 0 0% 100%;
   --input: 232 18% 20%;
-  --ring: 240 100% 90%;
+  --ring: 40 57% 60%;
   --chart-1: 217 91% 60%;
   --chart-2: 262 75% 62%;
   --chart-3: 25 95% 53%;
@@ -273,14 +284,10 @@
   }
 }
 
-/* U-08: keep Leaflet maps below the fixed sidebar (z-40) and overlays.
-   Leaflet panes/controls default to z-index 400–1000, which otherwise bleed
-   over the navigation. Giving the container its own z-index:0 stacking context
-   confines all internal panes beneath the chrome. */
-.leaflet-container { z-index: 0; }
-.leaflet-pane,
-.leaflet-top,
-.leaflet-bottom { z-index: 1; }
+/* Every map is MapLibre now (see components/map/BaseMap). Its controls sit
+   inside the canvas container rather than in globally-numbered panes, so the
+   z-index clamp Leaflet needed here is no longer required. */
+.maplibregl-map { z-index: 0; }
 
 /* ── Phase 9 design system: glassmorphism + glow utilities ─────────────────── */
 .glass {
@@ -327,4 +334,531 @@
 }
 @media (prefers-reduced-motion: reduce) {
   .pulse-glow { animation: none; box-shadow: 0 0 16px -2px hsl(var(--primary) / 0.6); }
+}
+
+
+/* ─── Royal surface utilities ───────────────────────────────────────────────
+   Shared recipes so a page can adopt the house treatment with one class rather
+   than repeating the same gradient/shadow stack. */
+.royal-panel {
+  position: relative;
+  background: hsl(var(--card) / 0.62);
+  backdrop-filter: blur(14px) saturate(1.15);
+  -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  border: 1px solid hsl(var(--border) / 0.85);
+  box-shadow: 0 1px 0 0 hsl(var(--gold) / 0.16) inset,
+              0 20px 44px -30px rgba(0,0,0,0.95);
+}
+/* The thin champagne rule drawn across the top of a royal surface. */
+.royal-rule::before {
+  content: "";
+  position: absolute; inset-inline: 0; top: 0; height: 1px;
+  background: linear-gradient(90deg, transparent, hsl(var(--gold) / 0.5), transparent);
+  pointer-events: none;
+}
+.gold-text { color: hsl(var(--gold)); }
+.gold-eyebrow {
+  color: hsl(var(--gold));
+  font-size: 10px;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+/* Display heading face used across royal surfaces. */
+.royal-heading {
+  font-family: var(--app-font-heading, 'Raleway', sans-serif);
+  letter-spacing: 0.02em;
+}
+
+/* A faint fixed aurora behind every page so the app has depth without each
+   module painting its own background. */
+.royal-ground::before {
+  content: "";
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(48% 38% at 12% 0%, hsl(var(--gold) / 0.055), transparent 70%),
+    radial-gradient(52% 42% at 88% 6%, hsl(258 80% 62% / 0.07), transparent 72%);
+}
+@media (prefers-reduced-motion: reduce) {
+  .royal-ground::before { opacity: 0.6; }
+}
+
+/* ─── House treatment, applied globally ─────────────────────────────────────
+   The app has ~60 files that build surfaces out of `bg-card` + a rounded
+   corner. Rather than edit each one, the card-shaped combination itself is
+   given the royal treatment: glass, a champagne hairline along the top edge,
+   and depth. Anything that opts out can still set its own background. */
+.bg-card.rounded-lg,
+.bg-card.rounded-xl,
+.bg-card.rounded-2xl,
+.bg-card\/50.rounded-xl,
+.bg-card\/40.rounded-xl,
+.bg-card\/80.rounded-xl {
+  position: relative;
+  background: hsl(var(--card) / 0.62);
+  backdrop-filter: blur(14px) saturate(1.12);
+  -webkit-backdrop-filter: blur(14px) saturate(1.12);
+  box-shadow: 0 1px 0 0 hsl(var(--gold) / 0.14) inset,
+              0 18px 40px -30px rgba(0, 0, 0, 0.95);
+}
+
+/* Display face for every heading, so section titles read as one system
+   instead of each module choosing its own weight and tracking. */
+h1, h2, h3 {
+  font-family: var(--app-font-heading, 'Raleway', sans-serif);
+  letter-spacing: 0.012em;
+}
+h1 { letter-spacing: 0.02em; }
+
+/* Champagne selection + focus ring, replacing the stock blue. */
+::selection { background: hsl(var(--gold) / 0.28); color: hsl(var(--foreground)); }
+:where(a, button, input, select, textarea):focus-visible {
+  outline: 2px solid hsl(var(--gold) / 0.55);
+  outline-offset: 2px;
+}
+
+/* Scrollbars in the house palette rather than the browser's grey. */
+* { scrollbar-color: hsl(var(--gold) / 0.32) transparent; scrollbar-width: thin; }
+*::-webkit-scrollbar { width: 9px; height: 9px; }
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--gold) / 0.26); border-radius: 999px;
+  border: 2px solid transparent; background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: hsl(var(--gold) / 0.42); background-clip: content-box; }
+*::-webkit-scrollbar-track { background: transparent; }
+
+/* Long scrolling lists — glossary entries, history rows, report tables. The
+   browser skips layout and paint for anything off-screen, which on a 400-row
+   list is the difference between a frame and several. `contain-intrinsic-size`
+   keeps the scrollbar honest while those rows are skipped. */
+.list-virtual > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 72px;
+}
+.list-virtual-lg > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 168px;
+}
+
+/* ── Instrument: one-shot draw-on keyframes ────────────────────────────────────
+   Used by components/instrument/Apparatus. Every one of these runs once and
+   finishes — nothing here loops. An ambient animation behind a header that
+   appears on thirty-odd modules is a permanent compositor tax, and this app is
+   read while people are watching radar. */
+@keyframes app-draw    { to { stroke-dashoffset: 0; } }
+@keyframes app-trace   { to { stroke-dashoffset: 0; } }
+@keyframes app-fade-in { to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  /* Belt and braces: the components already branch on prefersReducedMotion(),
+     but a stylesheet rule also covers anything rendered before hydration. */
+  [class*="instrument"] *,
+  svg[aria-hidden] * {
+    animation: none !important;
+    stroke-dashoffset: 0 !important;
+    opacity: 1 !important;
+  }
+}
+
+/* ── Pollen grains drifting on the dispersal card ─────────────────────────────
+   The one ambient loop in the app, and it is transform-only so it runs on the
+   compositor without touching layout or paint. Twelve spans; the component
+   omits them entirely under prefers-reduced-motion rather than relying on this
+   rule alone. */
+@keyframes pollen-drift {
+  0%   { transform: translate3d(0, 0, 0) scale(1);      opacity: 0; }
+  12%  {                                                 opacity: 1; }
+  50%  { transform: translate3d(26px, -18px, 0) scale(1.25); }
+  88%  {                                                 opacity: 1; }
+  100% { transform: translate3d(52px, 6px, 0) scale(0.9); opacity: 0; }
+}
+.pollen-grain {
+  animation-name: pollen-drift;
+  animation-timing-function: ease-in-out;
+  animation-iteration-count: infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pollen-grain { animation: none; opacity: 0 !important; }
+}
+
+/* ── The skull drips ──────────────────────────────────────────────────────────
+   A drop under surface tension hangs, stretches as it releases, and thins as it
+   falls — so ry animates independently of cy rather than the whole ellipse just
+   translating down. Transform and opacity only; `ry` is an SVG geometry
+   attribute animated via CSS, which Chromium and WebKit both composite. */
+@keyframes sswx-drip {
+  0%,  8%  { transform: translateY(0)    scaleY(0.7); opacity: 0; }
+  14%      { transform: translateY(2px)  scaleY(1.15); opacity: 0.9; }
+  55%      { transform: translateY(38px) scaleY(1.6); opacity: 0.85; }
+  85%      { transform: translateY(72px) scaleY(2.1); opacity: 0.25; }
+  100%     { transform: translateY(88px) scaleY(2.4); opacity: 0; }
+}
+.sswx-drip {
+  animation-name: sswx-drip;
+  animation-timing-function: cubic-bezier(0.5, 0, 0.9, 0.55);
+  animation-iteration-count: infinite;
+  transform-origin: center top;
+  filter: drop-shadow(0 0 4px rgba(176, 107, 224, 0.7));
+}
+@media (prefers-reduced-motion: reduce) { .sswx-drip { animation: none; opacity: 0; } }
+
+/* ── MapLibre popups ─────────────────────────────────────────────────────────
+   MapLibre ships a white popup with a white tip, which lands on the royal dark
+   basemap like a torch in the face. Restyled once here rather than per map, so
+   every popup in the app matches — the fire incidents are the first to use one.
+
+   Selectors are deliberately one level deeper than MapLibre's own. Its
+   stylesheet is imported inside the map components, so it lands after this file
+   in the bundle and wins any tie on specificity — which is exactly what left
+   the first version of this white. */
+.maplibregl-popup .maplibregl-popup-content {
+  background: rgba(12, 12, 24, 0.96);
+  border: 1px solid rgba(217, 183, 117, 0.28);
+  border-radius: 12px;
+  padding: 11px 13px;
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, 0.95);
+  backdrop-filter: blur(10px);
+}
+.maplibregl-popup-tip { border-top-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-top .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+.maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: rgba(12, 12, 24, 0.96) !important; }
+.maplibregl-popup .maplibregl-popup-close-button {
+  color: #a3a3cc;
+  font-size: 17px;
+  padding: 2px 7px 4px;
+}
+.maplibregl-popup .maplibregl-popup-close-button:hover { background: transparent; color: #f1f4ff; }
+
+/* ── badge enamel ──────────────────────────────────────────────────────────
+   The specular sweep on BadgeChip. It plays once and stops: a profile showing
+   thirty badges should settle, not shimmer forever. Kept in CSS rather than
+   framer-motion because a badge is rendered dozens of times on a page and a
+   keyframe costs nothing per instance. */
+@keyframes sswx-badge-sheen {
+  0%   { transform: translateX(-160%); opacity: 0; }
+  12%  { opacity: 1; }
+  60%  { opacity: 1; }
+  100% { transform: translateX(320%); opacity: 0; }
+}
+.sswx-badge-sheen {
+  left: 0;
+  transform: translateX(-160%);
+  animation: sswx-badge-sheen 1.5s cubic-bezier(0.22, 1, 0.36, 1) 1 both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sswx-badge-sheen { display: none; }
+}
+
+/* ── the news editor surface ───────────────────────────────────────────────
+   TipTap renders bare tags; the feed's own markup carries Tailwind utility
+   classes inline. So the editable area gets its own stylesheet, written to
+   match what renderMarkdown() produces — an admin writing a post is looking at
+   the post, not at an approximation of it. The same class dresses the preview
+   pane, which is the real renderer's output. */
+.sswx-editor { line-height: 1.65; }
+.sswx-editor > * + * { margin-top: 0.6em; }
+.sswx-editor h1 { font-size: 1.35rem; font-weight: 700; line-height: 1.25; margin-top: 0.85em; }
+.sswx-editor h2 { font-size: 1.15rem; font-weight: 700; line-height: 1.3; margin-top: 0.8em; }
+.sswx-editor h3 { font-size: 1rem;    font-weight: 700; line-height: 1.35; margin-top: 0.75em; }
+.sswx-editor ul { list-style: disc; padding-left: 1.35rem; }
+.sswx-editor ol { list-style: decimal; padding-left: 1.35rem; }
+.sswx-editor li { margin: 0.18em 0; }
+.sswx-editor li > * + * { margin-top: 0.25em; }
+.sswx-editor blockquote {
+  border-left: 2px solid rgba(217, 183, 117, 0.5);
+  padding-left: 0.85rem;
+  font-style: italic;
+  color: #a3a3cc;
+}
+.sswx-editor pre {
+  background: rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(204, 204, 255, 0.12);
+  border-radius: 0.5rem;
+  padding: 0.75rem;
+  overflow-x: auto;
+  font-size: 0.8em;
+}
+.sswx-editor code { font-size: 0.85em; }
+.sswx-editor :not(pre) > code {
+  background: rgba(255, 255, 255, 0.07);
+  border-radius: 0.25rem;
+  padding: 0.1em 0.32em;
+}
+.sswx-editor hr { border: 0; border-top: 1px solid rgba(204, 204, 255, 0.14); margin: 1em 0; }
+.sswx-editor a { color: #d9b775; text-decoration: underline; }
+.sswx-editor img { border-radius: 0.5rem; border: 1px solid rgba(204, 204, 255, 0.12); max-width: 100%; height: auto; }
+.sswx-editor img.ProseMirror-selectednode { outline: 2px solid #d9b775; }
+/* The placeholder only shows on a genuinely empty document, so it never
+   flickers between paragraphs. Drawn from the root rather than from the empty
+   paragraph, because attr() reads the element it is written on. */
+.sswx-editor.ProseMirror { position: relative; }
+.sswx-editor.ProseMirror:has(> p:only-child:empty)::before {
+  content: attr(data-placeholder);
+  position: absolute;
+  inset: 0.75rem auto auto 0.75rem;
+  color: #6f7490;
+  pointer-events: none;
+}
+
+/* ── phone behaviour ───────────────────────────────────────────────────────
+   This is an app people open on a phone in a field, and these are the four
+   browser defaults that give that away. */
+
+/* Rubber-banding the whole document behind the app is what makes a web page
+   feel like a web page. Pull-to-refresh owns the top of the screen instead. */
+html, body {
+  overscroll-behavior-y: none;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+/* iOS zooms the viewport when a text field smaller than 16px takes focus, and
+   never zooms back out. Only the fields that actually take typing are raised —
+   the number steppers and dense admin grids keep their size, because they are
+   tapped rather than typed into. */
+@media (max-width: 640px) {
+  input[type="text"], input[type="email"], input[type="search"], input[type="url"],
+  input[type="tel"], input[type="password"], input:not([type]), textarea, select {
+    font-size: 16px;
+  }
+}
+
+/* A tap that lights up a grey box 300ms later reads as a stuck button. */
+* { -webkit-tap-highlight-color: transparent; }
+
+@keyframes sswx-ptr-spin { to { transform: rotate(360deg); } }
+
+/* Legendary badges get a light that keeps turning on the rim. One element, one
+   transform, and it stops entirely under reduced motion. */
+@keyframes sswx-medal-turn { to { transform: rotate(360deg); } }
+.sswx-medal-turn { animation: sswx-medal-turn 9s linear infinite; }
+@media (prefers-reduced-motion: reduce) { .sswx-medal-turn { animation: none; } }
+
+/* The rain drift on the flooding outlook's headline card. Slow and shallow —
+   it is a texture, not an animation anybody should notice. */
+@keyframes sswx-ero-rain { to { background-position: 120px 260px; } }
+.sswx-ero-rain { animation: sswx-ero-rain 9s linear infinite; opacity: .5; }
+@media (prefers-reduced-motion: reduce) { .sswx-ero-rain { animation: none; } }
+
+/* ── map shells ──────────────────────────────────────────────────────────────
+   A map's own furniture — a legend, a loading pill, a detail card — is
+   positioned over the canvas and has to clear MapLibre's controls, so those
+   overlays were given MapLibre-scale z-indexes in the thousands. Those numbers
+   only ever meant "above the map", but z-index is global: at 1000 they also
+   cleared the header and painted straight over the menu overlay, which is what
+   put a reflectivity legend on top of the section list.
+
+   The shell now opens its own stacking context, so whatever a map's furniture
+   numbers itself it stays inside its own box. The overlays themselves are back
+   to single digits, which is all they ever needed against a canvas. */
+.sswx-map-shell { position: relative; isolation: isolate; }
+
+/* ── glass, and what it costs a phone ────────────────────────────────────────
+   `backdrop-filter` is the single most expensive thing this app asks a mobile
+   GPU to do. Each blurred element forces the compositor to snapshot everything
+   painted beneath it, blur that snapshot, and redo the whole job on any scroll
+   or repaint. One of them is fine. A module is a *column* of them — eight or
+   ten panels stacked down the page — and on a phone that is the difference
+   between a page that scrolls at sixty frames and one that stutters.
+
+   So the blur is a large-screen affordance. Below the breakpoint the panels
+   keep the same colour and hairline and simply become opaque, which reads
+   almost identically over the app's near-black ground and costs nothing.
+
+   Map furniture (a legend, a console, a period rail) keeps its blur at every
+   size: there is one or two of them, they sit over a live canvas where the
+   translucency is doing real work, and they do not stack. */
+.royal-glass {
+  background: rgba(18, 18, 34, 0.62);
+}
+@media (min-width: 821px) {
+  .royal-glass {
+    backdrop-filter: blur(14px) saturate(1.15);
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+  }
+}
+@media (max-width: 820px) {
+  .royal-glass { background: rgba(14, 14, 27, 0.92); }
+}
+
+
+/*
+ * Daily Trivia — the answer rows.
+ *
+ * Hover and focus live in CSS rather than React state because they are pure
+ * presentation: a row that is still open lifts its hairline to champagne and
+ * warms a shade, which is the only thing telling a member the answers are
+ * pressable at all. Revealed rows are excluded, since they are no longer a
+ * choice.
+ *
+ * The focus ring is not optional. These are the module's only controls, and a
+ * member playing by keyboard needs to see which row they are about to commit.
+ */
+.sx-choice-open:hover {
+  border-color: rgba(217, 183, 117, 0.42) !important;
+  background: rgba(217, 183, 117, 0.045) !important;
+}
+.sx-choice:focus-visible {
+  outline: none;
+  border-color: rgba(217, 183, 117, 0.6) !important;
+  box-shadow: 0 0 0 2px rgba(217, 183, 117, 0.22);
+}
+
+/* Daylight Tracker — the year ribbon's columns. Hover and focus only; the
+   selected column carries its own champagne fill from React. */
+.sx-ribbon-col:hover > span { background: rgba(204, 204, 255, 0.3) !important; }
+.sx-ribbon-col[aria-pressed="true"]:hover > span { filter: brightness(1.08); }
+.sx-ribbon-col:focus-visible { box-shadow: 0 0 0 2px rgba(217, 183, 117, 0.35); border-radius: 6px; }
+
+/*
+ * Royal form furniture.
+ *
+ * The Contact forms were still wearing the old generic theme: `bg-card`,
+ * `border-border`, `bg-muted/25` inputs with a `focus:border-primary/50`. Those
+ * tokens belong to the pre-royal palette, so the one page in the app where a
+ * member types something looked like a different product from the modules
+ * around it.
+ *
+ * These are the same controls in the app's own materials: a dark glass field,
+ * a champagne hairline when focused, and a focus ring that is actually visible
+ * — a contact form nobody can tab through is a contact form.
+ */
+.sx-input {
+  width: 100%;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(204, 204, 255, 0.12);
+  border-radius: 0.6rem;
+  padding: 0.55rem 0.75rem;
+  font-size: 0.875rem;
+  color: #f1f4ff;
+  outline: none;
+  transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
+}
+.sx-input::placeholder { color: rgba(163, 163, 204, 0.6); }
+.sx-input:hover { border-color: rgba(204, 204, 255, 0.2); }
+.sx-input:focus {
+  border-color: rgba(217, 183, 117, 0.55);
+  box-shadow: 0 0 0 3px rgba(217, 183, 117, 0.14);
+  background: rgba(255, 255, 255, 0.045);
+}
+.sx-input option { background: #0b0b1a; color: #f1f4ff; }
+
+/* The glass a form sits on. Matches Panel, without needing the header slot. */
+.sx-form {
+  position: relative;
+  border: 1px solid rgba(204, 204, 255, 0.09);
+  border-radius: 1rem;
+  background: linear-gradient(180deg, rgba(18, 18, 34, 0.72), rgba(10, 10, 22, 0.72));
+  box-shadow: 0 20px 44px -30px rgba(0, 0, 0, 0.95);
+}
+.sx-form::before {
+  content: "";
+  position: absolute;
+  inset-inline: 0;
+  top: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(217, 183, 117, 0.28), transparent);
+}
+
+/* Royal text tones, for the pages still using Tailwind classes for colour. */
+.sx-dim { color: #a3a3cc; }
+.sx-dim-soft { color: rgba(163, 163, 204, 0.8); }
+.sx-text { color: #f1f4ff; }
+
+/* Help & FAQ — a ruled list rather than a stack of cards. The hover is what
+   tells you a row opens; without it nineteen ruled lines are just a table. */
+.sx-faq-row:hover { background: rgba(204, 204, 255, 0.035) !important; }
+.sx-faq-row button:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 2px rgba(217, 183, 117, 0.35);
+  border-radius: 0.5rem;
+}
+
+/*
+ * The season scrubber.
+ *
+ * A range input is the right control here — drag, arrow keys and a screen
+ * reader announcement all come free — and the only thing wrong with the default
+ * is that it looks like a range input. The track carries the season's own
+ * colour ramp so the handle's position reads as a date even before the label is
+ * consulted, and the thumb is the champagne used for every other live control
+ * in the app.
+ *
+ * Both vendor thumb rules are written out in full rather than grouped: a
+ * selector list containing an unrecognised pseudo-element is discarded whole by
+ * every browser, so `::-webkit-slider-thumb, ::-moz-range-thumb` styles neither.
+ */
+.sx-scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 22px;
+  background: transparent;
+  cursor: pointer;
+}
+.sx-scrub::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f6b46, #c9d66b 32%, #e8bb4d 56%, #d97a2b 78%, #a33327);
+  border: 1px solid rgba(204, 204, 255, 0.12);
+}
+.sx-scrub::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f6b46, #c9d66b 32%, #e8bb4d 56%, #d97a2b 78%, #a33327);
+  border: 1px solid rgba(204, 204, 255, 0.12);
+}
+.sx-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  margin-top: -6px;
+  border-radius: 999px;
+  background: #d9b775;
+  border: 2px solid #120f1e;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+.sx-scrub::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  background: #d9b775;
+  border: 2px solid #120f1e;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.55);
+}
+.sx-scrub:focus-visible {
+  outline: none;
+}
+.sx-scrub:focus-visible::-webkit-slider-thumb {
+  box-shadow: 0 0 0 3px rgba(217, 183, 117, 0.35);
+}
+.sx-scrub:focus-visible::-moz-range-thumb {
+  box-shadow: 0 0 0 3px rgba(217, 183, 117, 0.35);
+}
+
+/*
+ * A dashboard tile whose source has not landed yet.
+ *
+ * A sweep rather than a pulse: a pulsing block on a wall of twenty tiles reads
+ * as an alarm, and this is the opposite of an alarm. Pure background-position,
+ * so the compositor runs it and React never sees a frame.
+ */
+.sx-tile-wait {
+  background: linear-gradient(90deg,
+    rgba(204, 204, 255, 0.05) 0%,
+    rgba(204, 204, 255, 0.12) 50%,
+    rgba(204, 204, 255, 0.05) 100%);
+  background-size: 200% 100%;
+  animation: sx-tile-wait 1.6s ease-in-out infinite;
+}
+@keyframes sx-tile-wait {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sx-tile-wait { animation: none; }
 }

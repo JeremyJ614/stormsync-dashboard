@@ -4,6 +4,13 @@ import { useQuery } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useState, useMemo } from "react";
 import { fetchAllUSAlerts, fetchStormReports, type NWSAlertFeature } from "../utils/weatherApi";
+import { motion, LayoutGroup } from "framer-motion";
+import { ModuleShell } from "../components/ModuleShell";
+import { ShieldAlert } from "lucide-react";
+import { WarningEntrance } from "../components/motion/WarningEntrance";
+import { useCalm, isCalmEvent } from "../lib/calm";
+import { ReportsTab } from "../components/warnings/ReportsTab";
+import { ROYAL, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
@@ -105,14 +112,32 @@ function useStormReportsQ() {
   });
 }
 
-export default function WarningCenter({ location: _location }: Props) {
+export default function WarningCenter({ location }: Props) {
+  const [tab, setTab] = useState<"warnings" | "reports">("warnings");
+  // Nothing on this page is allowed to animate while a warning is live for the
+  // member's own location. See lib/calm — it is a rule, not a preference.
+  const { calm, reason, event: calmEvent } = useCalm(location.lat, location.lon);
   const { data: alerts = [], isLoading, error, refetch, isFetching } = useNationwideWarnings();
-  const { data: reports } = useStormReportsQ();
+  const { data: reports, isError: reportsFailed } = useStormReportsQ();
   const [selectedState, setSelectedState] = useState("");
   const [selectedType, setSelectedType] = useState("");
 
+  // The national feed can carry the same alert id more than once — an update and
+  // its original, or the same product relayed by two offices. Left alone it
+  // renders the same warning twice and React complains about duplicate keys, so
+  // it is deduped once here rather than patched at each render site.
+  const unique = useMemo(() => {
+    const seen = new Set<string>();
+    return (alerts as NWSAlertFeature[]).filter((a) => {
+      const id = a.properties.id;
+      if (!id || seen.has(id)) return false;
+      seen.add(id);
+      return true;
+    });
+  }, [alerts]);
+
   const activeAlerts = useMemo(() => {
-    let filtered = (alerts as NWSAlertFeature[]).filter(a => a.properties.messageType !== "Cancel");
+    let filtered = unique.filter(a => a.properties.messageType !== "Cancel");
     if (selectedState) filtered = filtered.filter(a => a.properties.areaDesc?.toUpperCase().includes(selectedState));
     if (selectedType) filtered = filtered.filter(a => a.properties.event?.toLowerCase().includes(selectedType.toLowerCase()));
     filtered.sort((a, b) => {
@@ -123,36 +148,87 @@ export default function WarningCenter({ location: _location }: Props) {
       return (sevOrder[a.properties.severity] ?? 4) - (sevOrder[b.properties.severity] ?? 4);
     });
     return filtered;
-  }, [alerts, selectedState, selectedType]);
+  }, [unique, selectedState, selectedType]);
 
   // TOP 5 = most serious (lowest priority number) overall, ignoring state filter
   const top5 = useMemo(() => {
-    const all = (alerts as NWSAlertFeature[])
+    const all = unique
       .filter(a => a.properties.messageType !== "Cancel")
       .sort((a, b) => (EVENT_PRIORITY[a.properties.event] ?? 99) - (EVENT_PRIORITY[b.properties.event] ?? 99));
     return all.slice(0, 5);
-  }, [alerts]);
+  }, [unique]);
 
   const tornadoWarnings = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("tornado warning"));
   const severeThunderstorm = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("severe thunderstorm warning"));
   const flashFlood = activeAlerts.filter(a => a.properties.event?.toLowerCase().includes("flash flood warning"));
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <AlertCircle className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-wide">Warning Center</h2>
-        </div>
+    <ModuleShell
+      eyebrow="NWS Active Alerts · IEM Local Storm Reports"
+      title={<>Warnings &amp; Reports</>}
+      subtitle="What the Weather Service has warned, and what people on the ground have actually reported."
+      actions={
         <button onClick={() => refetch()} disabled={isFetching}
           className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary px-2 py-1 rounded border border-border hover:border-primary/40 transition-colors disabled:opacity-50">
           <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} /> Refresh
         </button>
-      </div>
-      <p className="text-sm text-muted-foreground">Nationwide · Live NWS Active Alerts Feed</p>
+      }
+      status={
+        // A warning says what a radar expects; a report says what somebody
+        // standing outside saw. During an event you want to flip between the
+        // two without leaving the page — hence subtabs rather than two modules.
+        <LayoutGroup id="wc-tabs">
+          <div className="grid grid-cols-2 gap-1 rounded-xl p-1.5"
+               style={{ background: "hsl(var(--muted) / 0.3)", border: "1px solid hsl(var(--border))" }}>
+            {([
+              { id: "warnings", label: "Active Warnings", icon: AlertCircle, count: activeAlerts.length },
+              { id: "reports", label: "Storm Reports", icon: Radio, count: null },
+            ] as const).map((t) => {
+              const Icon = t.icon;
+              const on = tab === t.id;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className="relative py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                  style={{ color: on ? "#17141f" : "hsl(var(--muted-foreground))", zIndex: 1 }}>
+                  {on && (
+                    <motion.span layoutId="wc-tab-slab"
+                      transition={prefersReducedMotion() ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 30 }}
+                      className="absolute inset-0 rounded-lg -z-10"
+                      style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a55f)` }} />
+                  )}
+                  <Icon className="w-4 h-4" /> {t.label}
+                  {t.count !== null && t.count > 0 && (
+                    <span className="tabular-nums text-[11px] opacity-80">{t.count}</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </LayoutGroup>
+      }
+    >
+      {calm && reason === "warning" && (
+        <div className="rounded-xl px-4 py-2.5 flex items-center gap-2.5 text-xs"
+             style={{ background: "rgba(226,55,60,0.1)", border: "1px solid rgba(226,55,60,0.3)" }}>
+          <ShieldAlert className="w-4 h-4 shrink-0" style={{ color: "#e2373c" }} />
+          <span style={{ color: "#f0b8ba" }}>
+            <strong>{calmEvent} in effect for your location.</strong>{" "}
+            <span style={{ color: "hsl(var(--muted-foreground))" }}>
+              Animations are off across the app while it stands — nothing on screen will move while you read.
+            </span>
+          </span>
+        </div>
+      )}
 
-      {/* Summary counts */}
-      {!isLoading && (
+      {tab === "reports" ? (
+        <ReportsTab lat={location.lat} lon={location.lon} place={location.name} />
+      ) : (
+      <div className="space-y-5">
+
+      {/* Summary counts. Gated on `!error` as well as `!isLoading`: a row of
+          zeros is the loudest all-clear on the page, and during a feed outage
+          it is one we have not earned. */}
+      {!isLoading && !error && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {[
             { label: "Tornado Warnings", count: tornadoWarnings.length, color: "text-red-400", bg: "bg-red-500/10 border-red-500/30", icon: "🌪️" },
@@ -205,7 +281,16 @@ export default function WarningCenter({ location: _location }: Props) {
         </div>
       )}
 
-      {/* Storm reports */}
+      {/* Storm reports. The counts used to fall back to zeros on failure, which
+          reads as "no tornadoes were reported today" — a claim we would not have
+          the data to make. Say the feed is down instead. */}
+      {reportsFailed && (
+        <div className="bg-card border border-border rounded-xl p-4 text-sm text-muted-foreground flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-destructive" />
+          Today's SPC storm reports are unavailable right now — this is not a report of zero.
+        </div>
+      )}
+
       {reports && (
         <div className="bg-card border border-border rounded-xl p-4">
           <h3 className="text-sm font-semibold uppercase tracking-widest mb-3 flex items-center gap-2">
@@ -259,7 +344,10 @@ export default function WarningCenter({ location: _location }: Props) {
         </div>
       )}
 
-      {!isLoading && activeAlerts.length === 0 && (
+      {/* Only claim an all-clear when the feed actually answered. On error the
+          banner above is the whole story — a green tick underneath it would be
+          telling people the country is quiet when we never got to look. */}
+      {!isLoading && !error && activeAlerts.length === 0 && (
         <div className="bg-card border border-border rounded-xl p-10 text-center">
           <div className="text-4xl mb-3">✅</div>
           <h3 className="font-semibold text-lg mb-1">No Active Alerts{selectedState ? ` in ${US_STATES[selectedState]}` : ""}</h3>
@@ -272,13 +360,15 @@ export default function WarningCenter({ location: _location }: Props) {
       {!isLoading && activeAlerts.length > 0 && (
         <div className="space-y-2">
           <h3 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">All Active Alerts ({activeAlerts.length})</h3>
-          {activeAlerts.map(alert => {
+          {activeAlerts.map((alert, i) => {
             const sev = alert.properties.severity ?? "Unknown";
             const styles = SEVERITY_STYLES[sev] ?? SEVERITY_STYLES.Unknown;
             const expires = alert.properties.expires ? format(parseISO(alert.properties.expires), "EEE h:mm a") : null;
             const radarUrl = getRadarUrl(alert.properties.areaDesc ?? "");
             return (
-              <div key={alert.properties.id} className={`border rounded-xl p-4 ${styles.bg} ${styles.border}`}>
+              <WarningEntrance key={alert.properties.id} index={i} calm={calm}
+                               tone={isCalmEvent(alert.properties.event) ? "#e2373c" : "#e8bb4d"}>
+              <div className={`border rounded-xl p-4 ${styles.bg} ${styles.border}`}>
                 <div className="flex items-start gap-3">
                   <EventIcon event={alert.properties.event} />
                   <div className="flex-1 min-w-0">
@@ -299,11 +389,14 @@ export default function WarningCenter({ location: _location }: Props) {
                   </div>
                 </div>
               </div>
+              </WarningEntrance>
             );
           })}
         </div>
       )}
-    </div>
+      </div>
+      )}
+    </ModuleShell>
   );
 }
 

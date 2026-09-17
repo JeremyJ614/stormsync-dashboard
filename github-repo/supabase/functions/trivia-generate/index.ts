@@ -11,8 +11,30 @@ const GEMINI_KEY = Deno.env.get("GEMINI_KEY_TRIVIA") ?? Deno.env.get("GEMINI_API
 // Ordered newest-usable FIRST. gemini-2.5-flash now 404s ("no longer available
 // to new users"), so leading with it burnt a wasted request on every single
 // generation before falling through. Overridable without a redeploy.
-const MODELS = (Deno.env.get("GEMINI_MODELS") ?? "gemini-flash-latest,gemini-2.0-flash,gemini-2.5-flash")
-  .split(",").map((m) => m.trim()).filter(Boolean);
+/**
+ * Which Gemini models to try, in order.
+ *
+ * Validated rather than trusted. `GEMINI_MODELS` is a secret, and a secret that
+ * is meant to hold a comma-separated list of model names is one paste away from
+ * holding an API key instead — which is exactly what happened: the whole
+ * narrative came back as
+ * `GenerateContentRequest.model: unexpected model name format`, because the
+ * key was going into the URL where the model belongs. A model name is lower
+ * case letters, digits, dots and hyphens, so anything else is discarded and the
+ * built-in list is used. Silently degrading to a working default beats an AI
+ * write that fails every day until somebody reads the error field.
+ */
+const DEFAULT_GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash"];
+const IS_MODEL_NAME = /^[a-z0-9][a-z0-9.-]{2,60}$/;
+function geminiModels(): string[] {
+  const raw = (Deno.env.get("GEMINI_MODELS") ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  const good = raw.filter((m) => IS_MODEL_NAME.test(m));
+  if (raw.length && !good.length) {
+    console.warn("GEMINI_MODELS holds no usable model name; falling back to the built-in list");
+  }
+  return good.length ? good : DEFAULT_GEMINI_MODELS;
+}
+const MODELS = geminiModels();
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession: false } });
 const CORS = {
@@ -98,6 +120,25 @@ Exactly 4 choices, only one correct. Question under 190 characters.
 The explanation should be one or two sentences and genuinely interesting.
 Vary the subject; variation seed ${seed}.\n${SHAPE}`;
 
+
+/**
+ * The contest day, in Eastern time.
+ *
+ * Daily Trivia runs on a calendar day and this used to be the UTC one,
+ * which in Eastern time turns over at 8pm — so the day's questions appeared at 8pm the
+ * evening before and the day they belonged to was already stale by breakfast. `en-CA` is not a style choice: it
+ * is the locale that formats as YYYY-MM-DD, the shape the date column wants.
+ * The zone carries its own daylight-saving rules, so this needs no offset
+ * table and stays right across both changeovers.
+ */
+const GAME_TZ = "America/New_York";
+const GAME_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: GAME_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+});
+const gameDate = (at: Date = new Date()) => GAME_DAY_FMT.format(at);
+const gameDateOffset = (days: number, at: Date = new Date()) =>
+  gameDate(new Date(at.getTime() + days * 86_400_000));
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return json({ ok: false, error: "Method not allowed" }, 405);
@@ -107,7 +148,7 @@ Deno.serve(async (req: Request) => {
   let body: { date?: string; force?: boolean; debug?: boolean } = {};
   try { body = await req.json(); } catch { /* no body */ }
 
-  const day = body.date ?? new Date().toISOString().slice(0, 10);
+  const day = body.date ?? gameDate();
   const seed = `${day}-${Math.floor(Math.random() * 100000)}`;
 
   const { data: existing } = await admin

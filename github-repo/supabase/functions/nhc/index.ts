@@ -8,7 +8,7 @@ const admin = createClient(Deno.env.get("SUPABASE_URL") ?? "", Deno.env.get("SUP
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 const json = (body: unknown, status = 200, maxAge = 300) =>
@@ -64,6 +64,199 @@ function parseAtcf(text: string): TrackPoint[] {
     pts.push({ lat, lon, winds_kt, pressure, timestamp, type });
   }
   return pts;
+}
+
+/* ── Archiving finished storms ──────────────────────────────────────────────
+ *
+ * NOTHING WAS DOING THIS. The archive read from `tropical_storms`, the app
+ * showed it, and the only rows in it had been inserted by hand — which is why
+ * the newest storm in the archive was Genevieve, from early August, while the
+ * season carried on without her. A storm dropped off the tracker when the NHC
+ * stopped advising on it and simply ceased to exist.
+ *
+ * A finished storm is derived rather than remembered: the ATCF best-track
+ * directory lists every system of the season, `CurrentStorms.json` lists the
+ * ones still being advised on, and anything in the first list and not the
+ * second is over. That means the job holds no state of its own and cannot
+ * drift — a storm missed because the job was down for a week is picked up the
+ * next time it runs, and one already archived is skipped.
+ */
+
+const ATCF_BTK = "https://ftp.nhc.noaa.gov/atcf/btk/";
+const TROPICAL_TYPES = new Set(["TD", "TS", "HU", "SD", "SS", "TY", "ST"]);
+
+/** Saffir-Simpson by peak one-minute wind, in knots, strongest first. */
+const SAFFIR: [number, string][] = [
+  [137, "Category 5"], [113, "Category 4"], [96, "Category 3"],
+  [83, "Category 2"], [64, "Category 1"], [34, "Tropical Storm"],
+];
+
+/**
+ * What the ATCF's final storm-type code means to a reader.
+ *
+ * A storm still typed tropical on its last line is one the NHC simply stopped
+ * advising on — which is what "over" means operationally — so it reads as
+ * dissipated like the rest.
+ */
+const FINAL_STATUS: Record<string, string> = {
+  EX: "Post-Tropical", LO: "Remnant Low", WV: "Open Wave", DB: "Dissipated",
+};
+
+/** NHC's own naming for a depression that never earned a name. */
+const NUMBER_WORD = [
+  "", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+  "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen",
+  "Eighteen", "Nineteen", "Twenty", "Twenty-One", "Twenty-Two", "Twenty-Three",
+  "Twenty-Four", "Twenty-Five", "Twenty-Six", "Twenty-Seven", "Twenty-Eight",
+  "Twenty-Nine", "Thirty",
+];
+
+const toTitle = (v: string) =>
+  v.toLowerCase().replace(/(^|[\s-])([a-z])/g, (_m, pre, c) => pre + c.toUpperCase());
+
+interface BestTrackMeta { name: string | null; peakKt: number; everTropical: boolean; lastType: string | null }
+
+/**
+ * The parts of a best track that are not points.
+ *
+ * The name column carries a placeholder until the system is named — a genesis
+ * tag, or INVEST — so the storm's name is the LAST real one on the file rather
+ * than the first thing that appears there.
+ */
+function parseAtcfMeta(text: string): BestTrackMeta {
+  let name: string | null = null, peakKt = 0, everTropical = false, lastType: string | null = null;
+  for (const line of text.split("\n")) {
+    const cols = line.split(",").map((c) => c.trim());
+    if (cols.length < 28 || cols[4] !== "BEST") continue;
+    const kt = parseInt(cols[8]) || 0;
+    if (kt > peakKt) peakKt = kt;
+    const type = cols[10] ?? "";
+    if (type) lastType = type;
+    if (TROPICAL_TYPES.has(type)) everTropical = true;
+    const n = cols[27] ?? "";
+    if (n && !/^(GENESIS|INVEST|UNNAMED|NONAME)/i.test(n)) name = n;
+  }
+  return { name, peakKt, everTropical, lastType };
+}
+
+function peakLabel(kt: number, everTropical: boolean): string {
+  for (const [floor, label] of SAFFIR) if (kt >= floor) return label;
+  return everTropical ? "Tropical Depression" : "Remnant Low";
+}
+
+/** Every storm the ATCF has a best track for, in the given years. */
+async function listSeasonStorms(years: number[]): Promise<string[]> {
+  try {
+    const r = await fetch(ATCF_BTK, { headers: { "User-Agent": UA } });
+    if (!r.ok) return [];
+    const html = await r.text();
+    const ids = new Set<string>();
+    for (const m of html.matchAll(/b(al|ep|cp)(\d{2})(\d{4})\.dat/gi)) {
+      if (years.includes(Number(m[3]))) ids.add(`${m[1]}${m[2]}${m[3]}`.toUpperCase());
+    }
+    return [...ids].sort();
+  } catch { return []; }
+}
+
+/** The storms the NHC is still advising on. Never archive one of these. */
+async function activeStormIds(): Promise<Set<string>> {
+  const out = new Set<string>();
+  try {
+    const r = await fetch("https://www.nhc.noaa.gov/CurrentStorms.json", { headers: { "User-Agent": UA, Accept: "application/json" } });
+    if (!r.ok) return out;
+    const d = await r.json() as { activeStorms?: { id?: string }[] };
+    for (const s of d.activeStorms ?? []) if (s.id) out.add(String(s.id).toUpperCase());
+  } catch { /* an unreachable NHC means archive nothing this run */ }
+  return out;
+}
+
+/**
+ * The final public advisory, if the NHC's archive has one.
+ *
+ * Best effort by design: the Central Pacific's own products live on a
+ * different host and some systems never get a public advisory at all. A storm
+ * is worth archiving with its track and its peak whether or not the closing
+ * bulletin can be found, so a miss here costs the accordion and nothing else.
+ */
+async function finalAdvisory(id: string, year: number): Promise<{ text: string; num: string } | null> {
+  const basin = id.slice(0, 2).toLowerCase(), num = id.slice(2, 4);
+  const dir = `https://www.nhc.noaa.gov/archive/${year}/${basin}${num}/`;
+  try {
+    const idx = await fetch(dir, { headers: { "User-Agent": UA } });
+    if (!idx.ok) return null;
+    const html = await idx.text();
+    let best = "";
+    for (const m of html.matchAll(/href="([a-z]{2}\d{6}\.public(?:_[a-z]+)?\.(\d{3}))"/gi)) {
+      if (!best || m[2] > best.slice(-3)) best = m[1];
+    }
+    if (!best) return null;
+    const r = await fetch(dir + best, { headers: { "User-Agent": UA } });
+    if (!r.ok) return null;
+    const text = (await r.text()).trim();
+    if (!text) return null;
+    return { text, num: String(parseInt(best.slice(-3), 10)) };
+  } catch { return null; }
+}
+
+async function buildArchiveRow(id: string, year: number): Promise<Record<string, unknown> | null> {
+  const basin = id.slice(0, 2).toLowerCase(), cy = id.slice(2, 4);
+  const r = await fetch(`${ATCF_BTK}b${basin}${cy}${year}.dat`, { headers: { "User-Agent": UA } });
+  if (!r.ok) return null;
+  const text = await r.text();
+  const points = parseAtcf(text);
+  if (points.length === 0) return null;   // nothing worth archiving
+  const meta = parseAtcfMeta(text);
+
+  const suffix = basin === "ep" ? "-E" : basin === "cp" ? "-C" : "";
+  const name = meta.name
+    ? toTitle(meta.name)
+    : `${NUMBER_WORD[parseInt(cy, 10)] ?? cy}${suffix}`;
+
+  const adv = await finalAdvisory(id, year);
+
+  return {
+    id,
+    name,
+    year,
+    basin: id.slice(0, 2),
+    peak_intensity: peakLabel(meta.peakKt, meta.everTropical),
+    peak_winds: meta.peakKt,
+    last_advisory_num: adv?.num ?? null,
+    final_status: FINAL_STATUS[meta.lastType ?? ""] ?? "Dissipated",
+    track_points: points,
+    graphics_urls: [],
+    final_advisory_text: adv?.text ?? null,
+    archived_at: new Date().toISOString(),
+  };
+}
+
+async function archiveFinished(): Promise<{ checked: number; archived: string[]; skipped: string[] }> {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  // January also sweeps the season just ended, so a storm that finished over
+  // the new year is not lost to the calendar rolling over.
+  const years = now.getUTCMonth() === 0 ? [year, year - 1] : [year];
+
+  const [season, active] = await Promise.all([listSeasonStorms(years), activeStormIds()]);
+  if (season.length === 0) return { checked: 0, archived: [], skipped: ["atcf-index-unreadable"] };
+
+  const { data: rows } = await admin.from("tropical_storms").select("id");
+  const have = new Set((rows ?? []).map((r: { id: string }) => r.id.toUpperCase()));
+
+  const archived: string[] = [], skipped: string[] = [];
+  for (const id of season) {
+    if (active.has(id) || have.has(id)) continue;
+    try {
+      const row = await buildArchiveRow(id, Number(id.slice(4)));
+      if (!row) { skipped.push(`${id}: no best track`); continue; }
+      const { error } = await admin.from("tropical_storms").upsert(row, { onConflict: "id" });
+      if (error) { skipped.push(`${id}: ${error.message}`); continue; }
+      archived.push(`${id} ${row.name}`);
+    } catch (e) {
+      skipped.push(`${id}: ${String(e instanceof Error ? e.message : e)}`);
+    }
+  }
+  return { checked: season.length, archived, skipped };
 }
 
 // ── Areas to Watch (NHC ATF GeoJSON) ───────────────────────────────────────
@@ -267,6 +460,21 @@ Deno.serve(async (req) => {
     } catch {
       const stale = await cacheStale(key);
       return json(stale ?? { disturbances: [] }, 200, 300);
+    }
+  }
+
+  // ── Archive every storm the NHC has stopped advising on ─────────────────
+  // POST, engine-secret only: it writes, and it is the cron's job rather than
+  // anything a browser should be able to set off.
+  if (route === "/archive-finished" && req.method === "POST") {
+    const { data } = await admin.from("app_config").select("value").eq("key", "storm_engine_secret").maybeSingle();
+    const expected = (data?.value as { secret?: string } | null)?.secret;
+    const given = req.headers.get("x-engine-secret");
+    if (!expected || given !== expected) return json({ ok: false, error: "Unauthorized" }, 401, 0);
+    try {
+      return json({ ok: true, ...(await archiveFinished()) }, 200, 0);
+    } catch (err) {
+      return json({ ok: false, error: String(err instanceof Error ? err.message : err) }, 500, 0);
     }
   }
 

@@ -1,9 +1,13 @@
 import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Zap, RefreshCw, Info, ExternalLink, Globe, MapPin, BarChart3, Loader2, CalendarDays } from "lucide-react";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell, LineChart, Line } from "recharts";
+import { motion } from "framer-motion";
+import { Zap, RefreshCw, ExternalLink, Globe, MapPin, BarChart3 } from "lucide-react";
 import type { Location } from "../hooks/useLocation";
-import { getLightningClimo, monthName } from "../lib/lightningClimo";
+import { getLightningClimo } from "../lib/lightningClimo";
+import { ClimoPanel } from "../components/lightning/ClimoPanel";
+import { LiveStrikeMap } from "../components/lightning/LiveStrikeMap";
+import { ModuleShell } from "../components/ModuleShell";
+import { ROYAL, EASE, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
@@ -25,18 +29,24 @@ const TOP_REGIONS = [
   { region: "Lake Okeechobee, Florida", rate: "~83 flashes / km² / yr", note: "highest in N. America" },
 ];
 
-function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
-  return (
-    <div className="bg-card px-3 py-3 text-center">
-      <div className="text-[9px] uppercase tracking-widest text-muted-foreground font-bold">{label}</div>
-      <div className="text-xl font-black text-yellow-400 tabular-nums mt-0.5">{value}</div>
-      <div className="text-[10px] text-muted-foreground">{sub}</div>
-    </div>
-  );
-}
+/*
+ * Climatology first, live second.
+ *
+ * The module opened on a live strike map, which is the thing that is usually
+ * empty: most of the country, most of the time, has no lightning on it, so the
+ * first screen was a blank map. How electric your own patch of the country is
+ * — the answer to "should I expect this" — is true every day of the year, and
+ * it is the half of this module that only this app has bothered to compute.
+ */
+const TABS: { id: Tab; label: string; short: string; icon: typeof MapPin }[] = [
+  { id: "climo",  label: "Your Climatology", short: "Climatology", icon: BarChart3 },
+  { id: "us",     label: "Live U.S.",        short: "Live U.S.",   icon: MapPin },
+  { id: "global", label: "Global Real-Time", short: "Global",      icon: Globe },
+];
 
 export default function LightningHeatGlobe({ location }: Props) {
-  const [tab, setTab] = useState<Tab>("us");
+  const [tab, setTab] = useState<Tab>("climo");
+  const still = prefersReducedMotion();
   const [bust, setBust] = useState(() => Date.now());
   const [imgError, setImgError] = useState(false);
 
@@ -52,66 +62,83 @@ export default function LightningHeatGlobe({ location }: Props) {
     return () => clearInterval(id);
   }, [tab]);
 
-  const glmSrc = `https://cdn.star.nesdis.noaa.gov/GOES16/ABI/CONUS/GEOCOLOR/1250x750.jpg?t=${bust}`;
+  /*
+   * The still, and the bug it fixes.
+   *
+   * This was `GOES16/ABI/CONUS/GEOCOLOR/1250x750.jpg`, which 301s to
+   * `GOES19/ABI/CONUS/GEOCOLOR` — the visible-and-infrared picture. Clouds.
+   * The panel header said "GOES-19 GLM Flash Extent Density" and a caption
+   * underneath explained which pixels were the flashes, of an image that had
+   * none in it.
+   *
+   * The real product is under `GLM`, not `ABI`, and it is there: verified as a
+   * 1 MB JPEG. It is kept as the wide CONUS still beneath the interactive map.
+   */
+  const glmSrc = `https://cdn.star.nesdis.noaa.gov/GOES19/GLM/CONUS/EXTENT3/1250x750.jpg?t=${bust}`;
 
   // NCEI is slow and this never changes intra-session, so cache it hard.
   const climo = useQuery({
     queryKey: ["lightning-climo", location.lat.toFixed(2), location.lon.toFixed(2)],
     queryFn: () => getLightningClimo(location.lat, location.lon),
-    enabled: tab === "climo",
     staleTime: 24 * 60 * 60 * 1000,
     retry: 1,
   });
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <Zap className="w-5 h-5 text-yellow-400" />
-            <h2 className="text-xl font-bold tracking-wide uppercase">Lightning Density</h2>
-          </div>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Live U.S. GOES-19 GLM flash extent · Global real-time strike network
-          </p>
-        </div>
+    <ModuleShell
+      eyebrow="GOES-19 GLM · NCEI · Blitzortung"
+      title="Lightning"
+      subtitle="Where it is striking right now, and how electric your own patch of the country really is."
+      actions={
         <button onClick={refresh}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40">
+          className="flex items-center gap-1.5 text-[11px] px-2.5 py-1.5 rounded-lg transition-colors"
+          style={{ color: ROYAL.dim, border: `1px solid ${ROYAL.hairline}` }}>
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
-      </div>
-
-      <div className="flex items-start gap-2 bg-muted/20 border border-border rounded-xl px-3 py-2 text-xs text-muted-foreground">
-        <Info className="w-3.5 h-3.5 shrink-0 mt-0.5 text-yellow-400" />
-        <span>
-          The U.S. tab shows real-time GOES-19 <strong>Geostationary Lightning Mapper (GLM)</strong> flash extent
-          density — actual strikes detected from space, updated every minute. The Global tab uses the Blitzortung
-          community ground-network for real-time worldwide lightning detection.
-        </span>
-      </div>
-
-      {/* Tab Switcher */}
-      <div className="flex gap-2 flex-wrap">
-        <button onClick={() => setTab("us")}
-          className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${tab === "us" ? "bg-primary/15 text-primary border border-primary/30" : "bg-card border border-border text-muted-foreground hover:border-primary/30"}`}>
-          <MapPin className="w-4 h-4" /> Live U.S. Strikes (GOES GLM)
-        </button>
-        <button onClick={() => setTab("global")}
-          className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${tab === "global" ? "bg-primary/15 text-primary border border-primary/30" : "bg-card border border-border text-muted-foreground hover:border-primary/30"}`}>
-          <Globe className="w-4 h-4" /> Global Real-Time (Blitzortung)
-        </button>
-        <button onClick={() => setTab("climo")}
-          className={`px-5 py-2.5 rounded-xl text-sm font-semibold flex items-center gap-2 transition-all ${tab === "climo" ? "bg-primary/15 text-primary border border-primary/30" : "bg-card border border-border text-muted-foreground hover:border-primary/30"}`}>
-          <BarChart3 className="w-4 h-4" /> Lightning Climatology
-        </button>
-      </div>
+      }
+      status={
+        <div className="flex flex-wrap gap-1.5">
+          {TABS.map((t) => {
+            const Icon = t.icon;
+            const on = tab === t.id;
+            return (
+              <button key={t.id} onClick={() => setTab(t.id)}
+                className="px-3 py-1.5 rounded-lg text-[11.5px] font-semibold flex items-center gap-1.5 transition-colors"
+                style={{
+                  background: on ? "rgba(251,191,36,0.14)" : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${on ? "rgba(251,191,36,0.4)" : ROYAL.hairline}`,
+                  color: on ? "#fbbf24" : ROYAL.dim,
+                }}>
+                <Icon className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">{t.label}</span>
+                <span className="sm:hidden">{t.short}</span>
+              </button>
+            );
+          })}
+        </div>
+      }
+    >
+      <motion.div
+        key={tab}
+        initial={still ? { opacity: 0 } : { opacity: 0, y: 10 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={still ? { duration: 0.2 } : { duration: 0.4, ease: EASE }}
+        className="space-y-5"
+      >
+      {tab === "us" && (
+        <LiveStrikeMap
+          center={{ lat: location.lat, lon: location.lon }}
+          bust={bust}
+          still={still}
+        />
+      )}
 
       {tab === "us" && (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <div className="flex items-center gap-2">
               <Zap className="w-4 h-4 text-yellow-400" />
-              <span className="text-sm font-semibold">GOES-19 GLM Flash Extent Density — CONUS</span>
+              <span className="text-sm font-semibold">Whole country at once — GLM flash extent density</span>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-1.5">
@@ -198,109 +225,57 @@ export default function LightningHeatGlobe({ location }: Props) {
 
       {tab === "climo" && (
         <div className="space-y-4">
-          <div className="bg-card border border-border rounded-xl overflow-hidden">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border flex-wrap gap-2">
+          <div className="rounded-2xl overflow-hidden"
+               style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
+            <div className="flex items-center justify-between px-4 py-3 flex-wrap gap-2"
+                 style={{ borderBottom: `1px solid ${ROYAL.hairline}` }}>
               <div className="flex items-center gap-2">
-                <BarChart3 className="w-4 h-4 text-yellow-400" />
-                <span className="text-sm font-semibold">Thunder-day climatology — {location.name}</span>
+                <BarChart3 className="w-4 h-4" style={{ color: "#fbbf24" }} />
+                <span className="text-sm font-semibold" style={{ color: ROYAL.text }}>
+                  Thunder-day climatology — {location.name}
+                </span>
               </div>
               {climo.data && (
-                <span className="text-[11px] text-muted-foreground">
+                <span className="text-[11px]" style={{ color: ROYAL.dim }}>
                   NCEI station {climo.data.stationId} · {climo.data.sampleYears} yrs of record
                 </span>
               )}
             </div>
-
-            {climo.isLoading ? (
-              <div className="py-16 text-center">
-                <Loader2 className="w-6 h-6 animate-spin mx-auto text-muted-foreground" />
-                <p className="text-xs text-muted-foreground mt-2">Pulling observed thunder days from NCEI…</p>
-              </div>
-            ) : !climo.data ? (
-              <div className="p-6 text-center space-y-2">
-                <div className="text-2xl">⛈️</div>
-                <p className="text-sm font-semibold">No thunder-day record near this location</p>
-                <p className="text-xs text-muted-foreground max-w-md mx-auto">
-                  Thunder days are logged by staffed first-order weather stations. Coverage is sparse outside
-                  major airports, so some locations have no nearby station with this element.
-                </p>
-              </div>
-            ) : (
-              <>
-                <div className="grid grid-cols-3 gap-px bg-border">
-                  <Stat label="Thunder days / yr" value={String(climo.data.annualAvg)} sub="annual average" />
-                  <Stat label="Peak month"
-                    value={climo.data.peakMonth !== null ? monthName(climo.data.peakMonth) : "—"}
-                    sub={climo.data.peakMonth !== null ? `${climo.data.monthly[climo.data.peakMonth].avgDays} days avg` : ""} />
-                  <Stat label="Storm season"
-                    value={`${climo.data.monthly.filter((m) => m.avgDays >= 2).length} mo`}
-                    sub="months averaging 2+ days" />
-                </div>
-
-                <div className="p-4 space-y-1">
-                  <div className="text-xs font-semibold flex items-center gap-1.5">
-                    <CalendarDays className="w-3.5 h-3.5 text-yellow-400" /> Average thunder days by month
-                  </div>
-                  <ResponsiveContainer width="100%" height={190}>
-                    <BarChart data={climo.data.monthly.map((m) => ({ name: monthName(m.month), days: m.avgDays }))}>
-                      <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} width={26} />
-                      <Tooltip contentStyle={{ background: "#0a0a18", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
-                        formatter={(v: number) => [`${v} days`, "Average"]} />
-                      <Bar dataKey="days" radius={[4, 4, 0, 0]}>
-                        {climo.data.monthly.map((m) => (
-                          <Cell key={m.month}
-                            fill={m.month === climo.data!.peakMonth ? "#fbbf24" : "rgba(251,191,36,0.35)"} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-
-                {climo.data.yearly.length > 1 && (
-                  <div className="p-4 pt-0 space-y-1">
-                    <div className="text-xs font-semibold">Thunder days per year</div>
-                    <ResponsiveContainer width="100%" height={150}>
-                      <LineChart data={climo.data.yearly.map((y) => ({ name: String(y.year), days: y.days }))}>
-                        <XAxis dataKey="name" tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} />
-                        <YAxis tick={{ fontSize: 10, fill: "#64748b" }} axisLine={false} tickLine={false} width={26} />
-                        <Tooltip contentStyle={{ background: "#0a0a18", border: "1px solid #1e293b", borderRadius: 8, fontSize: 12 }}
-                          formatter={(v: number) => [`${v} days`, "Thunder"]} />
-                        <Line type="monotone" dataKey="days" stroke="#fbbf24" strokeWidth={2}
-                          dot={{ r: 2.5, fill: "#fbbf24" }} />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
-                )}
-
-                <div className="px-4 py-3 border-t border-border bg-muted/10 text-[11px] text-muted-foreground leading-relaxed">
-                  <strong className="text-foreground">Why thunder days?</strong> There is no free public archive of
-                  historical strike density — the per-state flash-density numbers usually quoted come from Vaisala's
-                  NLDN, which is a commercial licence. Thunder days (NCEI element <code>DYTS</code>) are the long-standing
-                  observed proxy: the count of days on which thunder was actually heard or detected at the station.
-                  These are real observations for the station nearest you, not a model or a national average.
-                </div>
-              </>
-            )}
+            <div className="p-4">
+              <ClimoPanel
+                data={climo.data}
+                loading={climo.isLoading}
+                placeName={location.name}
+                calm={still}
+              />
+            </div>
           </div>
 
           {/* Global hotspots belong with the climatology rather than the live maps. */}
-          <div className="bg-card border border-border rounded-xl p-4">
-            <h3 className="text-sm font-semibold mb-3">World's Top Lightning Hotspots (NASA OTD/LIS climatology)</h3>
+          <div className="rounded-2xl p-4"
+               style={{ background: ROYAL.panel, border: `1px solid ${ROYAL.hairline}` }}>
+            <h3 className="text-[10px] uppercase tracking-[0.24em] mb-3" style={{ color: ROYAL.dim }}>
+              The most electric places on Earth
+            </h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
               {TOP_REGIONS.map((r, i) => (
-                <div key={r.region} className="flex items-start gap-3 bg-muted/20 rounded-lg p-3">
-                  <div className="w-6 h-6 rounded-full bg-yellow-400/15 text-yellow-400 text-xs font-bold flex items-center justify-center shrink-0">
+                <div key={r.region} className="flex items-start gap-3 rounded-xl p-3"
+                     style={{ background: "rgba(204,204,255,0.04)" }}>
+                  <div className="w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center shrink-0"
+                       style={{ background: "rgba(251,191,36,0.15)", color: "#fbbf24" }}>
                     {i + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium truncate">{r.region}</div>
-                    <div className="text-xs text-yellow-400/90 tabular-nums">{r.rate}</div>
-                    {r.note && <div className="text-[10px] text-muted-foreground mt-0.5">{r.note}</div>}
+                    <div className="text-sm font-medium truncate" style={{ color: ROYAL.text }}>{r.region}</div>
+                    <div className="text-xs tabular-nums" style={{ color: "#fbbf24" }}>{r.rate}</div>
+                    {r.note && <div className="text-[10px] mt-0.5" style={{ color: ROYAL.dim }}>{r.note}</div>}
                   </div>
                 </div>
               ))}
             </div>
+            <p className="text-[10.5px] mt-3" style={{ color: ROYAL.dim }}>
+              NASA OTD/LIS satellite climatology. Flash density is flashes per square kilometre per year.
+            </p>
           </div>
         </div>
       )}
@@ -351,6 +326,7 @@ export default function LightningHeatGlobe({ location }: Props) {
           ))}
         </div>
       </div>
-    </div>
+      </motion.div>
+    </ModuleShell>
   );
 }

@@ -130,8 +130,30 @@ export interface SWTIInputs {
   dewPointC: number;
 }
 
+/**
+ * One ingredient's contribution to the index.
+ *
+ * The five sub-scores were computed and then thrown away, leaving a 0-100
+ * number with no way to see what built it — so a 40 from deep instability and
+ * no turning read identically to a 40 from strong shear over nothing. They are
+ * returned now, with the measurement each came from, so the page can show why
+ * the index is what it is instead of asserting it.
+ */
+export interface SWTIPart {
+  key: "cape" | "srh" | "shear" | "li" | "dew";
+  label: string;
+  /** Points contributed, and the most this ingredient can ever contribute. */
+  score: number;
+  max: number;
+  /** The measurement itself, and what it is measured in. */
+  value: number;
+  unit: string;
+  color: string;
+}
+
 export interface SWTIResult {
   score: number;
+  parts: SWTIPart[];
   tornadoRisk: "none" | "marginal" | "slight" | "moderate" | "high" | "violent";
   hailRisk: "none" | "small" | "large" | "giant";
   windRisk: "none" | "marginal" | "significant";
@@ -224,14 +246,46 @@ export function computeSWTI(inputs: SWTIInputs): SWTIResult {
     violent: "#d946ef",
   };
 
+  const parts: SWTIPart[] = [
+    { key: "cape",  label: "Instability",  score: capeScore,  max: 30, value: cape,        unit: "J/kg",  color: "#ef4444" },
+    { key: "srh",   label: "Helicity",     score: srhScore,   max: 30, value: srh,         unit: "m²/s²", color: "#a855f7" },
+    { key: "shear", label: "Shear",        score: shearScore, max: 20, value: shear06km,   unit: "kt",    color: "#38bdf8" },
+    { key: "li",    label: "Lifted index", score: liScore,    max: 12, value: liftedIndex, unit: "°C",    color: "#fbbf24" },
+    { key: "dew",   label: "Moisture",     score: dewScore,   max: 8,  value: dewPointC,   unit: "°C",    color: "#4ade80" },
+  ];
+
   return {
     score: Math.min(100, score),
+    parts,
     tornadoRisk,
     hailRisk,
     windRisk,
     label: riskLabels[tornadoRisk],
     color: riskColors[tornadoRisk],
   };
+}
+
+/**
+ * The ingredient holding the index back, in plain words.
+ *
+ * A composite number tells you how bad, never why. Storms need fuel AND turning
+ * AND a way to organise, and which one is missing is the whole story — 2,500
+ * J/kg with no shear is a pulse thunderstorm, and 60 knots of shear over
+ * nothing is a windy afternoon. This names the weakest link by how much of its
+ * own ceiling it reached, not by raw points, because the ceilings differ.
+ */
+export function swtiReading(r: SWTIResult): string {
+  const scored = r.parts.filter((p) => p.max > 0);
+  if (r.score === 0) {
+    return "Nothing is in place for storms right now — no meaningful instability, and no wind structure to organise any.";
+  }
+  const filled = [...scored].sort((a, b) => b.score / b.max - a.score / a.max);
+  const best = filled[0], worst = filled[filled.length - 1];
+  const pct = (p: SWTIPart) => Math.round((p.score / p.max) * 100);
+  if (worst.score === 0) {
+    return `${best.label.toLowerCase()} is the strongest ingredient at ${pct(best)}% of its scale, but ${worst.label.toLowerCase()} is contributing nothing — which is what caps this at ${r.score}.`;
+  }
+  return `${best.label.toLowerCase()} leads at ${pct(best)}% of its scale and ${worst.label.toLowerCase()} lags at ${pct(worst)}%, for ${r.score} of 100.`;
 }
 
 export function getWindDirection(deg: number): string {

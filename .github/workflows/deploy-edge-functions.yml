@@ -1,0 +1,97 @@
+name: Deploy edge functions
+
+# WHY THIS EXISTS
+# `chase-target` is two files — index.ts and terrain.ts — and the Supabase
+# dashboard's function editor only ever shows one. Deploying from the dashboard
+# therefore either drops terrain.ts or, worse, silently redeploys whatever old
+# single-file source the editor still had, which is exactly what happened: the
+# migration landed, the function was "deployed", and the code running in
+# production was still the previous version. The backfill cron fired every
+# twenty minutes and re-ran the current day because the deployed code had never
+# heard of `action: backfill`.
+#
+# This deploys from the repository, so what runs is what is on the branch, and
+# multi-file functions are bundled by the CLI rather than by hand.
+#
+# ONE-TIME SETUP
+#   Settings → Secrets and variables → Actions → New repository secret
+#     SUPABASE_ACCESS_TOKEN   a personal access token from
+#                             https://supabase.com/dashboard/account/tokens
+#     SUPABASE_PROJECT_REF    the project ref from the dashboard URL
+#
+# TO RUN
+#   Actions → Deploy edge functions → Run workflow → pick the branch and the
+#   function. "all" deploys every function in supabase/functions.
+
+on:
+  workflow_dispatch:
+    inputs:
+      function:
+        description: "Which function to deploy"
+        type: choice
+        options: [chase-target, storm-engine, both, all]
+        default: both
+
+concurrency:
+  group: deploy-edge-functions
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: github-repo
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Show what is about to be deployed
+        run: |
+          echo "Branch:   ${{ github.ref_name }}"
+          echo "Commit:   ${{ github.sha }}"
+          echo "Selection: ${{ inputs.function }}"
+          echo
+          echo "Files the CLI will bundle:"
+          find supabase/functions -name '*.ts' | sort
+
+      - name: Deploy
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_ACCESS_TOKEN:-}" ] || [ -z "${PROJECT_REF:-}" ]; then
+            echo "::error::SUPABASE_ACCESS_TOKEN and SUPABASE_PROJECT_REF must be set as repository secrets."
+            exit 1
+          fi
+
+          case "${{ inputs.function }}" in
+            both) TARGETS="chase-target storm-engine" ;;
+            all)  TARGETS="$(ls supabase/functions)" ;;
+            *)    TARGETS="${{ inputs.function }}" ;;
+          esac
+
+          for fn in $TARGETS; do
+            # Skip shared directories that are imported rather than served.
+            case "$fn" in _*) echo "skipping $fn"; continue ;; esac
+            echo "::group::deploy $fn"
+            supabase functions deploy "$fn" --project-ref "$PROJECT_REF"
+            echo "::endgroup::"
+          done
+
+      - name: Confirm what is now live
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
+        run: |
+          # A deploy that reports success but leaves the old version live is the
+          # failure this workflow exists to prevent, so the versions are read
+          # back rather than assumed.
+          curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/functions" \
+            | python3 -c "import json,sys,datetime; [print('%-24s v%-4s %-8s updated %s' % (f['slug'], f.get('version'), f.get('status'), datetime.datetime.utcfromtimestamp(f['updated_at']/1000).strftime('%Y-%m-%d %H:%M:%SZ'))) for f in json.load(sys.stdin)]"

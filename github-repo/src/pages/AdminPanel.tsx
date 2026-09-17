@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, lazy, Suspense } from "react";
 import { Link } from "wouter";
 import { renderMarkdown } from "../lib/markdown";
 import { useAuth, ALL_MODULES, HIDDEN_MODULES, type User, type BadgeDef, type SignupQuestion, type QuestionType, type Tier } from "../hooks/useAuth";
@@ -8,12 +8,41 @@ import {
   getQuestions, saveQuestions, getEmergencyPin, saveEmergencyPin,
   getEmergencyRecipients, saveEmergencyRecipients,
 } from "../lib/userAdmin";
-import { listBadgeDefs, createBadge, updateBadge, deleteBadge } from "../lib/badges";
+import {
+  listBadgeDefs, createBadge, updateBadge, deleteBadge,
+  listBadgeRules, saveBadgeRule, deleteBadgeRule, backfillBadges, slugifyBadgeId,
+  BADGE_KINDS, BADGE_REGIONS, type BadgeRule,
+} from "../lib/badges";
 import { getLoyaltyRules, saveLoyaltyRules, awardLoyaltyPoints, getUserLoyaltyTotal, slugifyEarnKey, type LoyaltyRules, type EarnRule } from "../lib/loyalty";
 import { BadgeChip } from "../components/BadgeChip";
+import { BADGE_ICON_NAMES, iconFor, RARITY } from "../lib/badgeIcons";
+import { useDraft } from "../lib/draft";
+import { markUnsaved, releaseUnsaved } from "../lib/unsavedWork";
 import { AdminNavTab } from "../components/AdminNavTab";
+import { setScrollVariant } from "../components/ScrollMemory";
 import { AdminTriviaTab } from "../components/AdminTriviaTab";
 import AdminBillingTab from "../components/AdminBillingTab";
+import { AdminPointsTab } from "../components/AdminPointsTab";
+import { AdminInvoicesTab } from "../components/AdminInvoicesTab";
+import { AdminUsersTab } from "../components/AdminUsersTab";
+import { AdminAlertsTab } from "../components/admin/AdminAlertsTab";
+import { AdminMoneyTab } from "../components/AdminMoneyTab";
+import { AdminHealthTab } from "../components/AdminHealthTab";
+import { AdminUsageTab } from "../components/AdminUsageTab";
+import { AdminAuditTab } from "../components/AdminAuditTab";
+import { AdminMenuStyleCard } from "../components/admin/AdminMenuStyleCard";
+import { AdminMapColorsCard } from "../components/admin/AdminMapColorsCard";
+import { AdminWallCard } from "../components/admin/AdminWallCard";
+import { AdminOwnerNotifyCard } from "../components/admin/AdminOwnerNotifyCard";
+import { AdminTiersTab } from "../components/admin/AdminTiersTab";
+import { AdminChasesTab } from "../components/admin/AdminChasesTab";
+import { AdminRafflesTab } from "../components/admin/AdminRafflesTab";
+import { AdminShell, OVERVIEW, type ShellGroup } from "../components/admin/AdminShell";
+// Rich-text editing is a couple of hundred kilobytes of ProseMirror. It loads
+// when somebody opens the News tab, not when they open the admin panel.
+const NewsEditor = lazy(() => import("../components/admin/NewsEditor").then((m) => ({ default: m.NewsEditor })));
+import { getAdminLayout, resolveLayout, DEFAULT_LAYOUT, type AdminLayout } from "../lib/adminGroups";
+import { audit } from "../lib/adminAudit";
 import { listAllNews, createNews, updateNews, patchNews, deleteNews, type NewsPost, type NewsInput, type NewsStatus } from "../lib/news";
 import { listFaq, createFaq, updateFaq, deleteFaq, reorderFaq, listCategories, createCategory, updateCategory, deleteCategory, reorderCategories, seedFaqDefaults, type FaqEntry, type FaqCategory, type FaqSection } from "../lib/faq";
 import { DEFAULT_FAQ } from "../lib/faqDefaults";
@@ -21,16 +50,91 @@ import { listBroadcasts, createBroadcast, deleteBroadcast, type Broadcast } from
 import { listContactSubmissions, markContactRead, deleteContactSubmission, type ContactSubmissionRow } from "../lib/contactInbox";
 import { adminListAlertOptins, type AlertOptin } from "../lib/notifications";
 import { supabase } from "../lib/supabase";
-import { Shield, Users, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, Bold, Italic, Strikethrough, Heading2, Heading3, List, ListOrdered, Quote, Code, Link2, Image as ImageIcon, Minus, Brain } from "lucide-react";
+import { Shield, Users, Crown, Route, Ticket, Bell, BellRing, Mail, MessageSquare, Phone, MapPin, Newspaper, DollarSign, Settings, Trash2, Plus, Check, AlertTriangle, Award, UserPlus, X, KeyRound, Loader2, ClipboardList, Pencil, ArrowUp, ArrowDown, HelpCircle, Pin, PinOff, Eye, EyeOff, Calendar, Tag, FileText, Clock, Save, ListOrdered, Brain, Trophy, Activity, BarChart3, ScrollText, RotateCcw } from "lucide-react";
 
-type Tab = "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts" | "news" | "trivia" | "faq" | "billing" | "settings";
+type Tab =
+  | "users" | "nav" | "modules" | "badges" | "signups" | "broadcasts" | "inbox" | "alerts"
+  | "news" | "trivia" | "points" | "faq" | "billing" | "invoices" | "settings"
+  | "money" | "health" | "usage" | "audit" | "tiers" | "chases" | "raffles"
+  | typeof OVERVIEW;
+
+/**
+ * Every tab that exists, as data.
+ *
+ * Grouping and order come from `app_config.admin_groups` (see lib/adminGroups)
+ * and are edited inside the panel itself. This registry only says what exists —
+ * a tab added here with nowhere to file it lands under "Everything else" rather
+ * than vanishing.
+ */
+const TABS: { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
+  { id: "users",      label: "Members",           icon: Users },
+  { id: "signups",    label: "Signups",           icon: ClipboardList },
+  { id: "alerts",     label: "Alert Opt-ins",     icon: BellRing },
+  { id: "points",     label: "Points",            icon: Trophy },
+  { id: "raffles",    label: "Raffles",           icon: Ticket },
+  { id: "badges",     label: "Badges",            icon: Award },
+  { id: "tiers",      label: "Tiers",             icon: Crown },
+  { id: "money",      label: "Money",             icon: DollarSign },
+  { id: "billing",    label: "Pricing",           icon: Tag },
+  { id: "invoices",   label: "Invoices",          icon: FileText },
+  { id: "news",       label: "SSWX News",         icon: Newspaper },
+  { id: "chases",     label: "StormSync Chases",  icon: Route },
+  { id: "faq",        label: "FAQ & Guide",       icon: HelpCircle },
+  { id: "trivia",     label: "Daily Trivia",      icon: Brain },
+  { id: "broadcasts", label: "Send Notification", icon: Bell },
+  { id: "inbox",      label: "Contact Inbox",     icon: Mail },
+  { id: "health",     label: "System Health",     icon: Activity },
+  { id: "usage",      label: "Module Usage",      icon: BarChart3 },
+  { id: "audit",      label: "Audit Log",         icon: ScrollText },
+  { id: "nav",        label: "Sidebar & Modules", icon: ListOrdered },
+  { id: "modules",    label: "Module Access",     icon: Settings },
+  { id: "settings",   label: "Settings",          icon: Settings },
+];
 
 export default function AdminPanel() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<Tab>("users");
+  /**
+   * The panel opens on the map of itself.
+   *
+   * This used to restore whichever section you were last in, which sounds
+   * helpful and is not: an admin panel is opened cold far more often than it is
+   * resumed, and landing straight inside one of twenty-two sections with no
+   * view of the other twenty-one is exactly the complaint. The overview lists
+   * everything, marks where you were last, and is one press away from the
+   * masthead and the rail at all times.
+   */
+  const [tab, setTab] = useState<Tab>(OVERVIEW);
+
+  /**
+   * Scroll is remembered per SECTION, not per URL.
+   *
+   * Every one of these tabs lives at `/admin`, so one remembered offset for the
+   * path restores you into whichever section you happen to open next, at a
+   * position that belonged to a different one.
+   */
+  useEffect(() => { setScrollVariant(`admin:${tab}`); }, [tab]);
+  useEffect(() => () => setScrollVariant(null), []);
+
   const [badgeDefs, setBadgeDefs] = useState<BadgeDef[]>([]);
+  const [layout, setLayout] = useState<AdminLayout>(DEFAULT_LAYOUT);
+  const [showCreate, setShowCreate] = useState(false);
   const reloadBadges = useCallback(() => { listBadgeDefs().then(setBadgeDefs).catch(() => {}); }, []);
   useEffect(() => { reloadBadges(); }, [reloadBadges]);
+  useEffect(() => { getAdminLayout().then(setLayout).catch(() => {}); }, []);
+
+  /**
+   * The saved layout, folded together with the registry so the rail has icons.
+   * `resolveLayout` deliberately knows nothing about icons — it arranges tabs —
+   * so the lookup happens here, where the registry lives.
+   */
+  const groups = useMemo<ShellGroup[]>(() => {
+    const iconOf = new Map(TABS.map((t) => [t.id, t.icon]));
+    return resolveLayout(layout, TABS).map((g) => ({
+      id: g.id,
+      label: g.label,
+      tabs: g.tabs.map((t) => ({ ...t, icon: iconOf.get(t.id as Tab) ?? Settings })),
+    }));
+  }, [layout]);
 
   if (!user || !user.isAdmin) {
     return (
@@ -44,157 +148,36 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="p-4 md:p-6 max-w-6xl mx-auto space-y-5">
-      <div className="flex items-center gap-2">
-        <Shield className="w-6 h-6 text-yellow-400" />
-        <h1 className="text-2xl font-bold tracking-wide uppercase">Admin Panel</h1>
-      </div>
-
-      <div className="bg-yellow-400/10 border border-yellow-400/30 rounded-xl p-3 text-xs text-yellow-200/90 leading-relaxed">
-        <strong>Users, badges, settings &amp; the contact inbox are server-backed</strong> (Supabase, multi-device).
-        News &amp; broadcasts are still browser-local on this device — those move to the backend next.
-      </div>
-
-      <div className="flex gap-1 border-b border-border flex-wrap">
-        {([
-          { id: "users", label: "Users", icon: Users },
-          { id: "nav", label: "Sidebar & Modules", icon: ListOrdered },
-          { id: "modules", label: "Module Access", icon: Settings },
-          { id: "badges", label: "Badges", icon: Award },
-          { id: "signups", label: "Signups", icon: ClipboardList },
-          { id: "broadcasts", label: "Send Notification", icon: Bell },
-          { id: "inbox", label: "Contact Inbox", icon: Mail },
-          { id: "alerts", label: "Alert Opt-ins", icon: BellRing },
-          { id: "news", label: "SSWX News", icon: Newspaper },
-          { id: "trivia", label: "Daily Trivia", icon: Brain },
-          { id: "faq", label: "FAQ & Guide", icon: HelpCircle },
-          { id: "billing", label: "Billing", icon: DollarSign },
-          { id: "settings", label: "Settings", icon: Settings },
-        ] as { id: Tab; label: string; icon: React.ComponentType<{ className?: string }> }[]).map(t => {
-          const Icon = t.icon;
-          return (
-            <button key={t.id} onClick={() => setTab(t.id)}
-              className={`px-4 py-2.5 text-sm font-medium transition-colors relative flex items-center gap-2 ${tab === t.id ? "text-primary" : "text-muted-foreground hover:text-foreground"}`}>
-              <Icon className="w-3.5 h-3.5" /> {t.label}
-              {tab === t.id && <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary rounded-t" />}
-            </button>
-          );
-        })}
-      </div>
-
-      {tab === "users" && <UsersTab badgeDefs={badgeDefs} />}
-      {tab === "nav" && <AdminNavTab />}
+    <AdminShell
+      groups={groups}
+      value={tab}
+      onChange={(id) => setTab(id as Tab)}
+      operator={{ name: user.name, role: "Administrator" }}
+    >
+      {tab === "users" && <AdminUsersTab badgeDefs={badgeDefs} onCreate={() => setShowCreate(true)} />}
+      {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => setShowCreate(false)} />}
+      {tab === "tiers" && <AdminTiersTab />}
+      {tab === "money" && <AdminMoneyTab />}
+      {tab === "health" && <AdminHealthTab />}
+      {tab === "usage" && <AdminUsageTab />}
+      {tab === "audit" && <AdminAuditTab />}
+      {tab === "nav" && <AdminNavTab knownAdminTabs={TABS} />}
       {tab === "modules" && <ModulesTab />}
       {tab === "badges" && <BadgesTab badgeDefs={badgeDefs} reloadBadges={reloadBadges} />}
       {tab === "signups" && <SignupsTab />}
       {tab === "broadcasts" && <BroadcastsTab />}
       {tab === "inbox" && <InboxTab />}
-      {tab === "alerts" && <AlertOptinsTab />}
+      {tab === "alerts" && <AdminAlertsTab />}
       {tab === "news" && <NewsTab adminName={user.name} />}
+      {tab === "chases" && <AdminChasesTab />}
       {tab === "trivia" && <AdminTriviaTab />}
+      {tab === "points" && <AdminPointsTab />}
+      {tab === "raffles" && <AdminRafflesTab />}
       {tab === "faq" && <FaqTab />}
       {tab === "billing" && <AdminBillingTab />}
+      {tab === "invoices" && <AdminInvoicesTab />}
       {tab === "settings" && <SettingsTab />}
-    </div>
-  );
-}
-
-function UsersTab({ badgeDefs }: { badgeDefs: BadgeDef[] }) {
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-  const [showCreate, setShowCreate] = useState(false);
-  const [busyId, setBusyId] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      setUsers(await listUsers());
-      setErr("");
-    } catch {
-      setErr("Failed to load users.");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  async function withBusy(id: string, fn: () => Promise<void>) {
-    setBusyId(id);
-    try { await fn(); } finally { setBusyId(null); }
-  }
-  async function addReferral(u: User) {
-    await withBusy(u.id, async () => { await setUserReferrals(u.id, u.referrals + 1); await refresh(); });
-  }
-  async function removeUser(u: User) {
-    if (!confirm(`Delete ${u.name}? This permanently removes their account.`)) return;
-    await withBusy(u.id, async () => {
-      const r = await adminDeleteUser(u.id);
-      if (!r.ok) { alert(r.error ?? "Delete failed"); return; }
-      await refresh();
-    });
-  }
-  async function changeTier(u: User, tier: Tier) {
-    await withBusy(u.id, async () => { await setUserTier(u.id, tier); await refresh(); });
-  }
-  async function resetPin(u: User) {
-    const pin = window.prompt(`Enter a new 4-digit PIN for ${u.name}:`);
-    if (pin == null) return;
-    await withBusy(u.id, async () => {
-      const r = await adminSetPin(u.id, pin.trim());
-      alert(r.ok ? "PIN updated." : (r.error ?? "Failed to set PIN"));
-    });
-  }
-
-  return (
-    <div className="space-y-3">
-      <div className="flex justify-end">
-        <button onClick={() => setShowCreate(true)} className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm font-semibold flex items-center gap-1.5 hover:bg-primary/30">
-          <UserPlus className="w-4 h-4" /> Create User
-        </button>
-      </div>
-
-      {showCreate && <CreateUserModal badgeDefs={badgeDefs} onClose={() => setShowCreate(false)} onCreated={() => void refresh()} />}
-
-      {err && <div className="text-xs text-red-300 bg-red-500/10 border border-red-500/30 rounded-lg px-3 py-2">{err}</div>}
-
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center justify-between">
-          <h2 className="text-sm font-semibold">All Users ({users.length})</h2>
-        </div>
-        {loading ? (
-          <div className="p-6 flex items-center justify-center gap-2 text-sm text-muted-foreground"><Loader2 className="w-4 h-4 animate-spin" /> Loading users…</div>
-        ) : users.length === 0 ? (
-          <div className="p-6 text-center text-sm text-muted-foreground">No users yet. Create the first account above.</div>
-        ) : (
-        <div className="divide-y divide-border">
-          {users.map(u => (
-            <div key={u.id} className={`p-4 flex flex-wrap items-center gap-3 ${busyId === u.id ? "opacity-50 pointer-events-none" : ""}`}>
-              <div className="w-10 h-10 rounded-full bg-primary/20 border border-primary/40 flex items-center justify-center text-xs font-bold text-primary shrink-0">
-                {u.name.split(" ").map(p => p[0]).slice(0, 2).join("")}
-              </div>
-              <div className="flex-1 min-w-[220px]">
-                <div className="text-sm font-medium flex items-center gap-2 flex-wrap">
-                  {u.name}
-                  {u.isAdmin && <span className="px-1.5 py-0.5 rounded text-[9px] bg-yellow-400/15 text-yellow-300 border border-yellow-400/30 uppercase">Admin</span>}
-                  {(u.badges ?? []).map(id => <BadgeChip key={id} id={id} defs={badgeDefs} />)}
-                </div>
-                <div className="text-xs text-muted-foreground">{u.email}</div>
-              </div>
-              <select value={u.tier} onChange={e => changeTier(u, Number(e.target.value) as Tier)}
-                title="Changing tier resets the user's modules to that tier's defaults"
-                className="bg-muted/30 border border-border rounded-lg px-2 py-1 text-xs">
-                <option value={1}>Tier 1</option><option value={2}>Tier 2</option><option value={3}>Tier 3</option><option value={4}>Tier 4</option>
-              </select>
-              <div className="text-xs text-muted-foreground tabular-nums">Refs: <span className="text-yellow-400 font-bold">{u.referrals}</span></div>
-              <button onClick={() => addReferral(u)} className="px-2 py-1 text-xs rounded bg-primary/15 text-primary hover:bg-primary/25 transition-colors">+ Referral</button>
-              <button onClick={() => resetPin(u)} title="Reset PIN" className="p-1.5 rounded hover:bg-primary/15 text-primary transition-colors"><KeyRound className="w-3.5 h-3.5" /></button>
-              {!u.isAdmin && <button onClick={() => removeUser(u)} className="p-1.5 rounded hover:bg-red-500/15 text-red-400 transition-colors"><Trash2 className="w-3.5 h-3.5" /></button>}
-            </div>
-          ))}
-        </div>
-        )}
-      </div>
-    </div>
+    </AdminShell>
   );
 }
 
@@ -398,9 +381,11 @@ function AwardPointsCard({ userId, userName }: { userId: string; userName: strin
 
 const BADGE_GROUPS: Array<BadgeDef["group"]> = ["Role", "Tier", "Achievement"];
 
-function BadgeEditor({ initial, onSave, onCancel, saving }: {
+function BadgeEditor({ initial, rule, onSave, onCancel, saving }: {
   initial: Omit<BadgeDef, "id"> & { id?: string };
-  onSave: (b: Omit<BadgeDef, "id">) => void;
+  /** The automation attached to this badge, if it has one. */
+  rule?: BadgeRule;
+  onSave: (b: Omit<BadgeDef, "id">, rule: BadgeRule | null) => void;
   onCancel: () => void;
   saving: boolean;
 }) {
@@ -408,7 +393,17 @@ function BadgeEditor({ initial, onSave, onCancel, saving }: {
   const [color, setColor] = useState(initial.color);
   const [description, setDescription] = useState(initial.description);
   const [group, setGroup] = useState<BadgeDef["group"]>(initial.group);
-  const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group };
+  const [icon, setIcon] = useState(initial.icon ?? "award");
+  const [rarity, setRarity] = useState<NonNullable<BadgeDef["rarity"]>>(initial.rarity ?? "common");
+  // A badge with no rule is awarded by hand, which is still the right answer for
+  // the honorary ones — so automation is opt-in rather than assumed.
+  const [auto, setAuto] = useState(Boolean(rule));
+  const [kind, setKind] = useState(rule?.kind ?? "points_total");
+  const [threshold, setThreshold] = useState(String(rule?.threshold ?? 100));
+  const [region, setRegion] = useState(rule?.param ?? BADGE_REGIONS[0].key);
+  const [ruleOn, setRuleOn] = useState(rule?.enabled ?? true);
+  const kindMeta = BADGE_KINDS.find((k) => k.kind === kind);
+  const previewDef: BadgeDef = { id: "__preview", label: label || "Badge Preview", color, description, group, icon, rarity };
 
   return (
     <div className="space-y-2 bg-muted/20 rounded-lg p-3">
@@ -429,11 +424,87 @@ function BadgeEditor({ initial, onSave, onCancel, saving }: {
           className="w-9 h-8 bg-transparent border border-border rounded cursor-pointer p-0.5" />
         <input value={color} onChange={e => setColor(e.target.value)} placeholder="#22d3ee" maxLength={7}
           className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs font-mono" />
-        <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="md" /></span>
+        <span className="ml-auto"><BadgeChip id="__preview" defs={[previewDef]} size="lg" /></span>
       </div>
+
+      {/* ── how it looks ───────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-border/70 p-2.5 space-y-2" style={{ background: "rgba(255,255,255,0.02)" }}>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Face</div>
+        <div className="flex flex-wrap gap-1">
+          {BADGE_ICON_NAMES.map((n) => {
+            const I = iconFor(n);
+            const on = icon === n;
+            return (
+              <button key={n} type="button" onClick={() => setIcon(n)} title={n}
+                className={`w-8 h-8 grid place-items-center rounded-md border ${
+                  on ? "border-primary/60 bg-primary/15 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+                <I className="w-4 h-4" />
+              </button>
+            );
+          })}
+        </div>
+        <div className="text-[10px] uppercase tracking-widest text-muted-foreground pt-1">Rarity</div>
+        <div className="flex flex-wrap gap-1.5">
+          {RARITY.map((r) => (
+            <button key={r.key} type="button" onClick={() => setRarity(r.key)} title={r.blurb}
+              className={`px-2.5 py-1 rounded-md border text-[11px] font-semibold ${
+                rarity === r.key ? "border-primary/60 bg-primary/15 text-primary" : "border-border text-muted-foreground hover:text-foreground"}`}>
+              {r.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* ── what earns it ─────────────────────────────────────────────── */}
+      <div className="rounded-lg border border-border/70 p-2.5 space-y-2" style={{ background: "rgba(255,255,255,0.02)" }}>
+        <label className="flex items-center gap-2 text-xs cursor-pointer">
+          <input type="checkbox" checked={auto} onChange={e => setAuto(e.target.checked)} className="accent-primary" />
+          <span className="font-semibold">Award this automatically</span>
+          <span className="text-muted-foreground">— otherwise you hand it out yourself</span>
+        </label>
+        {auto && (
+          <>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={kind} onChange={e => setKind(e.target.value)}
+                className="bg-card border border-border rounded px-2 py-1.5 text-xs">
+                {BADGE_KINDS.map(k => <option key={k.kind} value={k.kind}>{k.label}</option>)}
+              </select>
+              {kind === "region" ? (
+                <select value={region} onChange={e => setRegion(e.target.value)}
+                  className="bg-card border border-border rounded px-2 py-1.5 text-xs">
+                  {BADGE_REGIONS.map(r => <option key={r.key} value={r.key}>{r.label}</option>)}
+                </select>
+              ) : (
+                <>
+                  <span className="text-[11px] text-muted-foreground">reaches</span>
+                  <input value={threshold} onChange={e => setThreshold(e.target.value)} inputMode="numeric"
+                    className="w-24 bg-card border border-border rounded px-2 py-1.5 text-xs tabular-nums" />
+                  <span className="text-[11px] text-muted-foreground">{kindMeta?.unit}</span>
+                </>
+              )}
+              <label className="flex items-center gap-1.5 text-[11px] text-muted-foreground ml-auto cursor-pointer">
+                <input type="checkbox" checked={ruleOn} onChange={e => setRuleOn(e.target.checked)} className="accent-primary" />
+                Rule active
+              </label>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              {kind === "region"
+                ? "Awarded from the first location a member ever saved. Nothing to earn — it is a nickname for where they watch from."
+                : `Awarded the first time a member's ${kindMeta?.label.toLowerCase()} reaches this number. Existing members get it on their next visit, or immediately if you re-run the rules.`}
+            </p>
+          </>
+        )}
+      </div>
+
       <div className="flex justify-end gap-2 pt-1">
         <button onClick={onCancel} className="px-3 py-1 rounded bg-muted/30 border border-border text-xs">Cancel</button>
-        <button onClick={() => onSave({ label, color, description, group })} disabled={saving}
+        <button
+          onClick={() => onSave(
+            { label, color, description, group, icon, rarity },
+            auto
+              ? { badgeId: initial.id ?? "", kind, threshold: Number(threshold) || 0, param: region, enabled: ruleOn }
+              : null,
+          )}
+          disabled={saving}
           className="px-3 py-1 rounded bg-primary/20 border border-primary/40 text-primary text-xs font-semibold disabled:opacity-60 flex items-center gap-1.5">
           {saving && <Loader2 className="w-3 h-3 animate-spin" />} Save
         </button>
@@ -446,6 +517,12 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
   const [creating, setCreating] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [rules, setRules] = useState<Record<string, BadgeRule>>({});
+  const [backfilling, setBackfilling] = useState(false);
+  const [backfillNote, setBackfillNote] = useState<string | null>(null);
+
+  const reloadRules = useCallback(() => { void listBadgeRules().then(setRules); }, []);
+  useEffect(() => { reloadRules(); }, [reloadRules]);
 
   async function doSave(fn: () => Promise<{ ok: boolean; error?: string }>) {
     setSaving(true);
@@ -459,9 +536,36 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
     }
   }
 
+  /**
+   * Persist the automation alongside the badge.
+   *
+   * A rule is a separate row keyed by badge id, so a new badge has to be saved
+   * before its rule can point at it — hence the id being resolved from the
+   * label when the caller does not have one yet.
+   */
+  async function persistRule(badgeId: string, rule: BadgeRule | null) {
+    const r = rule
+      ? await saveBadgeRule({ ...rule, badgeId })
+      : await deleteBadgeRule(badgeId);
+    if (!r.ok) alert(r.error ?? "The badge saved, but its rule did not.");
+    reloadRules();
+  }
+
+  async function runBackfill() {
+    if (!confirm("Re-run every badge rule against every member? Members who qualify for badges they do not have will be given them, and each gets one summary notification.")) return;
+    setBackfilling(true); setBackfillNote(null);
+    const r = await backfillBadges();
+    setBackfilling(false);
+    setBackfillNote(r.ok
+      ? `Awarded ${r.awarded} badge${r.awarded === 1 ? "" : "s"} across ${r.members} member${r.members === 1 ? "" : "s"}.`
+      : r.error ?? "The backfill failed.");
+    reloadBadges();
+  }
+
   async function remove(b: BadgeDef) {
     if (!confirm(`Delete the "${b.label}" badge? It will be removed from every user who has it.`)) return;
     await doSave(() => deleteBadge(b.id));
+    void audit("badge.delete", { type: "badge", id: b.id, label: b.label });
   }
 
   return (
@@ -471,17 +575,31 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
           <h3 className="text-sm font-semibold flex items-center gap-2"><Award className="w-4 h-4 text-yellow-400" /> Badge Library ({badgeDefs.length})</h3>
           <p className="text-[11px] text-muted-foreground">Create, edit, and delete badge definitions. Pick any hex color — the badge glows with it.</p>
         </div>
-        <button onClick={() => { setCreating(true); setEditingId(null); }}
-          className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/30">
-          <Plus className="w-3.5 h-3.5" /> New Badge
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          {backfillNote && <span className="text-[11px] text-muted-foreground">{backfillNote}</span>}
+          <button onClick={runBackfill} disabled={backfilling} title="Award every badge that members have already earned"
+            className="px-3 py-1.5 rounded-lg bg-muted/30 border border-border text-xs font-semibold flex items-center gap-1.5 disabled:opacity-60">
+            {backfilling ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+            Re-run rules
+          </button>
+          <button onClick={() => { setCreating(true); setEditingId(null); }}
+            className="px-3 py-1.5 rounded-lg bg-primary/20 border border-primary/40 text-primary text-xs font-semibold flex items-center gap-1.5 hover:bg-primary/30">
+            <Plus className="w-3.5 h-3.5" /> New Badge
+          </button>
+        </div>
       </div>
       <div className="p-3 space-y-3 max-h-[460px] overflow-y-auto">
         {creating && (
           <BadgeEditor saving={saving}
             initial={{ label: "", color: "#7B8FD9", description: "", group: "Achievement" }}
             onCancel={() => setCreating(false)}
-            onSave={async b => { if (await doSave(() => createBadge(b))) setCreating(false); }} />
+            onSave={async (b, rule) => {
+              if (await doSave(() => createBadge(b))) {
+                void audit("badge.create", { type: "badge", label: b.label });
+                await persistRule(slugifyBadgeId(b.label), rule);
+                setCreating(false);
+              }
+            }} />
         )}
         {BADGE_GROUPS.map(g => {
           const inGroup = badgeDefs.filter(b => b.group === g);
@@ -491,14 +609,31 @@ function BadgeLibrary({ badgeDefs, reloadBadges }: { badgeDefs: BadgeDef[]; relo
               <div className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1.5">{g} Badges</div>
               <div className="space-y-1.5">
                 {inGroup.map(b => editingId === b.id ? (
-                  <BadgeEditor key={b.id} saving={saving} initial={b}
+                  <BadgeEditor key={b.id} saving={saving} initial={b} rule={rules[b.id]}
                     onCancel={() => setEditingId(null)}
-                    onSave={async patch => { if (await doSave(() => updateBadge(b.id, patch))) setEditingId(null); }} />
+                    onSave={async (patch, rule) => {
+                      if (await doSave(() => updateBadge(b.id, patch))) {
+                        void audit("badge.update", { type: "badge", id: b.id, label: b.label });
+                        await persistRule(b.id, rule);
+                        setEditingId(null);
+                      }
+                    }} />
                 ) : (
                   <div key={b.id} className="flex items-center gap-2 bg-muted/20 rounded-lg px-3 py-2">
                     <BadgeChip id={b.id} defs={badgeDefs} />
                     <span className="text-xs text-muted-foreground flex-1 truncate">{b.description}</span>
-                    <span className="text-[10px] font-mono text-muted-foreground/70">{b.color}</span>
+                    {rules[b.id] && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                            style={{
+                              background: rules[b.id].enabled ? "rgba(217,183,117,0.14)" : "rgba(255,255,255,0.05)",
+                              color: rules[b.id].enabled ? "#d9b775" : "#64748b",
+                            }}>
+                        {rules[b.id].kind === "region"
+                          ? BADGE_REGIONS.find(r => r.key === rules[b.id].param)?.label ?? "region"
+                          : `${BADGE_KINDS.find(k => k.kind === rules[b.id].kind)?.label ?? rules[b.id].kind} ≥ ${rules[b.id].threshold}`}
+                      </span>
+                    )}
+                    <span className="text-[10px] font-mono text-muted-foreground/70 shrink-0">{b.color}</span>
                     <button onClick={() => { setEditingId(b.id); setCreating(false); }} title="Edit"
                       className="p-1.5 rounded hover:bg-primary/15 text-primary"><Pencil className="w-3.5 h-3.5" /></button>
                     <button onClick={() => remove(b)} title="Delete"
@@ -608,6 +743,8 @@ function BroadcastsTab() {
     if (!msg.trim()) return;
     const r = await createBroadcast({ message: msg.trim(), level, targetUserId: target || null });
     if (!r.ok) { alert(r.error ?? "Failed to send"); return; }
+    void audit("broadcast.send", { type: "broadcast", label: target ? "one member" : "everyone" },
+      { level, chars: msg.trim().length });
     setMsg(""); void refresh();
   }
   async function remove(id: string) {
@@ -713,112 +850,41 @@ const isoToLocalInput = (iso?: string) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
-function AlertOptinsTab() {
-  const [optins, setOptins] = useState<AlertOptin[]>([]);
-  const [tier4, setTier4] = useState<{ id: string; name: string; email: string; tier: number }[]>([]);
-  const [risk, setRisk] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+/** Every field of the News form, as one value that can be stored and restored. */
+interface NewsDraft {
+  editingId: string | null;
+  title: string;
+  excerpt: string;
+  category: string;
+  tags: string[];
+  body: string;
+  imageUrl: string;
+  videoUrl: string;
+  embedHtml: string;
+  pinned: boolean;
+  status: NewsStatus;
+  schedule: string;
+  minTier: number;
+}
 
-  useEffect(() => {
-    Promise.all([
-      adminListAlertOptins(),
-      supabase.from("profiles").select("id,name,email,tier").gte("tier", 4),
-    ]).then(([o, t4]) => { setOptins(o); setTier4((t4.data ?? []) as typeof tier4); setLoading(false); });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+const BLANK_NEWS: NewsDraft = {
+  editingId: null, title: "", excerpt: "", category: "", tags: [], body: "",
+  imageUrl: "", videoUrl: "", embedHtml: "", pinned: false, status: "published",
+  schedule: "", minTier: 1,
+};
 
-  // Live: is each text opt-in's location currently under a warning/watch? (glow)
-  useEffect(() => {
-    const texts = optins.filter((o) => o.textOptin && o.textLat != null && o.textLon != null);
-    let cancelled = false;
-    (async () => {
-      const out: Record<string, string> = {};
-      await Promise.all(texts.map(async (o) => {
-        try {
-          const r = await fetch(`https://api.weather.gov/alerts/active?status=actual&point=${o.textLat!.toFixed(4)},${o.textLon!.toFixed(4)}`, { headers: { Accept: "application/geo+json" } });
-          if (!r.ok) return;
-          const d = await r.json();
-          const ev = (d.features ?? []).map((f: { properties?: { event?: string } }) => String(f.properties?.event ?? "")).find((e: string) => /warning$|watch$/i.test(e));
-          if (ev) out[o.userId] = ev;
-        } catch { /* ignore */ }
-      }));
-      if (!cancelled) setRisk(out);
-    })();
-    return () => { cancelled = true; };
-  }, [optins]);
-
-  const textOptins = optins.filter((o) => o.textOptin);
-  const emailOptins = optins.filter((o) => o.emailOptin);
-  const phoneByUser = new Map(optins.map((o) => [o.userId, o.phone]));
-  const activeCount = Object.keys(risk).length;
-
-  if (loading) return <div className="text-sm text-muted-foreground p-6">Loading opt-ins…</div>;
-
-  return (
-    <div className="space-y-5">
-      {activeCount > 0 && (
-        <div className="bg-rose-500/15 border border-rose-500/40 rounded-xl p-3 text-sm text-rose-200 flex items-center gap-2 animate-pulse">
-          <BellRing className="w-4 h-4" /> <strong>{activeCount}</strong> text-alert {activeCount === 1 ? "location is" : "locations are"} under an active warning/watch right now — time to text them.
-        </div>
-      )}
-
-      {/* Tier 3 — Text opt-ins (you send these) */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><MessageSquare className="w-4 h-4 text-primary" /><h3 className="text-sm font-semibold">Text-Alert Opt-ins (Tier 3)</h3><span className="text-[11px] text-muted-foreground ml-auto">{textOptins.length} opted in</span></div>
-        {textOptins.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No text opt-ins yet.</div> : (
-          <div className="divide-y divide-border">
-            {textOptins.map((o) => {
-              const active = risk[o.userId];
-              return (
-                <div key={o.userId} className={`p-3 flex items-center gap-3 ${active ? "bg-rose-500/10" : ""}`} style={active ? { boxShadow: "inset 3px 0 0 #FA003F" } : undefined}>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-semibold flex items-center gap-2">{o.name} <span className="text-[10px] text-muted-foreground">T{o.tier}</span>{active && <span className="text-[10px] font-bold text-rose-300 uppercase tracking-wide animate-pulse">⚠ {active}</span>}</div>
-                    <div className="text-xs text-muted-foreground flex flex-wrap gap-x-3 gap-y-0.5 mt-0.5">
-                      <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{o.phone || "no number"}</span>
-                      <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{o.textLocation || "no location"}</span>
-                    </div>
-                  </div>
-                  {o.phone && <a href={`sms:${o.phone.replace(/[^0-9+]/g, "")}`} className="px-3 py-1.5 rounded-lg bg-primary/15 border border-primary/30 text-primary text-xs font-semibold shrink-0">Text</a>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Tier 3 — Email opt-ins (auto-sent) */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><Mail className="w-4 h-4 text-primary" /><h3 className="text-sm font-semibold">Email-Alert Opt-ins (Tier 3)</h3><span className="text-[11px] text-muted-foreground ml-auto">{emailOptins.length} opted in · auto-sent</span></div>
-        {emailOptins.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No email opt-ins yet.</div> : (
-          <div className="divide-y divide-border">
-            {emailOptins.map((o) => (
-              <div key={o.userId} className="p-3 flex items-center gap-3">
-                <div className="flex-1 min-w-0"><div className="text-sm font-semibold">{o.name} <span className="text-[10px] text-muted-foreground">T{o.tier}</span></div><div className="text-xs text-muted-foreground flex items-center gap-1"><Mail className="w-3 h-3" />{o.alertEmail || o.email}</div></div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* Tier 4 — direct line */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-3 border-b border-border flex items-center gap-2"><Phone className="w-4 h-4 text-yellow-400" /><h3 className="text-sm font-semibold">Tier 4 Elite — Direct Line</h3><span className="text-[11px] text-muted-foreground ml-auto">{tier4.length} members</span></div>
-        {tier4.length === 0 ? <div className="p-6 text-center text-sm text-muted-foreground">No Tier 4 members.</div> : (
-          <div className="divide-y divide-border">
-            {tier4.map((m) => {
-              const phone = phoneByUser.get(m.id);
-              return (
-                <div key={m.id} className="p-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0"><div className="text-sm font-semibold">{m.name}</div><div className="text-xs text-muted-foreground flex flex-wrap gap-x-3"><span className="flex items-center gap-1"><Mail className="w-3 h-3" />{m.email}</span>{phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{phone}</span>}</div></div>
-                  {phone && <a href={`sms:${phone.replace(/[^0-9+]/g, "")}`} className="px-3 py-1.5 rounded-lg bg-yellow-400/15 border border-yellow-400/30 text-yellow-300 text-xs font-semibold shrink-0">Contact</a>}
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </div>
-  );
+/**
+ * Nothing worth keeping.
+ *
+ * Only the fields somebody types into count. `minTier` and `status` have
+ * defaults that are set whether or not anyone has touched the form, so storing
+ * a draft on their account would leave a recovery prompt after merely opening
+ * the tab.
+ */
+function isBlankNews(d: NewsDraft): boolean {
+  return !d.title.trim() && !d.body.trim() && !d.excerpt.trim() && !d.category.trim()
+    && d.tags.length === 0 && !d.imageUrl.trim() && !d.videoUrl.trim()
+    && !d.embedHtml.trim() && !d.schedule && !d.pinned;
 }
 
 function NewsTab({ adminName }: { adminName: string }) {
@@ -837,37 +903,64 @@ function NewsTab({ adminName }: { adminName: string }) {
   const [status, setStatus] = useState<NewsStatus>("published");
   const [schedule, setSchedule] = useState("");      // datetime-local string
   const [minTier, setMinTier] = useState(1);
-  const [preview, setPreview] = useState(false);
   const [busy, setBusy] = useState(false);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
   const formRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(async () => { try { setItems(await listAllNews()); } catch { /* empty state */ } }, []);
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const words = body.trim() ? body.trim().split(/\s+/).length : 0;
-  const readMin = Math.max(1, Math.round(words / 200));
+  // ── the draft ─────────────────────────────────────────────────────────────
+  //
+  // Writing a post is the longest single sitting anybody spends in this app,
+  // and it is the one most likely to be interrupted — going off to fetch an
+  // image URL is part of the job. Two things protect it: the app declares the
+  // form as unsaved work so a service-worker swap waits (see `unsavedWork`),
+  // and the form writes itself to storage so an eviction by the phone itself,
+  // which nothing in here can prevent, still costs nothing.
+  const form: NewsDraft = useMemo(() => ({
+    editingId, title, excerpt, category, tags, body,
+    imageUrl, videoUrl, embedHtml, pinned, status, schedule, minTier,
+  }), [editingId, title, excerpt, category, tags, body,
+       imageUrl, videoUrl, embedHtml, pinned, status, schedule, minTier]);
 
-  // Wrap the current textarea selection with markdown markers (or insert a snippet).
-  function fmt(before: string, after = before, placeholder = "text") {
-    const el = bodyRef.current; if (!el) return;
-    const start = el.selectionStart, end = el.selectionEnd;
-    const sel = body.slice(start, end) || placeholder;
-    const next = body.slice(0, start) + before + sel + after + body.slice(end);
-    setBody(next);
-    requestAnimationFrame(() => { el.focus(); el.setSelectionRange(start + before.length, start + before.length + sel.length); });
-  }
+  const applyForm = useCallback((d: NewsDraft) => {
+    setEditingId(d.editingId ?? null); setTitle(d.title ?? ""); setExcerpt(d.excerpt ?? "");
+    setCategory(d.category ?? ""); setTags(d.tags ?? []); setTagInput(""); setBody(d.body ?? "");
+    setImageUrl(d.imageUrl ?? ""); setVideoUrl(d.videoUrl ?? ""); setEmbedHtml(d.embedHtml ?? "");
+    setPinned(!!d.pinned); setStatus(d.status ?? "published"); setSchedule(d.schedule ?? "");
+    setMinTier(d.minTier ?? 1);
+  }, []);
+
+  const draft = useDraft<NewsDraft>("admin-news", form, applyForm, isBlankNews);
+
+  // What the form looked like when it was last loaded or saved. Anything else
+  // on screen is unsaved work, whether it is a new post or an edit to an old
+  // one — an edit somebody loses is every bit as annoying as a draft.
+  const baseline = useRef<string>(JSON.stringify(BLANK_NEWS));
+  const dirty = JSON.stringify(form) !== baseline.current;
+  useEffect(() => {
+    markUnsaved("admin-news", dirty);
+    return () => releaseUnsaved("admin-news");
+  }, [dirty]);
 
   function reset() {
     setEditingId(null); setTitle(""); setExcerpt(""); setCategory(""); setTags([]); setTagInput("");
     setBody(""); setImageUrl(""); setVideoUrl(""); setEmbedHtml(""); setPinned(false);
-    setStatus("published"); setSchedule(""); setMinTier(1); setPreview(false);
+    setStatus("published"); setSchedule(""); setMinTier(1);
+    baseline.current = JSON.stringify(BLANK_NEWS);
+    draft.clear();
   }
   function loadForEdit(p: NewsPost) {
     setEditingId(p.id); setTitle(p.title); setExcerpt(p.excerpt ?? ""); setCategory(p.category ?? "");
     setTags(p.tags); setTagInput(""); setBody(p.body); setImageUrl(p.imageUrl ?? "");
     setVideoUrl(p.videoUrl ?? ""); setEmbedHtml(p.embedHtml ?? ""); setPinned(p.pinned);
-    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier); setPreview(false);
+    setStatus(p.status); setSchedule(isoToLocalInput(p.publishAt)); setMinTier(p.minTier);
+    baseline.current = JSON.stringify({
+      editingId: p.id, title: p.title, excerpt: p.excerpt ?? "", category: p.category ?? "",
+      tags: p.tags, body: p.body, imageUrl: p.imageUrl ?? "", videoUrl: p.videoUrl ?? "",
+      embedHtml: p.embedHtml ?? "", pinned: p.pinned, status: p.status,
+      schedule: isoToLocalInput(p.publishAt), minTier: p.minTier,
+    } satisfies NewsDraft);
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   function addTag(raw: string) {
@@ -890,6 +983,8 @@ function NewsTab({ adminName }: { adminName: string }) {
     const r = editingId ? await updateNews(editingId, input) : await createNews({ ...input, author: adminName });
     setBusy(false);
     if (!r.ok) { alert(r.error ?? "Failed to save"); return; }
+    // Only now is the draft genuinely redundant.
+    releaseUnsaved("admin-news");
     reset(); void refresh();
   }
   async function del(id: string) {
@@ -899,21 +994,6 @@ function NewsTab({ adminName }: { adminName: string }) {
   }
   async function togglePin(p: NewsPost) { await patchNews(p.id, { pinned: !p.pinned }); void refresh(); }
   async function toggleStatus(p: NewsPost) { await patchNews(p.id, { status: p.status === "published" ? "draft" : "published" }); void refresh(); }
-
-  const TOOLS: { icon: typeof Bold; title: string; run: () => void }[] = [
-    { icon: Bold, title: "Bold", run: () => fmt("**") },
-    { icon: Italic, title: "Italic", run: () => fmt("*") },
-    { icon: Strikethrough, title: "Strikethrough", run: () => fmt("~~") },
-    { icon: Heading2, title: "Heading", run: () => fmt("## ", "", "Heading") },
-    { icon: Heading3, title: "Subheading", run: () => fmt("### ", "", "Subheading") },
-    { icon: List, title: "Bullet list", run: () => fmt("- ", "", "list item") },
-    { icon: ListOrdered, title: "Numbered list", run: () => fmt("1. ", "", "list item") },
-    { icon: Quote, title: "Quote", run: () => fmt("> ", "", "quote") },
-    { icon: Code, title: "Code block", run: () => fmt("```\n", "\n```", "code") },
-    { icon: Link2, title: "Link", run: () => fmt("[", "](https://)", "link text") },
-    { icon: ImageIcon, title: "Inline image", run: () => fmt("![", "](https://)", "alt text") },
-    { icon: Minus, title: "Divider", run: () => fmt("\n---\n", "", "") },
-  ];
 
   const fieldCls = "w-full bg-muted/30 border border-border rounded-lg px-3 py-2 text-sm outline-none focus:border-primary/40";
 
@@ -926,6 +1006,24 @@ function NewsTab({ adminName }: { adminName: string }) {
           </h3>
           {editingId && <button onClick={reset} className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"><X className="w-3 h-3" /> Cancel edit</button>}
         </div>
+
+        {draft.recovered && (
+          <div className="rounded-lg px-3 py-2.5 flex flex-wrap items-center gap-2"
+               style={{ border: "1px solid rgba(217,183,117,0.35)", background: "rgba(217,183,117,0.08)" }}>
+            <FileText className="w-3.5 h-3.5 shrink-0 text-primary" />
+            <span className="text-[12px] flex-1 min-w-0">
+              An unsaved post from last time —{" "}
+              <strong>{draft.recovered.title?.trim() || "untitled"}</strong>.
+            </span>
+            <button onClick={draft.restore}
+                    className="px-2.5 py-1 rounded-md text-[11px] font-semibold bg-primary/20 border border-primary/40 text-primary">
+              Bring it back
+            </button>
+            <button onClick={draft.discard} className="px-2 py-1 text-[11px] text-muted-foreground">
+              Discard
+            </button>
+          </div>
+        )}
 
         <input value={title} onChange={e => setTitle(e.target.value)} placeholder="Title" className={fieldCls} />
         <input value={excerpt} onChange={e => setExcerpt(e.target.value)} placeholder="Excerpt / summary (optional — shown in the feed preview)" className={`${fieldCls} text-xs`} />
@@ -959,35 +1057,16 @@ function NewsTab({ adminName }: { adminName: string }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-1 flex-wrap border-y border-border py-2">
-          {TOOLS.map(t => (
-            <button key={t.title} type="button" title={t.title} onClick={t.run}
-              className="w-8 h-8 rounded bg-muted/40 border border-border hover:border-primary/50 hover:text-primary text-muted-foreground flex items-center justify-center">
-              <t.icon className="w-4 h-4" />
-            </button>
-          ))}
-          <button type="button" onClick={() => setPreview(p => !p)}
-            className={`ml-auto px-3 h-8 rounded border text-xs font-medium flex items-center gap-1 ${preview ? "bg-primary/15 border-primary/40 text-primary" : "bg-muted/40 border-border text-muted-foreground hover:border-primary/40"}`}>
-            {preview ? <><Pencil className="w-3 h-3" /> Edit</> : <><Eye className="w-3 h-3" /> Preview</>}
-          </button>
-        </div>
-
-        {preview ? (
-          <div className="bg-muted/10 border border-border rounded-lg p-4 space-y-2">
-            {imageUrl.trim() && <div className="rounded-lg overflow-hidden border border-border bg-black"><img src={imageUrl} alt="" className="w-full h-auto" /></div>}
-            {category && <span className="inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-primary/15 text-primary">{category}</span>}
-            <h2 className="text-lg font-bold">{title || "Untitled post"}</h2>
-            {excerpt && <p className="text-sm text-muted-foreground italic">{excerpt}</p>}
-            <div className="text-sm space-y-1.5" dangerouslySetInnerHTML={{ __html: renderMarkdown(body || "_Nothing to preview yet._") }} />
-            {tags.length > 0 && <div className="flex flex-wrap gap-1 pt-1">{tags.map(t => <span key={t} className="text-[10px] text-muted-foreground bg-muted/40 px-1.5 py-0.5 rounded">#{t}</span>)}</div>}
-          </div>
-        ) : (
-          <textarea ref={bodyRef} value={body} onChange={e => setBody(e.target.value)} rows={8}
-            placeholder="Article body — Markdown: **bold**, *italic*, ~~strike~~, ## headings, 1. / - lists, > quotes, `code`, ```blocks```, [links](https://…), ![image](https://…), --- divider"
-            className={`${fieldCls} resize-y font-mono`} />
-        )}
-        <div className="flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>Markdown supported · {words} words · ~{readMin} min read</span>
+        <div>
+          <label className="text-[10px] uppercase tracking-wider text-muted-foreground mb-1 block">Article body</label>
+          <Suspense fallback={<div className="h-[300px] rounded-lg bg-muted/20 border border-border animate-pulse" />}>
+            <NewsEditor
+              value={body}
+              onChange={setBody}
+              resetToken={editingId ?? "new"}
+              placeholder="Write the post. Use the toolbar for headings, colour, size and links — no Markdown to remember."
+            />
+          </Suspense>
         </div>
 
         <div className="grid md:grid-cols-3 gap-2">
@@ -1030,7 +1109,7 @@ function NewsTab({ adminName }: { adminName: string }) {
                     {p.pinned && <Pin className="w-3 h-3 text-primary shrink-0" />}
                     <span className="text-sm font-semibold truncate">{p.title}</span>
                     {p.status === "draft" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-amber-500/15 text-amber-400">Draft</span>}
-                    {scheduled && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-cyan-500/15 text-cyan-300 flex items-center gap-0.5"><Calendar className="w-2.5 h-2.5" /> Scheduled</span>}
+                    {scheduled && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-cyan-500/15 text-[#d9b775] flex items-center gap-0.5"><Calendar className="w-2.5 h-2.5" /> Scheduled</span>}
                     {p.category && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase bg-primary/15 text-primary">{p.category}</span>}
                     {p.minTier > 1 && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-fuchsia-500/15 text-fuchsia-300">T{p.minTier}+</span>}
                   </div>
@@ -1093,6 +1172,11 @@ function SettingsTab() {
           </button>
         </div>
       </div>
+      <AdminOwnerNotifyCard />
+
+      <AdminMenuStyleCard />
+      <AdminMapColorsCard />
+      <AdminWallCard />
       <EmergencyRecipientsCard />
       <LoyaltyRulesCard />
       <div className="bg-card border border-border rounded-xl p-4">

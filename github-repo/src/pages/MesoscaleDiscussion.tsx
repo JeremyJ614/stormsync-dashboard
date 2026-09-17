@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { TTL } from "../lib/queryClient";
 import type { Location } from "../hooks/useLocation";
 import { Layers, ExternalLink, RefreshCw, AlertTriangle, Clock, MapPin, Info, ChevronDown, Tornado, Wind, CloudHail } from "lucide-react";
 import { MAP_W, MAP_H, project } from "../lib/usAlbers";
@@ -152,7 +154,7 @@ function MDCard({ md }: { md: MD }) {
       {(md.summary || md.discussion || md.raw) && (
         <div className="border-t border-border">
           {md.summary && <div className="px-4 py-3 text-xs"><span className="font-semibold text-foreground">Summary — </span><span className="text-muted-foreground">{md.summary}</span></div>}
-          <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-primary hover:bg-primary/5 transition-colors border-t border-border">
+          <button onClick={() => setOpen((o: boolean) => !o)} className="w-full flex items-center justify-between px-4 py-2.5 text-xs text-primary hover:bg-primary/5 transition-colors border-t border-border">
             <span>Full forecaster discussion</span><ChevronDown className={`w-4 h-4 transition-transform ${open ? "rotate-180" : ""}`} />
           </button>
           {open && (
@@ -169,34 +171,32 @@ function MDCard({ md }: { md: MD }) {
   );
 }
 
+/** Live SPC mesoscale discussions, with each product's raw text pulled alongside. */
+async function loadMDs(): Promise<MD[]> {
+  const r = await fetch(`${IEM}/nws/spc_mcd.geojson`);
+  if (!r.ok) throw new Error(String(r.status));
+  const data: { features?: RawFeature[] } = await r.json();
+  const out = await Promise.all((data.features ?? []).map(async (f): Promise<MD> => {
+    const p = f.properties;
+    let raw: string | null = null;
+    try { const tr = await fetch(`${IEM}/nwstext/${p.product_id}`); if (tr.ok) raw = await tr.text(); } catch { /* text optional */ }
+    const parsed = raw ? parseMDText(raw) : { areas: null, prob: null, summary: null, discussion: null, hazards: [] as string[] };
+    return {
+      id: p.product_id, num: p.num, concerning: p.concerning ?? "", issue: p.issue, expire: p.expire,
+      geomD: geometryToPath(f.geometry), raw, ...parsed,
+    };
+  }));
+  return out.sort((a, b) => new Date(b.issue).getTime() - new Date(a.issue).getTime());
+}
+
 export default function MesoscaleDiscussion({ location }: Props) {
-  const [mds, setMds] = useState<MD[]>([]);
-  const [status, setStatus] = useState<"loading" | "ok" | "error">("loading");
-
-  const load = useCallback(async () => {
-    setStatus("loading");
-    try {
-      const r = await fetch(`${IEM}/nws/spc_mcd.geojson`);
-      if (!r.ok) throw new Error(String(r.status));
-      const data: { features?: RawFeature[] } = await r.json();
-      const feats = data.features ?? [];
-      const out = await Promise.all(feats.map(async (f): Promise<MD> => {
-        const p = f.properties;
-        let raw: string | null = null;
-        try { const tr = await fetch(`${IEM}/nwstext/${p.product_id}`); if (tr.ok) raw = await tr.text(); } catch { /* text optional */ }
-        const parsed = raw ? parseMDText(raw) : { areas: null, prob: null, summary: null, discussion: null, hazards: [] as string[] };
-        return {
-          id: p.product_id, num: p.num, concerning: p.concerning ?? "", issue: p.issue, expire: p.expire,
-          geomD: geometryToPath(f.geometry), raw, ...parsed,
-        };
-      }));
-      out.sort((a, b) => new Date(b.issue).getTime() - new Date(a.issue).getTime());
-      setMds(out);
-      setStatus("ok");
-    } catch { setStatus("error"); }
-  }, []);
-
-  useEffect(() => { void load(); }, [load]);
+  // Through React Query so the discussions cache, dedupe and survive a remount
+  // like the rest of the app, rather than re-fetching on every visit.
+  const q = useQuery({ queryKey: ["spc-mcd"], queryFn: loadMDs, staleTime: TTL.quick });
+  const mds = q.data ?? [];
+  const status: "loading" | "ok" | "error" =
+    q.isLoading ? "loading" : q.isError ? "error" : "ok";
+  const load = () => { void q.refetch(); };
 
   return (
     <div className="p-4 md:p-6 space-y-5">

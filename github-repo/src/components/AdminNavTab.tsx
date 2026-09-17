@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSticky } from "../lib/stickyState";
 import {
   ArrowUp, ArrowDown, Plus, Trash2, Eye, EyeOff, Shield, Loader2, GripVertical, Check, RefreshCw,
 } from "lucide-react";
@@ -7,6 +8,7 @@ import {
   loadNavConfig, getNavSnapshot, createSection, renameSection, deleteSection, reorderSections,
   updateNavModule, reorderNavModules, syncMissingModules, type NavModule,
 } from "../lib/navConfig";
+import { AdminGroupsEditor } from "./AdminGroupsEditor";
 
 /**
  * Admin → "Sidebar & Modules" (P-2.1).
@@ -14,7 +16,11 @@ import {
  * hide modules, and mark them admin-only. Reordering supports both drag-and-drop
  * (desktop) and arrow buttons (reliable on touch).
  */
-export function AdminNavTab() {
+export function AdminNavTab({ knownAdminTabs = [] }: { knownAdminTabs?: { id: string; label: string }[] }) {
+  const [sub, setSub] = useSticky<"sidebar" | "adminGroups">(
+    "admin.nav.sub", "sidebar",
+    (v): v is "sidebar" | "adminGroups" => v === "sidebar" || v === "adminGroups",
+  );
   const [, force] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -117,6 +123,25 @@ export function AdminNavTab() {
 
   return (
     <div className="space-y-5">
+      {/* Two menus get reordered from this module: the one members see, and the
+          one admins see. Same job, so they live behind one pair of subtabs. */}
+      <div className="flex gap-1 border-b border-border/60 pb-2">
+        {([
+          { id: "sidebar", label: "Member sidebar" },
+          { id: "adminGroups", label: "Admin panel groups" },
+        ] as const).map((t) => (
+          <button key={t.id} onClick={() => setSub(t.id)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              sub === t.id ? "bg-primary/15 border border-primary/35 text-primary" : "border border-transparent text-muted-foreground hover:text-foreground"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {sub === "adminGroups" && <AdminGroupsEditor known={knownAdminTabs} />}
+
+      {sub === "sidebar" && (
+      <div className="space-y-5">
       <div className="bg-primary/10 border border-primary/25 rounded-xl p-3 text-xs text-primary/90">
         Controls the member sidebar: section names &amp; order, which section each module sits in,
         module order, display name, visibility and admin-only. Changes apply immediately.
@@ -168,6 +193,8 @@ export function AdminNavTab() {
             {unassigned.map((m, i) => <Row key={m.id} m={m} list={unassigned} i={i} />)}
           </div>
         </div>
+      )}
+      </div>
       )}
     </div>
   );

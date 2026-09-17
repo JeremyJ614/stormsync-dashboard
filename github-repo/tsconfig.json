@@ -24,7 +24,7 @@
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "forceConsistentCasingInFileNames": true,
-    "types": ["node", "vite/client"],
+    "types": ["node", "vite/client", "geojson"],
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"]

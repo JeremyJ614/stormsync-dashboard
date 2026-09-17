@@ -1,5 +1,11 @@
 import { useQuery } from "@tanstack/react-query";
+import { motion, LayoutGroup } from "framer-motion";
+import { Flower2 } from "lucide-react";
+import { ModuleShell } from "../components/ModuleShell";
+import { PollenTab } from "../components/aqi/PollenTab";
+import { ROYAL, prefersReducedMotion } from "../lib/royal";
 import { useRef, useEffect, useState } from "react";
+import { hourIndexNow } from "../lib/currentHour";
 import type { Location } from "../hooks/useLocation";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, AreaChart, Area, Cell, LineChart, Line, CartesianGrid } from "recharts";
 import { format, parseISO } from "date-fns";
@@ -395,6 +401,7 @@ function PollutantMeter({ value, max, color }: { value: number; max: number; col
 
 // ── Main component ───────────────────────────────────────────────────────────
 export default function AQIForecast({ location }: Props) {
+  const [tab, setTab] = useState<"air" | "pollen">("air");
   const { data, isLoading, error } = useQuery({
     queryKey: ["aqi", location.lat.toFixed(3), location.lon.toFixed(3)],
     queryFn: () => fetchAQI(location.lat, location.lon),
@@ -402,25 +409,29 @@ export default function AQIForecast({ location }: Props) {
   });
 
   const hourly = data?.hourly;
+  // The hour we are actually in. The Open-Meteo series starts at 00:00 local,
+  // so index 0 is MIDNIGHT — every "current" reading below was overnight's.
+  const nowHr = hourIndexNow(data);
 
   // ── Accurate AQI calculation ────────────────────────────────────────────
   // Use EPA breakpoints computed from raw PM2.5/PM10/Ozone concentrations
   // to avoid the underestimation seen in wildfire smoke events.
-  const rawPM25   = hourly?.pm2_5?.[0]             ?? 0;
-  const rawPM10   = hourly?.pm10?.[0]              ?? 0;
-  const rawOzone  = hourly?.ozone?.[0]             ?? 0;
-  const openMeteoAQI = hourly?.us_aqi?.[0]         ?? 0;
+  const rawPM25   = hourly?.pm2_5?.[nowHr]             ?? 0;
+  const rawPM10   = hourly?.pm10?.[nowHr]              ?? 0;
+  const rawOzone  = hourly?.ozone?.[nowHr]             ?? 0;
+  const openMeteoAQI = hourly?.us_aqi?.[nowHr]         ?? 0;
 
   const currentAQI = isLoading ? 0 : computeAccurateAQI(rawPM25, rawPM10, rawOzone, openMeteoAQI);
   const { label: aqiLabel, color: aqiColor, bg: aqiBg, desc: aqiDesc, emoji: aqiEmoji, healthMsg } = aqiCategory(currentAQI);
 
-  const no2  = hourly?.nitrogen_dioxide?.[0] ?? 0;
-  const co   = hourly?.carbon_monoxide?.[0]  ?? 0;
-  const uv   = hourly?.uv_index?.[0]         ?? 0;
-  const dust = hourly?.dust?.[0]             ?? 0;
+  const no2  = hourly?.nitrogen_dioxide?.[nowHr] ?? 0;
+  const co   = hourly?.carbon_monoxide?.[nowHr]  ?? 0;
+  const uv   = hourly?.uv_index?.[nowHr]         ?? 0;
+  const dust = hourly?.dust?.[nowHr]             ?? 0;
 
   // Chart data — use accurate AQI for each hour
-  const chartData = hourly?.time?.slice(0, 48).map((t: string, i: number) => {
+  interface AqiChartRow { time: string; aqi: number; pm25: number; pm10: number; ozone: number }
+  const chartData: AqiChartRow[] = hourly?.time?.slice(0, 48).map((t: string, i: number): AqiChartRow => {
     const h_pm25  = hourly.pm2_5?.[i]   ?? 0;
     const h_pm10  = hourly.pm10?.[i]    ?? 0;
     const h_ozone = hourly.ozone?.[i]   ?? 0;
@@ -481,9 +492,42 @@ export default function AQIForecast({ location }: Props) {
   ];
 
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      <PageHero icon={Wind} title="Air Quality Forecast" subtitle={`${location.name} · EPA-Accurate AQI`} />
-
+    <ModuleShell
+      eyebrow="Open-Meteo CAMS · EPA breakpoints"
+      title={<>Air Quality &amp; Allergy</>}
+      subtitle={`What is in the air over ${location.name}, and how readily it is moving around.`}
+      status={
+        <LayoutGroup id="aqi-tabs">
+          <div className="grid grid-cols-2 gap-1 rounded-xl p-1.5"
+               style={{ background: "hsl(var(--muted) / 0.3)", border: "1px solid hsl(var(--border))" }}>
+            {([
+              { id: "air", label: "Air Quality", icon: Wind },
+              { id: "pollen", label: "Pollen & Allergy", icon: Flower2 },
+            ] as const).map((t) => {
+              const Icon = t.icon;
+              const on = tab === t.id;
+              return (
+                <button key={t.id} onClick={() => setTab(t.id)}
+                  className="relative py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-2"
+                  style={{ color: on ? "#17141f" : "hsl(var(--muted-foreground))", zIndex: 1 }}>
+                  {on && (
+                    <motion.span layoutId="aqi-tab-slab"
+                      transition={prefersReducedMotion() ? { duration: 0 } : { type: "spring", stiffness: 260, damping: 30 }}
+                      className="absolute inset-0 rounded-lg -z-10"
+                      style={{ background: `linear-gradient(180deg, ${ROYAL.gold}, #c9a55f)` }} />
+                  )}
+                  <Icon className="w-4 h-4" /> {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </LayoutGroup>
+      }
+    >
+      {tab === "pollen" ? (
+        <PollenTab lat={location.lat} lon={location.lon} place={location.name} />
+      ) : (
+      <div className="space-y-6">
       {error ? (
         <div className="bg-destructive/10 border border-destructive/30 rounded-xl p-4 text-sm text-destructive flex gap-2">
           <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -595,7 +639,7 @@ export default function AQIForecast({ location }: Props) {
                     labelStyle={{ color: "#94a3b8" }}
                   />
                   <Bar dataKey="aqi" radius={[3, 3, 0, 0]}>
-                    {chartData.map((entry, i) => <Cell key={i} fill={aqiCategory(entry.aqi).color} />)}
+                    {chartData.map((entry: AqiChartRow, i: number) => <Cell key={i} fill={aqiCategory(entry.aqi).color} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
@@ -632,7 +676,7 @@ export default function AQIForecast({ location }: Props) {
 
             <div className="rounded-2xl overflow-hidden border border-white/5 p-4" style={{ background: "rgba(4,8,20,0.8)" }}>
               <h3 className="text-sm font-bold mb-3 text-white/90 flex items-center gap-2">
-                <Droplets className="w-4 h-4 text-sky-400" /> Ozone (O₃) Trend
+                <Droplets className="w-4 h-4 text-[#d9b775]" /> Ozone (O₃) Trend
               </h3>
               <ResponsiveContainer width="100%" height={130}>
                 <AreaChart data={chartData}>
@@ -718,7 +762,7 @@ export default function AQIForecast({ location }: Props) {
           <a href="https://www.airnow.gov/" target="_blank" rel="noopener noreferrer"
             className="flex items-center gap-2.5 rounded-xl p-3.5 border border-white/5 hover:border-white/10 transition-colors"
             style={{ background: "rgba(4,8,20,0.7)" }}>
-            <ExternalLink className="w-4 h-4 text-sky-400 shrink-0" />
+            <ExternalLink className="w-4 h-4 text-[#d9b775] shrink-0" />
             <div>
               <div className="text-sm font-semibold text-white/80">AirNow.gov</div>
               <div className="text-xs text-white/40">Official EPA air quality data from monitoring stations</div>
@@ -726,6 +770,8 @@ export default function AQIForecast({ location }: Props) {
           </a>
         </>
       )}
-    </div>
+      </div>
+      )}
+    </ModuleShell>
   );
 }

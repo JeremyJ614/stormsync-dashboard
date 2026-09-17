@@ -169,7 +169,7 @@ export default function AIForecastDuel({ location }: Props) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {([
               { key: "A", model: result.modelA, color: "text-blue-400", borderColor: "border-blue-500/40", bg: "bg-blue-500/08" },
-              { key: "B", model: result.modelB, color: "text-purple-400", borderColor: "border-purple-500/40", bg: "bg-purple-500/08" },
+              { key: "B", model: result.modelB, color: "text-[#d9b775]", borderColor: "border-[#d9b775]/40", bg: "bg-purple-500/08" },
             ] as const).map(({ key, model, color, borderColor, bg }) => (
               <div key={key} className={`border rounded-xl p-4 ${borderColor} ${bg}`}>
                 <div className="flex items-center justify-between mb-3">
@@ -199,7 +199,7 @@ export default function AIForecastDuel({ location }: Props) {
                 <button
                   key={v}
                   onClick={() => setVote(v)}
-                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${vote === v ? (v === "A" ? "bg-blue-500/20 text-blue-400 border border-blue-500/40" : "bg-purple-500/20 text-purple-400 border border-purple-500/40") : "bg-muted/20 hover:bg-muted/40"}`}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${vote === v ? (v === "A" ? "bg-blue-500/20 text-blue-400 border border-blue-500/40" : "bg-purple-500/20 text-[#d9b775] border border-[#d9b775]/40") : "bg-muted/20 hover:bg-muted/40"}`}
                 >
                   Model {v}: {v === "A" ? result.modelA.name : result.modelB.name}
                 </button>

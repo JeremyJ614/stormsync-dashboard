@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Offline · StormSync</title>
+<meta name="robots" content="noindex" />
+<meta name="theme-color" content="#070713" />
+<!--
+  The last resort, served by the service worker when a navigation fails and
+  there is no cached shell to fall back on.
+
+  EVERYTHING IS INLINE ON PURPOSE. This page is shown precisely when the
+  network is gone, so it cannot reference a stylesheet, a font or an image
+  that would have to be fetched. The mark below is drawn in SVG and the
+  palette is copied from lib/royal.ts rather than imported. If the royal
+  palette changes, this file needs the same edit by hand — that duplication
+  is the price of a page that is guaranteed to render with zero requests.
+
+  It also must not claim to know anything about the weather. A severe-weather
+  product showing a confident empty state while it is offline is the failure
+  mode this whole app has been built to avoid, so the copy says plainly that
+  the last reading may be out of date.
+-->
+<style>
+  :root{
+    --ink:#070713; --ink2:#0b0b1a; --panel:rgba(18,18,34,0.62);
+    --hairline:rgba(204,204,255,0.09); --gold:#d9b775; --iris:#ccccff;
+    --text:#f1f4ff; --dim:#a3a3cc;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0;height:100%}
+  body{
+    background:var(--ink);
+    color:var(--text);
+    font-family:"DM Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    display:flex; align-items:center; justify-content:center;
+    padding:24px 16px; /* 16px side gutter on a phone */
+    -webkit-font-smoothing:antialiased;
+  }
+  /* A very soft aurora so the page still feels like the app, done with
+     gradients rather than an image that could not be loaded. */
+  body::before{
+    content:""; position:fixed; inset:0; pointer-events:none;
+    background:
+      radial-gradient(60% 40% at 50% 0%, rgba(204,204,255,0.07), transparent 70%),
+      radial-gradient(40% 30% at 85% 15%, rgba(217,183,117,0.05), transparent 70%);
+  }
+  .card{
+    position:relative; width:100%; max-width:440px; text-align:center;
+    background:var(--panel); border:1px solid var(--hairline);
+    border-radius:18px; padding:40px 28px;
+    backdrop-filter:blur(10px);
+  }
+  .mark{width:52px;height:52px;margin:0 auto 22px;display:block}
+  .eyebrow{
+    font-family:"Raleway",ui-sans-serif,system-ui,sans-serif;
+    font-size:10px; font-weight:700; letter-spacing:.22em;
+    text-transform:uppercase; color:var(--gold); margin:0 0 10px;
+  }
+  h1{
+    font-family:"Raleway",ui-sans-serif,system-ui,sans-serif;
+    font-size:26px; font-weight:800; letter-spacing:-.01em;
+    margin:0 0 12px; color:var(--text);
+  }
+  p{font-size:14px; line-height:1.6; color:var(--dim); margin:0 0 10px}
+  .note{
+    margin-top:22px; padding-top:18px; border-top:1px solid var(--hairline);
+    font-size:12px; color:var(--dim);
+  }
+  button{
+    margin-top:22px; width:100%; cursor:pointer;
+    font-family:"Raleway",ui-sans-serif,system-ui,sans-serif;
+    font-size:14px; font-weight:700; letter-spacing:.02em;
+    color:#1a1508; background:var(--gold);
+    border:0; border-radius:11px; padding:13px 18px;
+    transition:filter .18s ease;
+  }
+  button:hover{filter:brightness(1.07)}
+  button:focus-visible{outline:2px solid var(--iris); outline-offset:3px}
+  .status{
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:11px; letter-spacing:.14em; text-transform:uppercase;
+    color:var(--dim); margin-top:16px;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:#f87171}
+  .dot.on{background:#5fd9a8}
+  @media (prefers-reduced-motion:no-preference){
+    .card{animation:rise .5s cubic-bezier(.22,1,.36,1) both}
+    @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  }
+</style>
+</head>
+<body>
+  <main class="card">
+    <svg class="mark" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+      <circle cx="24" cy="24" r="22" stroke="#d9b775" stroke-opacity=".35" stroke-width="1.5"/>
+      <path d="M26 9 15.5 26H23l-1.5 13L33 22h-7.5L26 9Z" fill="#d9b775"/>
+    </svg>
+
+    <p class="eyebrow">No connection</p>
+    <h1>You're offline</h1>
+    <p>StormSync can't reach the Weather Service, the Storm Prediction Center, or any of its other sources right now.</p>
+    <p><strong style="color:var(--text);font-weight:600">Anything still on screen elsewhere in the app is the last reading we managed to fetch, and may be out of date.</strong> Don't treat it as current conditions.</p>
+
+    <button type="button" onclick="location.reload()">Try again</button>
+
+    <div class="status" id="status" role="status">
+      <span class="dot" id="dot"></span><span id="label">Waiting for a connection</span>
+    </div>
+
+    <p class="note">If there is severe weather near you, use a NOAA Weather Radio or call your local emergency line. Never wait on an app.</p>
+  </main>
+
+<script>
+  // Reflect real connectivity, and reload by itself the moment it returns —
+  // somebody staring at this page in bad weather should not have to think
+  // about tapping anything.
+  var dot = document.getElementById('dot');
+  var label = document.getElementById('label');
+  function paint() {
+    var on = navigator.onLine;
+    dot.className = on ? 'dot on' : 'dot';
+    label.textContent = on ? 'Back online — reloading' : 'Waiting for a connection';
+    if (on) setTimeout(function () { location.reload(); }, 600);
+  }
+  window.addEventListener('online', paint);
+  window.addEventListener('offline', paint);
+  paint();
+</script>
+</body>
+</html>

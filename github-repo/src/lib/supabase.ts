@@ -1,7 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { logger } from "./logger";
 
-// Supabase project: stormsync-vip (ref djonpetxdjuwcbgftqmt).
+// Supabase project: stormsync-vip (ref sofrhcdjkjfphibysmxc).
 // Values come from env only (see .env.example). The publishable/anon key is safe for
 // the browser — access is governed by Row Level Security — but we never hardcode it.
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;

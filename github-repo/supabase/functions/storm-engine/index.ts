@@ -32,8 +32,30 @@ const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 // gemini-2.5-flash now returns 404 "no longer available to new users", which made
 // every nightly brief fall through to the deterministic SPC-risk template. Try a
 // chain, newest-usable first, and allow an env override without a redeploy.
-const GEMINI_MODELS = (Deno.env.get("GEMINI_MODELS") ?? "gemini-flash-latest,gemini-2.0-flash,gemini-2.5-flash")
-  .split(",").map((m) => m.trim()).filter(Boolean);
+/**
+ * Which Gemini models to try, in order.
+ *
+ * Validated rather than trusted. `GEMINI_MODELS` is a secret, and a secret that
+ * is meant to hold a comma-separated list of model names is one paste away from
+ * holding an API key instead — which is exactly what happened: the whole
+ * narrative came back as
+ * `GenerateContentRequest.model: unexpected model name format`, because the
+ * key was going into the URL where the model belongs. A model name is lower
+ * case letters, digits, dots and hyphens, so anything else is discarded and the
+ * built-in list is used. Silently degrading to a working default beats an AI
+ * write that fails every day until somebody reads the error field.
+ */
+const DEFAULT_GEMINI_MODELS = ["gemini-flash-latest", "gemini-2.0-flash", "gemini-2.5-flash"];
+const IS_MODEL_NAME = /^[a-z0-9][a-z0-9.-]{2,60}$/;
+function geminiModels(): string[] {
+  const raw = (Deno.env.get("GEMINI_MODELS") ?? "").split(",").map((m) => m.trim()).filter(Boolean);
+  const good = raw.filter((m) => IS_MODEL_NAME.test(m));
+  if (raw.length && !good.length) {
+    console.warn("GEMINI_MODELS holds no usable model name; falling back to the built-in list");
+  }
+  return good.length ? good : DEFAULT_GEMINI_MODELS;
+}
+const GEMINI_MODELS = geminiModels();
 const GEMINI_URL = (model: string, key: string) =>
   `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${key}`;
 
@@ -56,6 +78,26 @@ const chunk = <T>(a: T[], n: number): T[][] => {
   return out;
 };
 const isoDate = (d: Date) => d.toISOString().slice(0, 10);
+
+/**
+ * The contest day, in Eastern time.
+ *
+ * The Forecast Game runs on a calendar day and this used to be the UTC one,
+ * which in Eastern time turns over at 8pm — so an evening's picks were filed
+ * against tomorrow, and yesterday's round was scored four hours after it was
+ * already over for the people who played it. `en-CA` is not a style choice: it
+ * is the locale that formats as YYYY-MM-DD, the shape the date column wants.
+ * The zone carries its own daylight-saving rules, so this needs no offset
+ * table and stays right across both changeovers.
+ */
+const GAME_TZ = "America/New_York";
+const GAME_DAY_FMT = new Intl.DateTimeFormat("en-CA", {
+  timeZone: GAME_TZ, year: "numeric", month: "2-digit", day: "2-digit",
+});
+const gameDate = (at: Date = new Date()) => GAME_DAY_FMT.format(at);
+const gameDateOffset = (days: number, at: Date = new Date()) =>
+  gameDate(new Date(at.getTime() + days * 86_400_000));
+
 
 // ── SPC categorical ranking (deterministic, non-AI) ─────────────────────────────
 const CAT_ORDER = ["TSTM", "MRGL", "SLGT", "ENH", "MDT", "HIGH"];
@@ -92,6 +134,24 @@ async function fetchLabels(product: string): Promise<string[]> {
   }
   return [];
 }
+/**
+ * SPC's convective day, which is NOT the calendar day.
+ *
+ * `today_*.csv` covers 12Z to 12Z. Before 12Z the file still holds the day
+ * that STARTED at noon UTC yesterday — so a job running at 11:00 UTC reads
+ * yesterday's reports. Filing them under the calendar date wrote yesterday's
+ * numbers into today's row: on 8 September the ledger held 3 tornado, 3 hail
+ * and 37 wind for both the 7th and the 8th, which are the 7th's figures twice,
+ * and every "Season So Far" total on the Weather Patterns page was carrying an
+ * extra day. The archive backfill quietly corrected it the following night, so
+ * the error was only ever visible on the day anybody was actually looking at.
+ */
+function convectiveDay(at: Date = new Date()): string {
+  const d = new Date(at);
+  if (d.getUTCHours() < 12) d.setUTCDate(d.getUTCDate() - 1);
+  return isoDate(d);
+}
+
 async function countCsv(url: string): Promise<number> {
   try {
     const r = await fetch(url, { headers: { "User-Agent": UA } });
@@ -293,19 +353,71 @@ async function geminiOnce(
 }
 
 // schemaGemini uses UPPERCASE OpenAPI-subset types; schemaAnthropic uses JSON-Schema.
+/**
+ * How long this invocation may spend talking to an AI provider, in total.
+ *
+ * THE OUTAGE THIS EXISTS TO STOP
+ * Gemini answered 503 for three days running. The chain is three models tried
+ * twice with a five-second wait between passes, then Anthropic — and the brief
+ * is only the FIRST of two AI calls in a run. On 12 September that ran past the
+ * platform's wall clock and the function was killed part way through, so
+ * `daily_brief` had no row for the day at all and `severe_history` — the yearly
+ * statistics at the bottom of the Weather Patterns module — still carried the
+ * previous day's timestamp.
+ *
+ * Statistics must not be able to go stale because a language model is busy. The
+ * deadline is set once when the run starts; past it, every AI call returns
+ * immediately and the deterministic text is used.
+ */
+const AI_BUDGET_MS = 70_000;
+let aiDeadline = Number.POSITIVE_INFINITY;
+function startAiBudget(): void { aiDeadline = Date.now() + AI_BUDGET_MS; }
+function aiBudgetLeft(): boolean { return Date.now() < aiDeadline; }
+
 async function aiJSON(system: string, user: string, schemaGemini: unknown, schemaAnthropic: unknown): Promise<AIRun> {
+  if (!aiBudgetLeft()) {
+    return { ok: false, error: `AI budget of ${AI_BUDGET_MS / 1000}s exhausted for this run` };
+  }
+  let geminiError = "";
   if (GEMINI_API_KEY) {
     // Actually walk the chain. Pinning one model is what silently reduced every
     // nightly brief to the deterministic SPC template when gemini-2.5-flash was
     // retired — a single retirement must never take the brief down again.
     const tried: string[] = [];
-    for (const model of GEMINI_MODELS) {
-      const res = await geminiOnce(model, system, user, schemaGemini);
-      if (res.ok) return res;
-      tried.push(`${model} -> ${res.error}`);
-      if (!res.tryNext) break;
+    // Every model in the chain is Gemini, so they share a backend: a capacity
+    // 503 rejects all three within a second and the brief drops to the
+    // deterministic template. That accounted for roughly a quarter of nightly
+    // runs. Transient failures (429/5xx) therefore get a second pass over the
+    // chain after a short wait; hard failures (404 retirement, safety blocks)
+    // still fall straight through.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      // A second pass is only worth waiting five seconds for if there is still
+      // time left to use the answer.
+      if (attempt > 0) {
+        if (!aiBudgetLeft()) break;
+        await new Promise((r) => setTimeout(r, 5000));
+      }
+      let transient = false;
+      for (const model of GEMINI_MODELS) {
+        if (!aiBudgetLeft()) { transient = false; break; }
+        const res = await geminiOnce(model, system, user, schemaGemini);
+        if (res.ok) return res;
+        tried.push(`${model} -> ${res.error}`);
+        if (!res.tryNext) { transient = false; break; }
+        // 404 means the model is retired — another pass will not bring it back.
+        if (!/^404:/.test(res.error)) transient = true;
+      }
+      if (!transient) break;
     }
-    return { ok: false, error: `gemini failed (${tried.length}/${GEMINI_MODELS.length} tried) — ${tried.join(" | ")}` };
+    // Exhausted, but not necessarily finished: when a second provider is
+    // configured it should be TRIED, not skipped. Returning here meant that a
+    // Gemini capacity 503 — which is what took the brief down on the 8th, six
+    // attempts in a row across all three models — dropped straight to the
+    // deterministic template with a perfectly good Anthropic key sitting
+    // unused. The Gemini errors are carried along so a failure of both still
+    // says what happened to each.
+    geminiError = `gemini failed (${tried.length} attempts) — ${tried.join(" | ")}`;
+    if (!ANTHROPIC_API_KEY) return { ok: false, error: geminiError };
   }
   if (ANTHROPIC_API_KEY) {
     try {
@@ -318,7 +430,7 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
           system, messages: [{ role: "user", content: user }],
         }),
       });
-      if (!r.ok) return { ok: false, error: `anthropic ${r.status}: ${(await r.text()).slice(0, 300)}` };
+      if (!r.ok) return { ok: false, error: `${geminiError ? geminiError + " | " : ""}anthropic ${r.status}: ${(await r.text()).slice(0, 300)}` };
       const data = await r.json() as { stop_reason?: string; model?: string; content?: { type: string; text?: string }[] };
       if (data.stop_reason === "refusal") return { ok: false, error: "model declined (refusal)" };
       const text = (data.content ?? []).find((b) => b.type === "text")?.text;
@@ -326,10 +438,11 @@ async function aiJSON(system: string, user: string, schemaGemini: unknown, schem
       if (!parsed) return { ok: false, error: "model returned invalid JSON" };
       return { ok: true, data: parsed, model: data.model ?? ANTHROPIC_MODEL };
     } catch (e) {
-      return { ok: false, error: String(e instanceof Error ? e.message : e) };
+      const msg = String(e instanceof Error ? e.message : e);
+      return { ok: false, error: geminiError ? `${geminiError} | anthropic ${msg}` : msg };
     }
   }
-  return { ok: false, reason: "no_key" };
+  return geminiError ? { ok: false, error: geminiError } : { ok: false, reason: "no_key" };
 }
 
 // Tiny helpers to build the parallel Gemini/JSON-Schema string-field shapes.
@@ -387,8 +500,14 @@ async function generateBrief(src: SourceData): Promise<BriefResult> {
 
 // ── U-19 Severe Weather History ─────────────────────────────────────────────────
 const BACKFILL_DAYS = 45;
+// SPC keeps revising a day's report files after the fact — late reports arrive
+// and duplicates are filtered out — so a day written once from the preliminary
+// file drifts from SPC by hundreds of wind reports in either direction. Days
+// inside this trailing window are re-fetched every run; older ones are only
+// filled if missing.
+const RESYNC_DAYS = 21;
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-type PeriodId = "week" | "lastmonth" | "thismonth" | "thisyear";
+type PeriodId = "yesterday" | "week" | "lastweek" | "lastmonth" | "thismonth" | "thisyear";
 interface DayCount { report_date: string; tornado: number; hail: number; wind: number }
 interface PeriodAgg {
   id: PeriodId; label: string; start: string; end: string;
@@ -404,8 +523,12 @@ async function backfillCounts(): Promise<void> {
   const oldest = wanted[wanted.length - 1];
   const { data } = await admin.from("daily_report_counts").select("report_date").gte("report_date", oldest);
   const have = new Set((data ?? []).map((r: { report_date: string }) => r.report_date));
-  const missing = wanted.filter((d) => !have.has(d));
-  for (const grp of chunk(missing, 6)) {
+  // wanted[] runs newest-first, so the first RESYNC_DAYS entries are the recent
+  // window that gets refreshed regardless of whether a row already exists.
+  const stale = wanted.slice(0, RESYNC_DAYS);
+  const missing = wanted.slice(RESYNC_DAYS).filter((d) => !have.has(d));
+  const targets = [...stale, ...missing];
+  for (const grp of chunk(targets, 6)) {
     await Promise.all(grp.map(async (d) => {
       const yymmdd = d.slice(2).replace(/-/g, ""); // YYMMDD
       const [t, h, w] = await Promise.all([
@@ -426,8 +549,15 @@ function aggregatePeriods(rows: DayCount[], today: Date): { periods: PeriodAgg[]
   const lastMonthEnd = new Date(Date.UTC(y, m, 0));
   const yearStart = new Date(Date.UTC(y, 0, 1));
   const lm = lastMonthStart.getUTCMonth(), lmy = lastMonthStart.getUTCFullYear();
+  const yesterday = new Date(today); yesterday.setUTCDate(today.getUTCDate() - 1);
+  const lastWeekEnd = new Date(today); lastWeekEnd.setUTCDate(today.getUTCDate() - 7);
+  const lastWeekStart = new Date(today); lastWeekStart.setUTCDate(today.getUTCDate() - 13);
   const defs: { id: PeriodId; label: string; start: string; end: string }[] = [
+    // Yesterday and the week before are what the Weather Patterns recap walks
+    // back through; without them those tabs had figures and no prose.
+    { id: "yesterday", label: "Yesterday", start: isoDate(yesterday), end: isoDate(yesterday) },
     { id: "week", label: "Past 7 days", start: isoDate(weekStart), end: isoDate(today) },
+    { id: "lastweek", label: "The 7 days before that", start: isoDate(lastWeekStart), end: isoDate(lastWeekEnd) },
     { id: "lastmonth", label: `${MONTHS[lm]} ${lmy}`, start: isoDate(lastMonthStart), end: isoDate(lastMonthEnd) },
     { id: "thismonth", label: `${MONTHS[m]} ${y} (so far)`, start: isoDate(thisMonthStart), end: isoDate(today) },
     { id: "thisyear", label: `${y} year-to-date`, start: isoDate(yearStart), end: isoDate(today) },
@@ -496,12 +626,33 @@ function deterministicPeriodNarrative(p: PeriodAgg): { headline: string; summary
 const DETAIL_BACKFILL_PER_RUN = 25;
 
 async function backfillDetails(): Promise<number> {
-  const { data } = await admin
-    .from("daily_report_counts").select("report_date")
-    .is("details_at", null)
-    .order("report_date", { ascending: false })
-    .limit(DETAIL_BACKFILL_PER_RUN);
-  const dates = (data ?? []).map((r: { report_date: string }) => r.report_date);
+  // Two kinds of work, not one.
+  //
+  // `details_at is null` is the original queue: rows written before these
+  // columns existed. But a day could also be *stamped* with nothing in it —
+  // which is exactly what happened to every recent day. Today's detail was
+  // written at 11:00 UTC from the SPC archive file for today, and SPC's
+  // convective day runs 12Z to 12Z, so that file is still a bare header when
+  // the engine reads it. The row got zeros and a `details_at`, and the queue
+  // never looked at it again.
+  //
+  // So a finished day that has reports but no superlative is work too.
+  const [{ data: never }, { data: empty }] = await Promise.all([
+    admin.from("daily_report_counts").select("report_date")
+      .is("details_at", null)
+      .order("report_date", { ascending: false })
+      .limit(DETAIL_BACKFILL_PER_RUN),
+    admin.from("daily_report_counts").select("report_date")
+      .is("top_state", null).is("max_hail_in", null).is("max_gust_kt", null)
+      .or("tornado.gt.0,hail.gt.0,wind.gt.0")
+      .lt("report_date", isoDate(new Date(Date.now() - 36 * 3600_000)))
+      .order("report_date", { ascending: false })
+      .limit(DETAIL_BACKFILL_PER_RUN),
+  ]);
+  const dates = [...new Set([
+    ...((never ?? []) as { report_date: string }[]).map((r) => r.report_date),
+    ...((empty ?? []) as { report_date: string }[]).map((r) => r.report_date),
+  ])].slice(0, DETAIL_BACKFILL_PER_RUN);
   for (const grp of chunk(dates, 5)) {
     await Promise.all(grp.map(async (d) => {
       const detail = await fetchDayDetail(d.slice(2).replace(/-/g, ""));
@@ -515,15 +666,24 @@ async function backfillDetails(): Promise<number> {
 
 async function updateHistory(src: SourceData): Promise<{ model: string | null; detailsBackfilled: number }> {
   const today = new Date();
-  const todayStr = isoDate(today);
+  // The day SPC's live report files actually belong to, not the calendar date.
+  const todayStr = convectiveDay(today);
   // 1) Record today's live counts AND superlatives. Today's row is rewritten on
   //    every run because reports keep landing through the day.
+  //
+  //    `details_at` is deliberately NOT set here. SPC's convective day runs 12Z
+  //    to 12Z, so the archive file for today is still filling — often a bare
+  //    header at the hour this runs. Stamping it would mark the day finished
+  //    and take it out of the backfill queue forever, which is how twenty-five
+  //    consecutive days ended up with a thousand wind reports and no peak gust.
+  //    The superlatives are still written, so the page shows what is known so
+  //    far; the day is stamped once it is over.
   const todayDetail = await fetchDayDetail(todayStr.slice(2).replace(/-/g, ""));
   await admin.from("daily_report_counts").upsert(
     {
       report_date: todayStr,
       tornado: src.reports_today.tornado, hail: src.reports_today.hail, wind: src.reports_today.wind,
-      ...todayDetail, details_at: new Date().toISOString(),
+      ...todayDetail,
       updated_at: new Date().toISOString(),
     },
     { onConflict: "report_date" },
@@ -536,40 +696,87 @@ async function updateHistory(src: SourceData): Promise<{ model: string | null; d
   const yearStart = isoDate(new Date(Date.UTC(today.getUTCFullYear() - 1, 0, 1)));
   const { data } = await admin.from("daily_report_counts").select("report_date,tornado,hail,wind").gte("report_date", yearStart).order("report_date");
   const { periods, trackingSince } = aggregatePeriods((data ?? []) as DayCount[], today);
-  // 4) AI narratives (deterministic fallback per period).
-  const { map, model } = await generateHistoryNarratives(periods);
+
+  /*
+   * 4) THE NUMBERS GO IN FIRST.
+   *
+   * This used to ask the AI for four narratives and only then write the row.
+   * Which meant the yearly statistics — the ones at the bottom of the Weather
+   * Patterns module — were downstream of a language model: if the provider was
+   * slow or the function was killed waiting on it, the counts silently kept
+   * yesterday's values and yesterday's timestamp. That is exactly what happened
+   * across 9-12 September, when Gemini returned 503 for three days.
+   *
+   * So the aggregate is written with the deterministic narrative immediately,
+   * and the AI is invited afterwards to improve the words. Nothing about the
+   * statistics depends on it any more: the worst an AI outage can now do is
+   * leave the prose plainer than usual.
+   */
   const now = new Date().toISOString();
   for (const p of periods) {
-    const ai = map[p.id];
     const det = deterministicPeriodNarrative(p);
     await admin.from("severe_history").upsert({
       period: p.id,
       period_label: p.label,
-      headline: ai?.headline ?? det.headline,
-      summary: ai?.summary ?? det.summary,
+      headline: det.headline,
+      summary: det.summary,
       stats: p.stats,
       events: p.events,
       tracking_since: trackingSince,
       updated_at: now,
     }, { onConflict: "period" });
   }
+
+  // 5) Then the words, as an upgrade to rows that already exist and are correct.
+  const { map, model } = await generateHistoryNarratives(periods);
+  for (const p of periods) {
+    const ai = map[p.id];
+    if (!ai?.headline && !ai?.summary) continue;
+    const det = deterministicPeriodNarrative(p);
+    await admin.from("severe_history")
+      .update({ headline: ai.headline ?? det.headline, summary: ai.summary ?? det.summary })
+      .eq("period", p.id);
+  }
   return { model, detailsBackfilled };
 }
 
 // ── U-20 Forecast Game scoring (two-pin, P-5.1) ─────────────────────────────────
 // Each round has TWO calls, scored independently and summed:
-//   ⚡ severe pin  — distance to the nearest storm report of ANY kind
-//   🌪 tornado pin — distance to the nearest TORNADO report only (harder → pays
-//                    more), OR a deliberate "no tornadoes today" call, which
-//                    pays QUIET_DAY_BONUS only if the day verifies with zero.
+//   ⚡ severe pin  — how close you got to the day's storm reports, ANY kind
+//   🌪 tornado pin — how close you got to a TORNADO report, or a deliberate
+//                    "no tornadoes today" call
 //
-// These bands are duplicated in src/lib/gameDb.ts purely so the rules card can
-// render them. THIS copy is authoritative — scoring must never be computed from
-// anything the browser sends. Change one, change both.
-const SEVERE_BANDS: [number, number][] = [[25, 1000], [50, 750], [100, 500], [200, 250], [400, 100]];
-const SEVERE_MISS = 25;
-const TORNADO_BANDS: [number, number][] = [[25, 1500], [50, 1000], [100, 600], [200, 250]];
-const QUIET_DAY_BONUS = 400;
+// THE SCORING IS A CONTEST, NOT A TEST. It used to be neither: each pin was
+// scored alone against fixed distance bands, so on a quiet day nobody could
+// score and on a big day everybody maxed out, and two people 30 miles apart in
+// the same county both banked the same 1000. Now the field is ranked — the
+// closest pin of the day wins the day — and the bands are what everybody else
+// gets for being close. What a good call is worth depends on what everybody
+// else called, which is what makes it a game.
+//
+// These numbers are duplicated in src/lib/gameDb.ts purely so the rules card
+// can render them. THIS copy is authoritative — scoring must never be computed
+// from anything the browser sends. Change one, change both.
+
+/** ⚡ Placement, closest first. */
+const SEVERE_PLACES = [1000, 950, 750, 500, 250];
+/** ⚡ And for everyone outside the placings, paid on distance alone. */
+const SEVERE_CONSOLATION: [number, number][] = [[75, 175], [100, 125], [250, 100]];
+
+/**
+ * 🌪 Placement, closest first — awarded however far away the closest pin was.
+ *
+ * Deliberately unconditional: on a day with tornadoes, somebody was the
+ * closest to one, and being the closest is the thing being rewarded. A
+ * distance floor here would mean nobody wins the tornado call on the days it
+ * is hardest to win.
+ */
+const TORNADO_PLACES = [1000, 750, 500];
+/** 🌪 And actually landing on one pays more than winning the day. */
+const TORNADO_BULLSEYE_MI = 25;
+const TORNADO_BULLSEYE = 1500;
+/** 🌪 Awarded when a member calls "no tornadoes" and the day verifies with zero. */
+const QUIET_DAY_BONUS = 750;
 
 interface ReportPt { lat: number; lon: number; kind: "torn" | "hail" | "wind" }
 function haversineMi(aLat: number, aLon: number, bLat: number, bLon: number): number {
@@ -607,23 +814,69 @@ function nearestMi(lat: number, lon: number, pts: ReportPt[]): number {
   }
   return best;
 }
-function bandPoints(dist: number, bands: [number, number][], miss: number): number {
+function bandPoints(dist: number, bands: [number, number][]): number {
   for (const [within, pts] of bands) if (dist <= within) return pts;
-  return miss;
+  return 0;
 }
-/** ⚡ pin — nearest report of any kind. A day with no reports at all still pays the floor. */
-function scoreSeverePin(lat: number, lon: number, all: ReportPt[]): number {
-  if (all.length === 0) return SEVERE_MISS;
-  return bandPoints(nearestMi(lat, lon, all), SEVERE_BANDS, SEVERE_MISS);
-}
+
 /**
- * 🌪 pin — nearest TORNADO report. `pin === null` is the explicit quiet-day
- * call: it pays only when the day really did verify with zero tornado reports.
+ * Standard competition ranking over a field of distances.
+ *
+ * `dist[i] === null` means that member is not in the running at all (no pin, or
+ * nothing to be near) and is skipped rather than ranked last — being absent
+ * from a contest is not the same as coming last in it.
+ *
+ * Equal distances share the best award still on the table and consume the
+ * places they tie for, so two pins in the same spot cannot be separated by
+ * whichever row the database happened to return first. Distances are floats
+ * off a haversine, so "equal" is to a thousandth of a mile — about six feet,
+ * far below the precision of an SPC report's own coordinates.
  */
-function scoreTornadoPin(pin: { lat: number; lon: number } | null, torn: ReportPt[]): number {
-  if (!pin) return torn.length === 0 ? QUIET_DAY_BONUS : 0;
-  if (torn.length === 0) return 0;   // called a tornado on a day with none
-  return bandPoints(nearestMi(pin.lat, pin.lon, torn), TORNADO_BANDS, 0);
+function rankedAwards(dist: (number | null)[], places: number[]): number[] {
+  const out: number[] = new Array(dist.length).fill(0);
+  const field = dist
+    .map((d, index) => ({ index, d }))
+    .filter((e): e is { index: number; d: number } => e.d !== null && Number.isFinite(e.d))
+    .sort((a, b) => a.d - b.d);
+  let i = 0;
+  while (i < field.length && i < places.length) {
+    let j = i;
+    while (j + 1 < field.length && Math.abs(field[j + 1].d - field[i].d) < 1e-3) j++;
+    for (let k = i; k <= j; k++) out[field[k].index] = places[i];
+    i = j + 1;
+  }
+  return out;
+}
+
+interface PinSet { lat: number; lon: number; tor: { lat: number; lon: number } | null }
+
+/**
+ * ⚡ pins — the five closest to the day's reports place, everybody else is
+ * paid on distance. A day with no reports anywhere pays nothing: there was
+ * nothing to forecast, and the tornado call is what carries a quiet day.
+ */
+function scoreSevereField(pins: PinSet[], all: ReportPt[]): number[] {
+  const dist = pins.map((p) => (all.length === 0 ? null : nearestMi(p.lat, p.lon, all)));
+  const placed = rankedAwards(dist, SEVERE_PLACES);
+  return dist.map((d, i) => (placed[i] > 0 ? placed[i] : d === null ? 0 : bandPoints(d, SEVERE_CONSOLATION)));
+}
+
+/**
+ * 🌪 pins — the three closest to a tornado place, at any distance, and a pin
+ * that actually lands on one beats all three. No pin at all is the explicit
+ * quiet-day call, which pays only when the day really did verify with zero
+ * tornado reports.
+ */
+function scoreTornadoField(pins: PinSet[], torn: ReportPt[]): number[] {
+  const dist = pins.map((p) =>
+    p.tor === null || torn.length === 0 ? null : nearestMi(p.tor.lat, p.tor.lon, torn));
+  const placed = rankedAwards(dist, TORNADO_PLACES);
+  return pins.map((p, i) => {
+    if (p.tor === null) return torn.length === 0 ? QUIET_DAY_BONUS : 0;
+    if (torn.length === 0) return 0;   // called a tornado on a day with none
+    const bullseye = dist[i] !== null && dist[i]! <= TORNADO_BULLSEYE_MI ? TORNADO_BULLSEYE : 0;
+    return Math.max(placed[i], bullseye);
+  });
 }
 // Loyalty point values for game placements (admin-configurable in app_config).
 async function loyaltyGameAwards(): Promise<number[]> {
@@ -635,7 +888,9 @@ const PLACE = ["1st", "2nd", "3rd", "4th"];
 // Settle the previous month once (idempotent — skips if the winner row exists):
 // crown the winner and credit the top-4 their game-win loyalty points.
 async function rollupMonth(today: Date): Promise<void> {
-  if (today.getUTCDate() !== 1) return;
+  // The month ends on the Eastern clock too, so a run in the small hours of
+  // the 1st settles the month that has actually just ended.
+  if (gameDate(today).slice(-2) !== "01") return;
   const pm = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth() - 1, 1));
   const month = `${pm.getUTCFullYear()}-${String(pm.getUTCMonth() + 1).padStart(2, "0")}`;
   const { data: existing } = await admin.from("game_winners").select("month").eq("month", month).maybeSingle();
@@ -660,29 +915,51 @@ async function rollupMonth(today: Date): Promise<void> {
 interface GuessRow {
   id: string; user_id: string; user_name: string;
   lat: number; lon: number; tor_lat: number | null; tor_lon: number | null;
+  points: number | null;
 }
-async function scoreGame(): Promise<{ scored: number; tornadoReports: number }> {
-  const today = new Date();
-  await rollupMonth(today); // runs even on a day with no new guesses
-  const yest = new Date(today); yest.setUTCDate(today.getUTCDate() - 1);
-  const dateStr = isoDate(yest);
-  // `points is null` is the idempotency guard: a round is scored exactly once,
-  // so the game_points ledger below can never be double-credited.
+async function scoreGame(): Promise<{ scored: number; entrants: number; tornadoReports: number }> {
+  const runAt = new Date();
+  await rollupMonth(runAt); // runs even on a day with no new guesses
+  // Yesterday's round, on the Eastern clock the round itself ran on. Taking
+  // "yesterday" off the UTC date meant that between midnight and 8pm Eastern
+  // the two disagreed, and the job scored a day that was not the one that had
+  // just finished for the people who played it.
+  const dateStr = gameDateOffset(-1, runAt);
+
+  /*
+   * THE WHOLE DAY IS READ, not only the unscored rows.
+   *
+   * Placement is relative, so a member's score depends on where everybody else
+   * pinned. Ranking only the rows still waiting to be scored would mean that if
+   * a run ever half-finished, the survivors would be ranked against a field
+   * missing the people who beat them — and somebody would be handed first place
+   * they did not win. So the field is every entry for the day; `points is null`
+   * stays the guard on WRITING, which is what keeps the ledger from being
+   * credited twice.
+   */
   const { data: guesses } = await admin
-    .from("game_guesses").select("id,user_id,user_name,lat,lon,tor_lat,tor_lon")
-    .eq("guess_date", dateStr).is("points", null);
-  if (!guesses || guesses.length === 0) return { scored: 0, tornadoReports: 0 };
+    .from("game_guesses").select("id,user_id,user_name,lat,lon,tor_lat,tor_lon,points")
+    .eq("guess_date", dateStr);
+  const field = (guesses ?? []) as GuessRow[];
+  const pending = field.filter((g) => g.points === null);
+  if (pending.length === 0) return { scored: 0, entrants: field.length, tornadoReports: 0 };
 
   const all = await fetchReportPoints(dateStr.slice(2).replace(/-/g, ""));
   const torn = all.filter((p) => p.kind === "torn");
   const now = new Date().toISOString();
 
-  for (const g of guesses as GuessRow[]) {
-    const severe = scoreSeverePin(g.lat, g.lon, all);
-    const tornado = scoreTornadoPin(
-      g.tor_lat !== null && g.tor_lon !== null ? { lat: g.tor_lat, lon: g.tor_lon } : null,
-      torn,
-    );
+  const pins: PinSet[] = field.map((g) => ({
+    lat: g.lat, lon: g.lon,
+    tor: g.tor_lat !== null && g.tor_lon !== null ? { lat: g.tor_lat, lon: g.tor_lon } : null,
+  }));
+  const severeAll = scoreSevereField(pins, all);
+  const tornadoAll = scoreTornadoField(pins, torn);
+
+  let scored = 0;
+  for (let i = 0; i < field.length; i++) {
+    const g = field[i];
+    if (g.points !== null) continue;
+    const severe = severeAll[i], tornado = tornadoAll[i];
     const total = severe + tornado;
     await admin.from("game_guesses").update({
       severe_points: severe, tornado_points: tornado, points: total, scored_at: now,
@@ -695,8 +972,9 @@ async function scoreGame(): Promise<{ scored: number; tornadoReports: number }> 
       points: total, earned_on: dateStr,
       detail: { severe_points: severe, tornado_points: tornado, quiet_day_call: g.tor_lat === null },
     });
+    scored++;
   }
-  return { scored: guesses.length, tornadoReports: torn.length };
+  return { scored, entrants: field.length, tornadoReports: torn.length };
 }
 
 // ── Persistence ─────────────────────────────────────────────────────────────────
@@ -704,7 +982,13 @@ async function upsertBrief(row: Record<string, unknown>): Promise<void> {
   await admin.from("daily_brief").upsert(row, { onConflict: "brief_date" });
 }
 async function logRun(row: Record<string, unknown>): Promise<void> {
-  try { await admin.from("storm_engine_runs").insert(row); } catch { /* best-effort */ }
+  // Best-effort, but not silent. A `.insert()` that fails resolves with an
+  // error rather than throwing, so the `catch` here never saw the two days this
+  // table spent rejecting every row for want of a grant on its own sequence.
+  try {
+    const { error } = await admin.from("storm_engine_runs").insert(row);
+    if (error) console.error("storm_engine_runs insert failed:", error.message);
+  } catch (e) { console.error("storm_engine_runs insert threw:", String(e)); }
 }
 
 // ── Auth ────────────────────────────────────────────────────────────────────────
@@ -743,14 +1027,62 @@ Deno.serve(async (req: Request) => {
   const briefDate = new Date().toISOString().slice(0, 10);
   const started = Date.now();
 
+  /*
+   * Scoring on its own, without the brief.
+   *
+   * The round now ends at midnight Eastern, and the members who played it
+   * should see their score when it ends rather than at breakfast — but the
+   * full run generates the daily brief off an AI call and reads five feeds,
+   * which is a morning job and has no business firing at midnight. So the
+   * scorer is reachable by itself, and the cron calls it twice: once at each
+   * of the two UTC hours that can be midnight Eastern, since cron has no
+   * concept of a time zone. Whichever of the two lands after the turnover does
+   * the work; the other finds yesterday already scored and does nothing, which
+   * is exactly what `points is null` has always guaranteed.
+   */
+  if (body.action === "score-game") {
+    try {
+      const game = await scoreGame();
+      await logRun({ brief_date: briefDate, status: "game-scored", trigger: auth.trigger,
+                     duration_ms: Date.now() - started, detail: JSON.stringify(game) });
+      return json({ ok: true, game });
+    } catch (e) {
+      const msg = String(e instanceof Error ? e.message : e);
+      await logRun({ brief_date: briefDate, status: "game-error", trigger: auth.trigger, detail: msg });
+      return json({ ok: false, error: msg }, 500);
+    }
+  }
+
   try {
     const src = await ingest();
     const overview = riskOverview(src);
+    startAiBudget();
 
     if (dryRun) {
       await logRun({ brief_date: briefDate, status: "dry-run", trigger: auth.trigger, duration_ms: Date.now() - started, detail: "dry run — no write" });
       return json({ ok: true, dryRun: true, source_data: src, risk_overview: overview, ai_key_configured: AI_KEY_SET, ai_provider: GEMINI_API_KEY ? "gemini" : ANTHROPIC_API_KEY ? "anthropic" : null });
     }
+
+    /*
+     * The ledger runs BEFORE the brief.
+     *
+     * Both want the AI, and only one of them is prose. If a run is going to be
+     * cut short — a slow provider, the platform's wall clock — the thing to
+     * lose is the narrative, not the day's storm-report counts and the yearly
+     * aggregate built from them. `updateHistory` now writes its numbers before
+     * it asks for any words, so running it first means the statistics are
+     * durable even if everything after this line fails.
+     *
+     * Still best-effort: a failure here must not stop the brief either.
+     */
+    let history: unknown = null;
+    try {
+      history = await updateHistory(src);
+    } catch (e) {
+      await logRun({ brief_date: briefDate, status: "history-error", trigger: auth.trigger,
+                     detail: String(e instanceof Error ? e.message : e) });
+    }
+
 
     const ai = await generateBrief(src);
 
@@ -780,9 +1112,9 @@ Deno.serve(async (req: Request) => {
       await logRun({ brief_date: briefDate, status: "error", trigger: auth.trigger, duration_ms: Date.now() - started, detail: errMsg });
     }
 
-    // Secondary jobs are best-effort — they never fail the brief.
-    let history: unknown = null, game: unknown = null;
-    try { history = await updateHistory(src); } catch (e) { await logRun({ brief_date: briefDate, status: "history-error", trigger: auth.trigger, detail: String(e instanceof Error ? e.message : e) }); }
+    // Game scoring is best-effort — it never fails the brief. (The history
+    // ledger already ran, above the brief, for the reason given there.)
+    let game: unknown = null;
     try { game = await scoreGame(); } catch (e) { await logRun({ brief_date: briefDate, status: "game-error", trigger: auth.trigger, detail: String(e instanceof Error ? e.message : e) }); }
 
     return json({ ok: true, status: ai.ok ? "ok" : ("reason" in ai ? "skipped" : "error"), brief_date: briefDate, history, game });

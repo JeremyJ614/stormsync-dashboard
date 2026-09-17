@@ -1,5 +1,7 @@
 import { useState } from "react";
-import { Map, RefreshCw, ExternalLink } from "lucide-react";
+import { ModuleShell } from "../components/ModuleShell";
+import { ROYAL } from "../lib/royal";
+import { RefreshCw, ExternalLink } from "lucide-react";
 import type { Location } from "../hooks/useLocation";
 
 interface Props { location: Location }
@@ -33,20 +35,21 @@ export default function HazardsMap({ location }: Props) {
   const droughtSrc = `${currentDrought.img}?t=${reloadKey}`;
 
   return (
-    <div className="p-4 md:p-6 space-y-5">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Map className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-wide">Hazards & Drought</h2>
-        </div>
+    <ModuleShell
+      eyebrow="NWS Hazards · USDM Drought Monitor"
+      title={<>Hazards &amp; Drought</>}
+      subtitle={`Longer-range hazard outlooks and the weekly drought picture for ${location.name}.`}
+      wide
+      actions={
         <button
           onClick={refresh}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40"
+          className="flex items-center gap-1.5 text-xs transition-colors px-2.5 py-1.5 rounded-lg"
+          style={{ border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}
         >
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
-      </div>
-      <p className="text-sm text-muted-foreground">{location.name} · NWS Hazards · USDM Drought Monitor · Live</p>
+      }
+    >
 
       <div className="flex gap-2">
         <button
@@ -175,6 +178,6 @@ export default function HazardsMap({ location }: Props) {
           </div>
         </div>
       )}
-    </div>
+    </ModuleShell>
   );
 }

@@ -6,53 +6,110 @@ import { queryClient } from "./lib/queryClient";
 import { useLocation } from "./hooks/useLocation";
 import { Layout } from "./components/Layout";
 import { ErrorBoundary } from "./components/ErrorBoundary";
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { PageSkeleton } from "./components/WeatherSkeleton";
 import SplashScreen from "./components/SplashScreen";
 import NotFound from "@/pages/not-found";
 import NotificationToast from "./components/NotificationToast";
 import { InstallPrompt } from "./components/InstallPrompt";
-import { useAuth, hasModuleAccess } from "./hooks/useAuth";
+import { PullToRefresh } from "./components/PullToRefresh";
+import { ScrollMemory } from "./components/ScrollMemory";
+import { useSeo } from "./hooks/useSeo";
+import { UpdateChip } from "./components/UpdateChip";
+import { ViewAsBanner } from "./components/ViewAsBanner";
+import { AnimatePresence, LayoutGroup } from "framer-motion";
+import { recordModuleView } from "./lib/moduleUsage";
+import { useAuth, hasModuleAccess, setIntroSeen, refreshProfile } from "./hooks/useAuth";
+import { ModuleUpsell } from "./components/ModuleUpsell";
+import { registerPrefetch } from "./lib/prefetch";
 
-const Home = lazy(() => import("./pages/Home"));
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Forecast = lazy(() => import("./pages/Forecast"));
-const ForecastDiscussion = lazy(() => import("./pages/ForecastDiscussion"));
-const ForecastRunComparator = lazy(() => import("./pages/ForecastRunComparator"));
-const SPCOutlook = lazy(() => import("./pages/SPCOutlook"));
-const MesoscaleDiscussion = lazy(() => import("./pages/MesoscaleDiscussion"));
-const StormIngredients = lazy(() => import("./pages/StormIngredients"));
-const SWTIPage = lazy(() => import("./pages/SWTIPage"));
-const SevereWeatherTiming = lazy(() => import("./pages/SevereWeatherTiming"));
-const WarningCenter = lazy(() => import("./pages/WarningCenter"));
-const AQIForecast = lazy(() => import("./pages/AQIForecast"));
-const HazardsMap = lazy(() => import("./pages/HazardsMap"));
-const DaylightTracker = lazy(() => import("./pages/DaylightTracker"));
-const SSWXCon = lazy(() => import("./pages/SSWXCon"));
-const MoonAstronomy = lazy(() => import("./pages/MoonAstronomy"));
-const AuroraForecast = lazy(() => import("./pages/AuroraForecast"));
-const RadarMap = lazy(() => import("./pages/RadarMap"));
-const TornadoClimatology = lazy(() => import("./pages/TornadoClimatology"));
-const WeatherPatternIndex = lazy(() => import("./pages/WeatherPatternIndex"));
-const AIForecastDuel = lazy(() => import("./pages/AIForecastDuel"));
-const WeatherGlossary = lazy(() => import("./pages/WeatherGlossary"));
-const StormChasingOutlook = lazy(() => import("./pages/StormChasingOutlook"));
-const MosquitoIndex = lazy(() => import("./pages/MosquitoIndex"));
-const LightningHeatGlobe = lazy(() => import("./pages/LightningHeatGlobe"));
 
-const Login = lazy(() => import("./pages/Login"));
-const Profile = lazy(() => import("./pages/Profile"));
-const AdminPanel = lazy(() => import("./pages/AdminPanel"));
-const Plans = lazy(() => import("./pages/Plans"));
-const FAQ = lazy(() => import("./pages/FAQ"));
-const Contact = lazy(() => import("./pages/Contact"));
-const SevereWeatherHistory = lazy(() => import("./pages/SevereWeatherHistory"));
-const Loyalty = lazy(() => import("./pages/Loyalty"));
-const ForecastGame = lazy(() => import("./pages/ForecastGame"));
-const Trivia = lazy(() => import("./pages/Trivia"));
-const ThunderstormOutlook = lazy(() => import("./pages/ThunderstormOutlook"));
-const HurricaneTracker = lazy(() => import("./pages/HurricaneTracker"));
-const TropicalHistory = lazy(() => import("./pages/TropicalHistory"));
+/**
+ * `lazy()` that survives a deploy.
+ *
+ * Route chunks are content-hashed, so a client holding an older index.html can
+ * ask for a filename that no longer exists. The import rejects and React
+ * renders nothing — the page simply never appears. Reload once (guarded by
+ * sessionStorage so a genuine failure cannot loop) to pick up the current
+ * index.html and its real chunk names.
+ */
+/**
+ * Every route is a lazy import, so the chunk is fetched on navigation. Two
+ * things hang off that:
+ *
+ *  • a failed import usually means a deploy changed the chunk hashes under a
+ *    tab that is still running the old build — one guarded reload fixes it;
+ *  • the factory is registered by path so the sidebar can *warm* the chunk on
+ *    hover or touch-start, which is 100-300 ms of head start before the tap
+ *    even registers. `registerPrefetch` is what makes that possible.
+ */
+function lazyRoute<T extends React.ComponentType<any>>(
+  factory: () => Promise<{ default: T }>, path?: string,
+) {
+  const guarded = () =>
+    factory().catch((err) => {
+      const KEY = "sswx:chunk-reload";
+      if (!sessionStorage.getItem(KEY)) {
+        sessionStorage.setItem(KEY, String(Date.now()));
+        window.location.reload();
+      }
+      throw err;
+    });
+  if (path) registerPrefetch(path, guarded);
+  return lazy(guarded);
+}
+
+const Home = lazyRoute(() => import("./pages/Home"), "/");
+const Dashboard = lazyRoute(() => import("./pages/Dashboard"), "/dashboard");
+const Forecast = lazyRoute(() => import("./pages/Forecast"), "/forecast");
+const ForecastDiscussion = lazyRoute(() => import("./pages/ForecastDiscussion"), "/discussion");
+const ForecastRunComparator = lazyRoute(() => import("./pages/ForecastRunComparator"), "/comparator");
+const SPCOutlook = lazyRoute(() => import("./pages/SPCOutlook"), "/spc");
+const MesoscaleDiscussion = lazyRoute(() => import("./pages/MesoscaleDiscussion"), "/meso");
+const StormIngredients = lazyRoute(() => import("./pages/StormIngredients"), "/ingredients");
+const SWTIPage = lazyRoute(() => import("./pages/SWTIPage"), "/swti");
+const SevereWeatherTiming = lazyRoute(() => import("./pages/SevereWeatherTiming"), "/timing");
+const WarningCenter = lazyRoute(() => import("./pages/WarningCenter"), "/warnings");
+const AQIForecast = lazyRoute(() => import("./pages/AQIForecast"), "/aqi");
+const HazardsMap = lazyRoute(() => import("./pages/HazardsMap"), "/hazards");
+const DaylightTracker = lazyRoute(() => import("./pages/DaylightTracker"), "/summary");
+const SSWXCon = lazyRoute(() => import("./pages/SSWXCon"), "/sswxcon");
+const MoonAstronomy = lazyRoute(() => import("./pages/MoonAstronomy"), "/moon");
+const AuroraForecast = lazyRoute(() => import("./pages/AuroraForecast"), "/aurora");
+const RadarMap = lazyRoute(() => import("./pages/RadarMap"), "/rotation");
+const TornadoClimatology = lazyRoute(() => import("./pages/TornadoClimatology"), "/climatology");
+const WeatherPatternIndex = lazyRoute(() => import("./pages/WeatherPatternIndex"), "/wpi");
+const AIForecastDuel = lazyRoute(() => import("./pages/AIForecastDuel"), "/duel");
+const WeatherGlossary = lazyRoute(() => import("./pages/WeatherGlossary"), "/glossary");
+const StormChasingOutlook = lazyRoute(() => import("./pages/StormChasingOutlook"), "/chasing");
+const Chases = lazyRoute(() => import("./pages/Chases"), "/chases");
+const Raffles = lazyRoute(() => import("./pages/Raffles"), "/raffles");
+const FloodOutlook = lazyRoute(() => import("./pages/FloodOutlook"), "/flooding");
+const WinterCenter = lazyRoute(() => import("./pages/WinterCenter"), "/winter");
+const TrafficCameras = lazyRoute(() => import("./pages/TrafficCameras"), "/cameras");
+// Lazy on purpose: most sessions are by members who have already seen this, and
+// they should never pay to download it.
+const IntroGuide = lazy(() => import("./components/intro/IntroGuide").then((m) => ({ default: m.IntroGuide })));
+const MosquitoIndex = lazyRoute(() => import("./pages/MosquitoIndex"), "/mosquito");
+const LightningHeatGlobe = lazyRoute(() => import("./pages/LightningHeatGlobe"), "/lightning-globe");
+
+const Login = lazyRoute(() => import("./pages/Login"), "/login");
+const Profile = lazyRoute(() => import("./pages/Profile"), "/profile");
+const AdminPanel = lazyRoute(() => import("./pages/AdminPanel"), "/admin");
+const Plans = lazyRoute(() => import("./pages/Plans"), "/plans");
+const FAQ = lazyRoute(() => import("./pages/FAQ"), "/faq");
+const Contact = lazyRoute(() => import("./pages/Contact"), "/contact");
+const SevereWeatherHistory = lazyRoute(() => import("./pages/SevereWeatherHistory"), "/history");
+const Loyalty = lazyRoute(() => import("./pages/Loyalty"), "/loyalty");
+const RiverGauges = lazyRoute(() => import("./pages/RiverGauges"), "/rivers");
+const FireWeather = lazyRoute(() => import("./pages/FireWeather"), "/fire");
+const Subscription = lazyRoute(() => import("./pages/Subscription"), "/subscription");
+const ForecastGame = lazyRoute(() => import("./pages/ForecastGame"), "/game");
+const Trivia = lazyRoute(() => import("./pages/Trivia"), "/trivia");
+const ThunderstormOutlook = lazyRoute(() => import("./pages/ThunderstormOutlook"), "/thunder");
+const HurricaneTracker = lazyRoute(() => import("./pages/HurricaneTracker"), "/hurricane");
+const TropicalHistory = lazyRoute(() => import("./pages/TropicalHistory"), "/hurricane/history");
+const StormDetail = lazyRoute(() => import("./pages/StormDetail"), "/hurricane/:stormId");
 
 function PW({ children, name }: { children: React.ReactNode; name: string }) {
   return (
@@ -65,23 +122,61 @@ function PW({ children, name }: { children: React.ReactNode; name: string }) {
 function Gated({ path, children }: { path: string; children: React.ReactNode }) {
   const { user, loading } = useAuth();
   if (loading) return <PageSkeleton />;
-  if (!hasModuleAccess(user, path)) {
-    return (
-      <div className="p-6 max-w-md mx-auto mt-12 text-center bg-card border border-border rounded-2xl space-y-3">
-        <div className="text-3xl">🔒</div>
-        <h2 className="text-lg font-bold">Module Not Enabled</h2>
-        <p className="text-sm text-muted-foreground">This module isn't part of your current tier. Contact your administrator to enable it.</p>
-        {!user && <a href="/login" className="inline-block px-4 py-2 rounded-lg bg-primary/20 border border-primary/40 text-primary text-sm">Sign in</a>}
-      </div>
-    );
-  }
+  if (!hasModuleAccess(user, path)) return <ModuleUpsell path={path} signedIn={!!user} />;
   return <>{children}</>;
+}
+
+
+/**
+ * The intro guide, shown once.
+ *
+ * Runs when a signed-in member has no `intro_seen_at`, and never again once it
+ * is set. The flag is written the moment they finish or dismiss, so closing it
+ * counts as having seen it: nobody should have the same modal thrown at them
+ * twice because they had somewhere to be the first time.
+ *
+ * Held back until auth has settled, otherwise it flashes for a moment on every
+ * cold load before the profile arrives.
+ */
+function FirstRunIntro() {
+  const { user, loading } = useAuth();
+  const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+
+  useEffect(() => {
+    if (loading || !user || dismissed) return;
+    if (user.introSeenAt) return;
+    setOpen(true);
+  }, [loading, user, dismissed]);
+
+  if (!open || !user) return null;
+
+  return (
+    <Suspense fallback={null}>
+      <IntroGuide
+        onClose={() => { setOpen(false); setDismissed(true); }}
+        onFinished={() => { void setIntroSeen(true).then(() => refreshProfile()); }}
+      />
+    </Suspense>
+  );
 }
 
 function AppInner() {
   const { location, setLocation, detectLocation, isGeolocating } = useLocation();
+  const [path] = useWouterLocation();
+  const { user, viewAs } = useAuth();
+
+  // One place records module usage for every route, rather than 40 Route lines
+  // each remembering to. Never while an admin is looking through the "view as"
+  // lens — that would file their browsing under the member they are inspecting.
+  useEffect(() => {
+    if (!user || viewAs) return;
+    recordModuleView(path);
+  }, [path, user, viewAs]);
 
   return (
+    <>
+    <FirstRunIntro />
     <Layout location={location} onSetLocation={setLocation} onDetectLocation={detectLocation} isGeolocating={isGeolocating}>
       <Switch>
         <Route path="/" component={() => <PW name="Home"><Home /></PW>} />
@@ -91,23 +186,28 @@ function AppInner() {
         <Route path="/faq" component={() => <PW name="FAQ"><FAQ /></PW>} />
         <Route path="/contact" component={() => <PW name="Contact"><Contact /></PW>} />
         <Route path="/plans" component={() => <PW name="Plans"><Plans /></PW>} />
+        <Route path="/subscription" component={() => <PW name="Subscription"><Subscription /></PW>} />
 
         <Route path="/dashboard" component={() => <PW name="Dashboard"><Gated path="/dashboard"><Dashboard location={location} /></Gated></PW>} />
-        <Route path="/forecast" component={() => <PW name="Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
+        <Route path="/forecast" component={() => <PW name="Daily Brief & Forecast"><Gated path="/forecast"><Forecast location={location} /></Gated></PW>} />
         <Route path="/discussion" component={() => <PW name="Forecast Discussion"><Gated path="/discussion"><ForecastDiscussion location={location} /></Gated></PW>} />
-        <Route path="/comparator" component={() => <PW name="Model Runs"><Gated path="/comparator"><ForecastRunComparator /></Gated></PW>} />
+        <Route path="/comparator" component={() => <PW name="Model Runs"><Gated path="/comparator"><ForecastRunComparator location={location} /></Gated></PW>} />
         <Route path="/spc" component={() => <PW name="SPC Outlook"><Gated path="/spc"><SPCOutlook location={location} /></Gated></PW>} />
         <Route path="/thunder" component={() => <PW name="Thunderstorm Probability"><Gated path="/thunder"><ThunderstormOutlook /></Gated></PW>} />
         {/* Tropical history must come before /hurricane to ensure exact-match priority */}
         <Route path="/hurricane/history" component={() => <PW name="Tropical Storm History"><Gated path="/hurricane"><TropicalHistory /></Gated></PW>} />
         <Route path="/hurricane" component={() => <PW name="Hurricane Tracker"><Gated path="/hurricane"><HurricaneTracker /></Gated></PW>} />
+        {/* Per-storm tracker. Declared after /hurricane/history so the literal route wins. */}
+        <Route path="/hurricane/:stormId" component={() => <PW name="Storm Tracker"><Gated path="/hurricane"><StormDetail /></Gated></PW>} />
         <Route path="/meso" component={() => <PW name="Mesoscale Discussion"><Gated path="/meso"><MesoscaleDiscussion location={location} /></Gated></PW>} />
         <Route path="/ingredients" component={() => <PW name="Storm Ingredients"><Gated path="/ingredients"><StormIngredients location={location} /></Gated></PW>} />
         <Route path="/swti" component={() => <PW name="Threat Index"><Gated path="/swti"><SWTIPage location={location} /></Gated></PW>} />
         <Route path="/timing" component={() => <PW name="Severe Timing"><Gated path="/timing"><SevereWeatherTiming location={location} /></Gated></PW>} />
-        <Route path="/warnings" component={() => <PW name="Warning Center"><Gated path="/warnings"><WarningCenter location={location} /></Gated></PW>} />
+        <Route path="/warnings" component={() => <PW name="Warnings & Reports"><Gated path="/warnings"><WarningCenter location={location} /></Gated></PW>} />
         <Route path="/aqi" component={() => <PW name="AQI Forecast"><Gated path="/aqi"><AQIForecast location={location} /></Gated></PW>} />
         <Route path="/hazards" component={() => <PW name="Hazards & Drought"><Gated path="/hazards"><HazardsMap location={location} /></Gated></PW>} />
+        <Route path="/rivers" component={() => <PW name="River & Flood Gauges"><Gated path="/rivers"><RiverGauges location={location} /></Gated></PW>} />
+        <Route path="/fire" component={() => <PW name="Fire Weather"><Gated path="/fire"><FireWeather location={location} /></Gated></PW>} />
         <Route path="/summary" component={() => <PW name="Daylight Tracker"><Gated path="/summary"><DaylightTracker location={location} /></Gated></PW>} />
         <Route path="/sswxcon" component={() => <PW name="SSWXCon"><Gated path="/sswxcon"><SSWXCon location={location} /></Gated></PW>} />
         <Route path="/moon" component={() => <PW name="Moon & Astronomy"><Gated path="/moon"><MoonAstronomy location={location} /></Gated></PW>} />
@@ -119,6 +219,11 @@ function AppInner() {
         <Route path="/duel" component={() => <PW name="AI Forecast Duel"><Gated path="/duel"><AIForecastDuel location={location} /></Gated></PW>} />
         <Route path="/glossary" component={() => <PW name="Glossary"><Gated path="/glossary"><WeatherGlossary /></Gated></PW>} />
         <Route path="/chasing" component={() => <PW name="Storm Chasing"><Gated path="/chasing"><StormChasingOutlook location={location} /></Gated></PW>} />
+        <Route path="/chases" component={() => <PW name="StormSync Chases"><Gated path="/chases"><Chases /></Gated></PW>} />
+        <Route path="/raffles" component={() => <PW name="Raffles"><Gated path="/raffles"><Raffles /></Gated></PW>} />
+        <Route path="/flooding" component={() => <PW name="Flooding Outlook"><Gated path="/flooding"><FloodOutlook location={location} /></Gated></PW>} />
+        <Route path="/winter" component={() => <PW name="Winter Center"><Gated path="/winter"><WinterCenter location={location} /></Gated></PW>} />
+        <Route path="/cameras" component={() => <PW name="Traffic Cameras"><Gated path="/cameras"><TrafficCameras location={location} /></Gated></PW>} />
         <Route path="/mosquito" component={() => <PW name="Mosquito Index"><Gated path="/mosquito"><MosquitoIndex location={location} /></Gated></PW>} />
         <Route path="/lightning-globe" component={() => <PW name="Lightning Density"><Gated path="/lightning-globe"><LightningHeatGlobe location={location} /></Gated></PW>} />
         <Route path="/loyalty" component={() => <PW name="Loyalty"><Gated path="/loyalty"><Loyalty /></Gated></PW>} />
@@ -129,20 +234,37 @@ function AppInner() {
       </Switch>
       <NotificationToast />
       <InstallPrompt />
+      <UpdateChip />
+      <ViewAsBanner />
+      <PullToRefresh />
+      <ScrollMemory />
+      <Seo />
     </Layout>
+    </>
   );
 }
 
 function App() {
   const [showSplash, setShowSplash] = useState(() => !sessionStorage.getItem("stormsync_splash_shown"));
   const handleSplashDone = () => { sessionStorage.setItem("stormsync_splash_shown", "1"); setShowSplash(false); };
-  if (showSplash) return <SplashScreen onDone={handleSplashDone} />;
+
+  // The splash overlays the app rather than replacing it. Two reasons, and the
+  // first is the reason it had to change: a `layoutId` can only animate between
+  // elements that exist in the same tree, so the brand mark can only fly from
+  // the splash into the header if the header is already mounted behind it.
+  // Second, and free: the app boots and its first queries run while the splash
+  // is still up, so the screen behind is warm by the time it lifts.
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <AppInner />
-        </WouterRouter>
+        <LayoutGroup id="sswx-brand">
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <AppInner />
+          </WouterRouter>
+          <AnimatePresence>
+            {showSplash && <SplashScreen key="splash" onDone={handleSplashDone} />}
+          </AnimatePresence>
+        </LayoutGroup>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>
@@ -150,3 +272,14 @@ function App() {
 }
 
 export default App;
+
+/**
+ * Head management, as a component so the hook sits inside the Router.
+ *
+ * Renders nothing. `useSeo` needs `useLocation`, which needs a Router above
+ * it, and the app's provider tree is assembled outside one.
+ */
+function Seo() {
+  useSeo();
+  return null;
+}

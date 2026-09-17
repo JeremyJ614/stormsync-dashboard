@@ -1,28 +1,55 @@
+/**
+ * Daily Trivia.
+ *
+ * REDESIGNED. The module had the right idea and none of the occasion. It was
+ * two questions a day with one attempt each and real points on the line,
+ * presented as a form: a hand-rolled header in the old generic theme, two grey
+ * buttons for tabs, choices as `bg-muted/20` rectangles, and a result that
+ * appeared instantly in a green or red block. Nothing about it said this was a
+ * thing you get one shot at, once a day, and none of it belonged to the same
+ * app as the modules around it.
+ *
+ * Now it opens in `ModuleShell` like everything else, the day's standing leads
+ * as a scoreboard, and answering has a moment to it — the row presses, the
+ * medallion fills, and a single champagne pass runs across the answer that was
+ * right. Everything one-shot; nothing loops.
+ *
+ * The mechanics are unchanged: the same two questions, the same one attempt,
+ * the same shared leaderboard with the Forecast Game, and grading still happens
+ * in the database so a browser can neither see the key early nor mint points.
+ */
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import {
-  Brain, CloudLightning, Sparkles, Check, X, Loader2, Trophy, Clock, Lock,
-} from "lucide-react";
+import { motion } from "framer-motion";
+import { Lock, Clock, Loader2, Trophy, Sparkles } from "lucide-react";
 import { useAuth } from "../hooks/useAuth";
+import { ModuleShell } from "../components/ModuleShell";
+import { SegmentedTabs } from "../components/forecast/SegmentedTabs";
+import { SubmittingAsNotice } from "../components/SubmittingAsNotice";
 import { Leaderboard } from "../components/Leaderboard";
+import { DayMeter, type Pip } from "../components/trivia/DayMeter";
+import { QuestionCard } from "../components/trivia/QuestionCard";
+import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 import {
-  getTodayQuestions, getMyAnswers, submitAnswer, todayUTC,
+  getTodayQuestions, getMyAnswers, getAnswerKeys, submitAnswer, todayUTC,
   type TriviaQuestion, type TriviaAnswer,
 } from "../lib/trivia";
 
-/**
- * Daily Trivia (Phase 5) — two questions a day (one weather, one deliberately
- * random), multiple choice, scored into the shared leaderboard alongside the
- * Forecast Game.
- */
+type Tab = "play" | "board";
+const TABS = [
+  { id: "play" as const, label: "Today", sub: "Two questions" },
+  { id: "board" as const, label: "Leaderboard", sub: "All players" },
+];
 
-type Result = { correct: boolean; points: number; answerIndex: number; explanation?: string | null };
+/** What the page knows about a question's answer, however it learned it. */
+interface Key { answerIndex: number; explanation: string | null }
 
 export default function Trivia() {
   const { user } = useAuth();
-  const [tab, setTab] = useState<"play" | "board">("play");
+  const still = prefersReducedMotion();
+  const [tab, setTab] = useState<Tab>("play");
   const [answers, setAnswers] = useState<Record<string, TriviaAnswer>>({});
-  const [results, setResults] = useState<Record<string, Result>>({});
+  const [keys, setKeys] = useState<Record<string, Key>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
   const qs = useQuery({
@@ -33,141 +60,153 @@ export default function Trivia() {
   });
   const questions = useMemo(() => qs.data ?? [], [qs.data]);
 
+  // Answers first, then the keys for whatever has been answered. Two calls
+  // rather than one because the key function is deliberately scoped to answered
+  // questions — it cannot be used to look ahead, which is the point of it.
   useEffect(() => {
     if (!user || questions.length === 0) return;
-    getMyAnswers(user.id, questions.map((q) => q.id)).then(setAnswers);
+    let live = true;
+    const ids = questions.map((q) => q.id);
+    getMyAnswers(user.id, ids).then((mine) => {
+      if (!live) return;
+      setAnswers(mine);
+      if (Object.keys(mine).length === 0) return;
+      getAnswerKeys(Object.keys(mine)).then((k) => { if (live) setKeys((prev) => ({ ...k, ...prev })); });
+    });
+    return () => { live = false; };
   }, [user, questions]);
 
   async function pick(q: TriviaQuestion, idx: number) {
-    if (!user || answers[q.id] || results[q.id] || busy) return;
+    if (!user || answers[q.id] || busy) return;
     setBusy(q.id);
     const r = await submitAnswer(q, user.id, user.name, idx);
     setBusy(null);
     if (!r.ok) return;
-    setAnswers((a) => ({ ...a, [q.id]: { questionId: q.id, choiceIndex: idx, correct: !!r.correct, points: r.points ?? 0 } }));
-    setResults((s) => ({ ...s, [q.id]: { correct: !!r.correct, points: r.points ?? 0, answerIndex: r.answerIndex ?? -1, explanation: r.explanation } }));
+    setAnswers((a) => ({
+      ...a,
+      [q.id]: { questionId: q.id, choiceIndex: idx, correct: !!r.correct, points: r.points ?? 0 },
+    }));
+    // The submit response carries the key, so the first reveal never waits on
+    // a second round trip.
+    setKeys((k) => ({
+      ...k,
+      [q.id]: { answerIndex: r.answerIndex ?? -1, explanation: r.explanation ?? null },
+    }));
   }
 
-  const answeredCount = questions.filter((q) => answers[q.id]).length;
+  const answered = questions.filter((q) => answers[q.id]).length;
   const todayPoints = questions.reduce((n, q) => n + (answers[q.id]?.points ?? 0), 0);
+  const allDone = questions.length > 0 && answered === questions.length;
+
+  const pips: Pip[] = questions.map((q) => ({
+    id: q.id,
+    correct: answers[q.id] ? answers[q.id].correct : null,
+  }));
+
+  const note = !questions.length
+    ? "Written fresh each morning."
+    : allDone
+      ? "That is today. New questions in the morning."
+      : "One attempt each. Points count toward the Forecast Game leaderboard.";
 
   return (
-    <div className="p-4 md:p-6 space-y-4 max-w-full overflow-x-hidden">
-      <div>
-        <h1 className="text-xl md:text-2xl font-bold tracking-wide uppercase flex items-center gap-2">
-          <Brain className="w-5 h-5 text-primary" /> Daily Trivia
-        </h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Two questions every day — one weather, one totally random. Points count toward the same leaderboard as the Forecast Game.
-        </p>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 bg-card border border-border rounded-xl p-1.5">
-        <button onClick={() => setTab("play")}
-          className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 ${tab === "play" ? "bg-primary/15 text-primary" : "text-muted-foreground"}`}>
-          <Sparkles className="w-4 h-4" /> Today
-        </button>
-        <button onClick={() => setTab("board")}
-          className={`py-2.5 rounded-lg text-sm font-semibold flex items-center justify-center gap-1.5 ${tab === "board" ? "bg-primary/15 text-primary" : "text-muted-foreground"}`}>
-          <Trophy className="w-4 h-4" /> Leaderboard
-        </button>
-      </div>
-
-      {tab === "board" ? (
-        <Leaderboard meId={user?.id} />
-      ) : !user ? (
-        <div className="bg-card border border-border rounded-xl p-6 text-center">
-          <Lock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Sign in to play and score points.</p>
+    <ModuleShell
+      eyebrow="StormSync · Daily"
+      title="Daily Trivia"
+      subtitle="Two questions every day — one weather, one deliberately random. One attempt each, scored into the same leaderboard as the Forecast Game."
+      status={
+        <div className="space-y-3">
+          <SegmentedTabs segments={TABS} value={tab} onChange={setTab}
+                         layoutId="trivia-tabs" controls="trivia-panel" label="Trivia sections" />
+          {tab === "play" && user && questions.length > 0 && (
+            <DayMeter pips={pips} points={todayPoints} still={still} note={note} />
+          )}
         </div>
-      ) : qs.isLoading ? (
-        <div className="py-10 text-center text-muted-foreground"><Loader2 className="w-5 h-5 animate-spin mx-auto" /></div>
-      ) : questions.length === 0 ? (
-        <div className="bg-card border border-border rounded-xl p-6 text-center">
-          <Clock className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
-          <p className="text-sm text-muted-foreground">Today's questions haven't been generated yet.</p>
-          <p className="text-xs text-muted-foreground/70 mt-1">They're written fresh each morning — check back shortly.</p>
-        </div>
-      ) : (
-        <>
-          {/* progress */}
-          <div className="bg-card border border-border rounded-xl p-3 flex items-center gap-3">
-            <div className="flex-1">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Today</div>
-              <div className="text-sm font-semibold">{answeredCount} of {questions.length} answered</div>
-            </div>
-            <div className="text-right">
-              <div className="text-[10px] uppercase tracking-widest text-muted-foreground">Points earned</div>
-              <div className="text-lg font-extrabold tabular-nums text-primary">{todayPoints}</div>
-            </div>
+      }
+    >
+      <div id="trivia-panel">
+        {tab === "board" ? (
+          <Leaderboard meId={user?.id} />
+        ) : !user ? (
+          <Notice icon={Lock} title="Sign in to play"
+                  body="Answers are scored against your account, so the points can land on the leaderboard." />
+        ) : qs.isLoading ? (
+          <div className="py-14 grid place-items-center">
+            <Loader2 className="w-5 h-5 animate-spin" style={{ color: ROYAL.dim }} />
           </div>
+        ) : questions.length === 0 ? (
+          <Notice icon={Clock} title="Today's questions aren't up yet"
+                  body="They're written fresh each morning — check back shortly." />
+        ) : (
+          <div className="space-y-4">
+            <SubmittingAsNotice what="An answer" />
 
-          {questions.map((q) => {
-            const mine = answers[q.id];
-            const res = results[q.id];
-            const revealed = !!mine;
-            const correctIdx = res?.answerIndex ?? -1;
-            const Icon = q.category === "weather" ? CloudLightning : Sparkles;
-            return (
-              <div key={q.id} className="bg-card border border-border rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2">
-                  <Icon className={`w-4 h-4 ${q.category === "weather" ? "text-sky-400" : "text-fuchsia-400"}`} />
-                  <span className="text-[10px] uppercase tracking-widest text-muted-foreground">
-                    {q.category === "weather" ? "Weather" : "Random"}
-                  </span>
-                  <span className="ml-auto text-[10px] text-muted-foreground tabular-nums">{q.points} pts</span>
-                </div>
+            {questions.map((q, i) => {
+              const mine = answers[q.id] ?? null;
+              const key = keys[q.id];
+              return (
+                <QuestionCard
+                  key={q.id}
+                  q={q}
+                  index={i + 1}
+                  picked={mine ? mine.choiceIndex : null}
+                  // When the key is unavailable — an older database without the
+                  // `trivia_answer_keys` migration — a right answer still knows
+                  // itself, because the member picked it.
+                  correctIndex={key ? key.answerIndex : mine?.correct ? mine.choiceIndex : -1}
+                  points={mine?.points ?? null}
+                  explanation={key?.explanation ?? null}
+                  busy={busy === q.id}
+                  locked={busy !== null && busy !== q.id}
+                  still={still}
+                  onPick={(idx) => pick(q, idx)}
+                />
+              );
+            })}
 
-                <div className="p-4 space-y-3">
-                  <p className="text-sm font-medium leading-relaxed">{q.question}</p>
+            {allDone && (
+              <motion.p
+                initial={still ? { opacity: 0 } : { opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: still ? 0.2 : 0.5, delay: 0.15, ease: EASE }}
+                className="text-center text-[11px] flex items-center justify-center gap-1.5"
+                style={{ color: ROYAL.dim }}>
+                <Sparkles className="w-3.5 h-3.5" style={{ color: ROYAL.gold }} />
+                {todayPoints > 0
+                  ? `${todayPoints} point${todayPoints === 1 ? "" : "s"} banked. Come back in the morning.`
+                  : "Nothing banked today. The next two are already being written."}
+              </motion.p>
+            )}
 
-                  <div className="space-y-2">
-                    {q.choices.map((c, i) => {
-                      const chosen = mine?.choiceIndex === i;
-                      const isRight = revealed && correctIdx === i;
-                      const isWrongPick = revealed && chosen && correctIdx !== i;
-                      return (
-                        <button key={i} onClick={() => pick(q, i)} disabled={revealed || busy === q.id}
-                          className={`w-full text-left px-3 py-2.5 rounded-lg border text-sm transition-colors flex items-center gap-2.5
-                            ${isRight ? "bg-green-500/15 border-green-500/50 text-green-200"
-                              : isWrongPick ? "bg-red-500/15 border-red-500/50 text-red-200"
-                              : revealed ? "bg-muted/10 border-border text-muted-foreground"
-                              : "bg-muted/20 border-border hover:border-primary/40"}`}>
-                          <span className="w-5 h-5 rounded-full border border-current/40 grid place-items-center text-[10px] font-bold shrink-0">
-                            {String.fromCharCode(65 + i)}
-                          </span>
-                          <span className="flex-1 min-w-0">{c}</span>
-                          {isRight && <Check className="w-4 h-4 shrink-0" />}
-                          {isWrongPick && <X className="w-4 h-4 shrink-0" />}
-                        </button>
-                      );
-                    })}
-                  </div>
+            {!allDone && (
+              <p className="text-center text-[11px] flex items-center justify-center gap-1.5"
+                 style={{ color: ROYAL.dim }}>
+                <Trophy className="w-3.5 h-3.5" />
+                One attempt per question. New questions each morning.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+    </ModuleShell>
+  );
+}
 
-                  {busy === q.id && (
-                    <div className="text-xs text-muted-foreground flex items-center gap-1.5">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking…
-                    </div>
-                  )}
-
-                  {revealed && (
-                    <div className={`rounded-lg px-3 py-2 text-xs leading-relaxed ${
-                      mine.correct ? "bg-green-500/10 border border-green-500/30 text-green-200"
-                                   : "bg-red-500/10 border border-red-500/30 text-red-200"}`}>
-                      <strong>{mine.correct ? `Correct — +${mine.points} points` : "Not this time."}</strong>
-                      {res?.explanation && <span className="block mt-1 text-muted-foreground">{res.explanation}</span>}
-                    </div>
-                  )}
-                </div>
-              </div>
-            );
-          })}
-
-          <p className="text-[11px] text-muted-foreground text-center">
-            One attempt per question. New questions each morning.
-          </p>
-        </>
-      )}
+/** The module's empty and locked states, so neither is a bare sentence. */
+function Notice({
+  icon: Icon, title, body,
+}: { icon: typeof Lock; title: string; body: string }) {
+  return (
+    <div className="relative rounded-2xl overflow-hidden px-6 py-12 text-center"
+         style={{
+           border: `1px solid ${ROYAL.hairline}`,
+           background: `linear-gradient(180deg, ${ROYAL.ink2}, ${ROYAL.ink})`,
+         }}>
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px"
+            style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
+      <Icon className="w-7 h-7 mx-auto mb-3" style={{ color: ROYAL.goldSoft }} />
+      <h2 className="text-base font-semibold" style={{ fontFamily: HEADING, color: ROYAL.text }}>{title}</h2>
+      <p className="mt-1.5 text-sm max-w-sm mx-auto leading-relaxed" style={{ color: ROYAL.dim }}>{body}</p>
     </div>
   );
 }

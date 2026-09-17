@@ -1,7 +1,7 @@
 # StormSync VIP — Supabase Backend
 
-**Project:** `stormsync-vip` · **ref:** `djonpetxdjuwcbgftqmt` · region `us-east-2`
-**URL:** https://djonpetxdjuwcbgftqmt.supabase.co
+**Project:** `forecasts-weatherdata` · **ref:** `sofrhcdjkjfphibysmxc` · region `us-east-2`
+**URL:** https://sofrhcdjkjfphibysmxc.supabase.co
 
 > This is the dedicated backend for the VIP Forecasts app. It is SEPARATE from
 > `stormsync-app-center` (the live applications site) and other projects. Do not
@@ -106,8 +106,8 @@ returns the ingested data without writing (and reports `ai_key_configured` / `ai
   and the Daily Briefing consumer are built and verified; the engine runs in deterministic
   no-key mode until a key is set.
   - **Free (recommended):** `GEMINI_API_KEY` — create one at https://aistudio.google.com/apikey
-    (no credit card). `npx supabase secrets set GEMINI_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
-  - **Paid fallback:** `ANTHROPIC_API_KEY` — `npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
+    (no credit card). `npx supabase secrets set GEMINI_API_KEY=... --project-ref sofrhcdjkjfphibysmxc`.
+  - **Paid fallback:** `ANTHROPIC_API_KEY` — `npx supabase secrets set ANTHROPIC_API_KEY=... --project-ref sofrhcdjkjfphibysmxc`.
   - Set via the CLI or the Supabase dashboard (Edge Functions → Secrets). Never commit a key.
 
 ### `relay` (`supabase/functions/relay/index.ts`)
@@ -130,8 +130,8 @@ any alert not already in `push_sent`; prunes subscriptions that return 404/410. 
 `src/lib/push.ts` + the function). Optional `VAPID_SUBJECT` (mailto/URL). Without the private
 key the function no-ops gracefully. Generate a keypair with the `web-push` lib or Node crypto;
 set the private half:
-`npx supabase secrets set VAPID_PRIVATE_KEY=... --project-ref djonpetxdjuwcbgftqmt`.
+`npx supabase secrets set VAPID_PRIVATE_KEY=... --project-ref sofrhcdjkjfphibysmxc`.
 
 ## Frontend env (Vercel + local `.env`)
-- `VITE_SUPABASE_URL=https://djonpetxdjuwcbgftqmt.supabase.co`
+- `VITE_SUPABASE_URL=https://sofrhcdjkjfphibysmxc.supabase.co`
 - `VITE_SUPABASE_ANON_KEY=sb_publishable_...` (publishable; see `.env.example`)

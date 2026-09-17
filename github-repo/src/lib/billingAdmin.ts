@@ -34,24 +34,29 @@ export const DEFAULT_TIER_PRICING: TierPricing = {
 
 // ── Lifetime deals ───────────────────────────────────────────────────────────
 export interface LifetimeDeal { price: number; label: string; active: boolean; choosableCount?: number }
-export interface LifetimeDeals { basic_lifetime: LifetimeDeal; advanced_lifetime: LifetimeDeal }
+export interface LifetimeDeals { basic_lifetime: LifetimeDeal; vip_lifetime: LifetimeDeal; advanced_lifetime: LifetimeDeal }
 
 export const DEFAULT_LIFETIME_DEALS: LifetimeDeals = {
   basic_lifetime: { price: 29.99, label: "Basic Lifetime — the Basic free bundle + 10 modules of your choice, forever", active: true, choosableCount: 10 },
+  vip_lifetime: { price: 49.99, label: "VIP Lifetime — the VIP bundle + 20 modules of your choice, forever", active: false, choosableCount: 20 },
   advanced_lifetime: { price: 44.99, label: "Advanced Lifetime — every module ever made, plus early access to anything new, forever", active: true, choosableCount: 0 },
 };
 
 // ── Tier module config (bundled-free lists + choosable counts) ──────────────
 export interface TierModuleConfig {
   choosableCount: Record<TierKey, number>;
-  /** Fixed bundled-free module ids. Free has none (just its 1 chosen module);
+  /** Fixed bundled-free module ids, per sellable tier.
+   *  Free is in here now: it always had a bundle in the database — /dashboard —
+   *  but the admin panel could not see or change it, so the one tier every new
+   *  member lands on was the one tier nobody could configure.
    *  Advanced gets literally everything, so it isn't tracked here. */
-  bundledModules: { basic: string[]; vip: string[] };
+  bundledModules: { free: string[]; basic: string[]; vip: string[] };
 }
 
 export const DEFAULT_TIER_MODULE_CONFIG: TierModuleConfig = {
   choosableCount: { free: 1, basic: 6, vip: 15, advanced: 0 },
   bundledModules: {
+    free: ["/dashboard"],
     basic: ["/dashboard", "/forecast", "/discussion", "/spc", "/warnings", "/timing"],
     vip: ["/dashboard", "/forecast", "/discussion", "/spc", "/warnings", "/timing", "/ingredients", "/swti", "/comparator", "/thunder", "/rotation"],
   },
@@ -94,9 +99,13 @@ export async function getTierModuleConfig(): Promise<TierModuleConfig> {
   return { choosableCount, bundledModules };
 }
 export async function saveTierModuleConfig(v: TierModuleConfig): Promise<MutationResult> {
+  // Merge rather than replace. `tier_bundled_modules` carries an `advanced` key
+  // this editor does not show (Advanced gets everything, so there is nothing to
+  // choose), and a straight overwrite would delete it.
+  const existing = await getConfigValue<Record<string, string[]>>("tier_bundled_modules", {});
   const [r1, r2] = await Promise.all([
     saveConfigValue("tier_choosable_count", v.choosableCount),
-    saveConfigValue("tier_bundled_modules", v.bundledModules),
+    saveConfigValue("tier_bundled_modules", { ...existing, ...v.bundledModules }),
   ]);
   return [r1, r2].find(r => !r.ok) ?? { ok: true };
 }
@@ -236,15 +245,40 @@ export async function deleteCoupon(code: string): Promise<MutationResult> {
 // ── Promo counter ─────────────────────────────────────────────────────────────
 export interface PromoCounter { claimed: number; total: number; active: boolean }
 
+// The counter moved into `promos` when the other three offers arrived, so that
+// every promotion has one home and one switch. The old single-row table is left
+// in place rather than dropped — it costs nothing and it is the only copy of
+// what the numbers were before the move.
 export async function getPromoCounter(): Promise<PromoCounter> {
   if (!isSupabaseConfigured) return { claimed: 0, total: 25, active: true };
-  const { data, error } = await supabase.from("promo_counter").select("claimed,total,active").eq("id", true).maybeSingle();
+  const { data, error } = await supabase.from("promos").select("active,config").eq("key", "free_advanced_25").maybeSingle();
   if (error || !data) return { claimed: 0, total: 25, active: true };
-  return data as PromoCounter;
+  const cfg = (data.config ?? {}) as { claimed?: number; total?: number };
+  return { claimed: Number(cfg.claimed ?? 0), total: Number(cfg.total ?? 25), active: Boolean(data.active) };
 }
 
 export async function savePromoCounter(v: PromoCounter): Promise<MutationResult> {
-  const { error } = await supabase.from("promo_counter").update({ claimed: v.claimed, total: v.total, active: v.active }).eq("id", true);
+  const { error } = await supabase.from("promos")
+    .update({ active: v.active, config: { claimed: v.claimed, total: v.total }, updated_at: new Date().toISOString() })
+    .eq("key", "free_advanced_25");
   if (error) { logger.error("savePromoCounter failed", { scope: "billingAdmin", error }); return { ok: false, error: error.message }; }
   return { ok: true };
+}
+
+/**
+ * Put every Advanced member back on the full module list.
+ *
+ * New modules reach Advanced automatically — a trigger on the menu table grants
+ * them the moment a module is added. This is for the cases a trigger cannot
+ * see: a module renamed by hand, a profile edited before the rule existed, a
+ * list that drifted for any other reason. Returns how many members changed.
+ */
+export async function syncAdvancedModules(): Promise<{ ok: true; changed: number } | { ok: false; error: string }> {
+  if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
+  const { data, error } = await supabase.rpc("admin_sync_advanced_modules");
+  if (error) {
+    logger.error("syncAdvancedModules failed", { scope: "billingAdmin", error });
+    return { ok: false, error: error.message };
+  }
+  return { ok: true, changed: Number(data ?? 0) };
 }

@@ -1,6 +1,8 @@
 import { useState } from "react";
+import { ModuleShell } from "../components/ModuleShell";
+import { ROYAL } from "../lib/royal";
 import type { Location } from "../hooks/useLocation";
-import { Globe, ExternalLink, RefreshCw, Image as ImageIcon, Crosshair } from "lucide-react";
+import { ExternalLink, RefreshCw, Image as ImageIcon, Crosshair } from "lucide-react";
 import { SPCMap, type SPCProduct, type DisplayMode } from "../components/SPCMap";
 import { SPCStaticMap } from "../components/SPCStaticMap";
 import type { TargetArea } from "../lib/spcTargetAreas";
@@ -61,18 +63,19 @@ export default function SPCOutlook({ location: _ }: Props) {
   }
 
   return (
-    <div className="p-4 md:p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Globe className="w-5 h-5 text-primary" />
-          <h2 className="text-xl font-bold tracking-wide">SPC Convective Outlook</h2>
-        </div>
+    <ModuleShell
+      eyebrow="SPC · NOAA"
+      title={<>SPC Convective Outlook</>}
+      subtitle="Where the Storm Prediction Center expects severe weather, nationwide, for the next eight days."
+      wide
+      actions={
         <button onClick={() => setKey(k => k + 1)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-primary transition-colors px-2 py-1 rounded border border-border hover:border-primary/40">
+          className="flex items-center gap-1.5 text-xs transition-colors px-2.5 py-1.5 rounded-lg"
+          style={{ border: `1px solid ${ROYAL.hairline}`, color: ROYAL.dim }}>
           <RefreshCw className="w-3 h-3" /> Refresh
         </button>
-      </div>
-      <p className="text-sm text-muted-foreground">Nationwide · NOAA Storm Prediction Center · Live</p>
+      }
+    >
 
       <div className="bg-card border border-border rounded-xl p-3 space-y-3">
         <div>
@@ -135,7 +138,7 @@ export default function SPCOutlook({ location: _ }: Props) {
       </div>
 
       <SPCStaticMaps />
-    </div>
+    </ModuleShell>
   );
 }
 

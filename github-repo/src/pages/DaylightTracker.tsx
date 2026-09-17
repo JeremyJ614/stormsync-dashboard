@@ -1,14 +1,33 @@
 /**
- * DaylightTracker — VIP Forecasts & Alerts
- * Replaces "Local Summary" — full daylight information page
- * Inspired by Max Velocity's daylight page, restyled for StormSync
+ * Daylight Tracker.
+ *
+ * REDESIGNED. The maths were always right and the page never showed them. It
+ * opened with a hand-rolled header in the old generic theme, then four tiles
+ * carrying emoji — ☀️ 🌙 ⏱️ 📈 — each with its figure in a different colour, a
+ * grid of twelve cards setting sunrise and sunset at nine pixels, and a 110px
+ * sun arc buried inside a map popup. Five palettes, no hierarchy, and the one
+ * drawing that actually showed anything was the smallest thing on the screen.
+ *
+ * The subject of this module is a shape: the day gets longer, then shorter.
+ * So the shape leads. `DayArc` draws the whole twenty-four hours with the sun's
+ * path across the daylight in it, and `YearRibbon` puts the twelve months on
+ * one baseline so the curve of the year is simply visible — and is also the
+ * month picker, so the year view and the control are one object rather than two
+ * that have to agree.
+ *
+ * Every solar calculation below this comment is untouched.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { Location } from "../hooks/useLocation";
 import { reverseGeocode } from "../utils/weatherApi";
-import { MapPin, ChevronLeft, ChevronRight, X, Sun, ArrowLeftRight } from "lucide-react";
+import { MapPin, ChevronLeft, ChevronRight, X, ArrowLeftRight, Sunrise, Sunset } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
-import "leaflet/dist/leaflet.css";
+import type * as maplibregl from "maplibre-gl";
+import { BaseMap, type BaseMapHandle } from "../components/map/BaseMap";
+import { ModuleShell, Panel } from "../components/ModuleShell";
+import { DayArc } from "../components/daylight/DayArc";
+import { YearRibbon, type YearMonth } from "../components/daylight/YearRibbon";
+import { ROYAL, HEADING, prefersReducedMotion } from "../lib/royal";
 
 interface Props { location: Location }
 
@@ -76,6 +95,11 @@ function sunTimes(lat: number, lon: number, year: number, month: number, day: nu
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function tzOff(lon: number): number { return Math.round(lon / 15); }
 
+/** UTC minutes past midnight → local minutes past midnight, wrapped. */
+function localMin(utcMin: number, tzHours: number): number {
+  return ((utcMin + tzHours * 60) % 1440 + 1440) % 1440;
+}
+
 function fmtTime(utcMin: number, tzHours: number): string {
   const local = ((utcMin + tzHours * 60) % 1440 + 1440) % 1440;
   const h = Math.floor(local / 60);
@@ -118,45 +142,67 @@ function yearData(lat: number, lon: number, year: number) {
 // Choropleth color: green = gaining daylight, amber = losing
 function choroStyle(diffMin: number): { fillColor: string; fillOpacity: number } {
   const t = Math.max(-1, Math.min(1, diffMin / 180));
-  if (t >= 0) return { fillColor: "#4ade80", fillOpacity: 0.08 + t * 0.42 };
-  return { fillColor: "#fbbf24", fillOpacity: 0.08 + (-t) * 0.42 };
+  // Champagne for latitudes gaining light, periwinkle for those losing it. It
+  // was spring green against amber, two hues that appear nowhere else in the
+  // app and read as a traffic light rather than as a direction.
+  if (t >= 0) return { fillColor: "#d9b775", fillOpacity: 0.06 + t * 0.40 };
+  return { fillColor: "#ccccff", fillOpacity: 0.06 + (-t) * 0.40 };
 }
 
 const MONTHS = ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"];
 const MONTH_FULL = ["January","February","March","April","May","June","July","August","September","October","November","December"];
 
-// ─── Sun Arc SVG ─────────────────────────────────────────────────────────────
+// ─── Sun arc, small ──────────────────────────────────────────────────────────
+/**
+ * The compact arc used inside the map popup. Same drawing as `DayArc`, reduced
+ * to what survives at 280px: horizon, path, endpoints. Its old gradient ran
+ * orange → amber → indigo, three hues from outside this app's palette; it is
+ * champagne into periwinkle now, which is sunrise into night in the colours the
+ * rest of the page already uses.
+ */
 function SunArcSvg({ riseMin, setMin }: { riseMin: number; setMin: number }) {
-  const W = 280, H = 120;
-  const groundY = H - 14;
+  const W = 280, H = 110;
+  const groundY = H - 16;
   const xOf = (m: number) => Math.max(0, Math.min(W, (m / 1440) * W));
   const rX = xOf(riseMin), sX = xOf(setMin);
-  const apexX = (rX + sX) / 2, apexY = 14;
+  const apexX = (rX + sX) / 2, apexY = 16;
   const cpY = apexY - 4;
   const arc = `M ${rX} ${groundY} C ${rX + (apexX - rX) * 0.5} ${cpY} ${sX - (sX - apexX) * 0.5} ${cpY} ${sX} ${groundY}`;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 110 }}>
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ maxHeight: 104 }}>
       <defs>
         <linearGradient id="arcG" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="#f97316" />
-          <stop offset="50%" stopColor="#fbbf24" />
-          <stop offset="100%" stopColor="#818cf8" />
+          <stop offset="0%" stopColor={ROYAL.gold} />
+          <stop offset="55%" stopColor="#e6d2a8" />
+          <stop offset="100%" stopColor={ROYAL.iris} />
         </linearGradient>
       </defs>
-      <line x1="0" y1={groundY} x2={W} y2={groundY} stroke="rgba(204,204,255,0.1)" strokeWidth="1" />
-      {rX > 0 && <line x1="0" y1={groundY} x2={rX} y2={groundY} stroke="rgba(148,163,184,0.2)" strokeWidth="1.5" strokeDasharray="3 3" />}
+      {rX > 0 && <rect x="0" y="0" width={rX} height={groundY} fill="rgba(204,204,255,0.05)" />}
+      {sX < W && <rect x={sX} y="0" width={W - sX} height={groundY} fill="rgba(204,204,255,0.05)" />}
+      <line x1="0" y1={groundY} x2={W} y2={groundY} stroke="rgba(204,204,255,0.16)" strokeWidth="1" />
       <path d={arc} stroke="url(#arcG)" strokeWidth="2.5" fill="none" strokeLinecap="round" />
-      {sX < W && <line x1={sX} y1={groundY} x2={W} y2={groundY} stroke="rgba(148,163,184,0.2)" strokeWidth="1.5" strokeDasharray="3 3" />}
-      <circle cx={rX} cy={groundY} r="4" fill="#f97316" />
-      <circle cx={sX} cy={groundY} r="4" fill="#818cf8" />
-      <circle cx={apexX} cy={apexY + 2} r="5" fill="#fbbf24" style={{ filter: "drop-shadow(0 0 4px #fbbf24)" }} />
+      <circle cx={rX} cy={groundY} r="4" fill={ROYAL.ink} stroke={ROYAL.gold} strokeWidth="2" />
+      <circle cx={sX} cy={groundY} r="4" fill={ROYAL.ink} stroke={ROYAL.iris} strokeWidth="2" />
+      <circle cx={apexX} cy={apexY + 2} r="4.5" fill={ROYAL.gold}
+              style={{ filter: `drop-shadow(0 0 6px ${ROYAL.goldSoft})` }} />
     </svg>
   );
 }
 
-// ─── Map Popup Panel ─────────────────────────────────────────────────────────
+// ─── Map popup ───────────────────────────────────────────────────────────────
 interface PopupData { lat: number; lon: number; name: string }
 
+/**
+ * A location's daylight, on the map.
+ *
+ * The old one packed six sections into 320px at seven, eight and nine pixels —
+ * a size at which a table of times is decoration rather than information — and
+ * coloured them from a palette the rest of the app does not use. It also mapped
+ * rows into an unkeyed fragment, which React warns about on every render.
+ *
+ * Same six sections, set so they can be read, in the page's own colours, with
+ * the year strip doubling as the month control the way the ribbon below does.
+ */
 function MapPopupPanel({
   data, year, monthIdx, onClose, onMonthChange,
 }: {
@@ -175,241 +221,276 @@ function MapPopupPanel({
   const longestIdx = yr.findIndex((d) => d.dl === maxDl);
   const minDl = Math.min(...yr.map((d) => d.dl));
   const shortestIdx = yr.findIndex((d) => d.dl === minDl);
+  const gaining = delta >= 0;
 
   return (
     <div
-      className="absolute bottom-3 left-3 right-3 md:left-auto md:right-3 md:w-80 rounded-2xl overflow-hidden shadow-2xl"
-      style={{ zIndex: 1000, background: "hsl(232 22% 8%)", border: "1px solid rgba(204,204,255,0.18)" }}
+      className="absolute bottom-3 left-3 right-3 md:left-auto md:right-3 md:w-[21rem] rounded-2xl overflow-hidden"
+      style={{
+        zIndex: 10,
+        background: "rgba(9,9,21,0.94)",
+        backdropFilter: "blur(14px)",
+        WebkitBackdropFilter: "blur(14px)",
+        border: `1px solid ${ROYAL.hairline}`,
+        boxShadow: "0 30px 60px -30px rgba(0,0,0,0.95)",
+      }}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between px-3 pt-3 pb-1">
-        <div>
-          <div className="font-bold text-sm text-white leading-tight truncate max-w-[220px]">{data.name}</div>
-          <div className="text-[10px] text-[#A3A3CC] mt-0.5">
-            {Math.abs(data.lat).toFixed(2)}°{data.lat >= 0 ? "N" : "S"} &nbsp;
+      <span aria-hidden className="absolute inset-x-0 top-0 h-px"
+            style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
+
+      <div className="flex items-start justify-between gap-2 px-3.5 pt-3.5 pb-2">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold leading-tight truncate"
+               style={{ fontFamily: HEADING, color: ROYAL.text }}>{data.name}</div>
+          <div className="text-[11px] tabular-nums mt-0.5" style={{ color: ROYAL.dim }}>
+            {Math.abs(data.lat).toFixed(2)}°{data.lat >= 0 ? "N" : "S"}
+            {"  "}
             {Math.abs(data.lon).toFixed(2)}°{data.lon >= 0 ? "E" : "W"}
           </div>
         </div>
-        <button onClick={onClose} className="ml-2 shrink-0 text-[#A3A3CC] hover:text-white p-0.5 rounded hover:bg-white/10 transition-colors">
+        <button onClick={onClose} aria-label="Close"
+                className="shrink-0 p-1 rounded-md transition-colors hover:bg-white/10"
+                style={{ color: ROYAL.dim }}>
           <X className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Month nav + delta */}
-      <div className="flex items-center gap-2 px-3 pb-1">
-        <button onClick={() => onMonthChange((monthIdx - 1 + 12) % 12)} className="w-5 h-5 flex items-center justify-center rounded text-[#A3A3CC] hover:text-white hover:bg-white/10 transition-colors">
-          <ChevronLeft className="w-3.5 h-3.5" />
+      <div className="flex items-center gap-2 px-3.5 pb-1">
+        <button onClick={() => onMonthChange((monthIdx - 1 + 12) % 12)} aria-label="Previous month"
+                className="w-6 h-6 grid place-items-center rounded-md transition-colors hover:bg-white/10"
+                style={{ color: ROYAL.dim }}>
+          <ChevronLeft className="w-4 h-4" />
         </button>
-        <span className="font-bold text-sm text-white tracking-wide">{MONTH_FULL[monthIdx].toUpperCase()}</span>
-        <span className={`ml-1 text-[9px] px-1.5 py-0.5 rounded-full font-bold ${delta >= 0 ? "bg-green-500/20 text-green-400" : "bg-amber-500/20 text-amber-400"}`}>
+        <span className="text-[11px] uppercase tracking-[0.22em] font-semibold"
+              style={{ color: ROYAL.gold }}>{MONTH_FULL[monthIdx]}</span>
+        <span className="ml-auto text-[11px] tabular-nums"
+              style={{ color: gaining ? ROYAL.gold : ROYAL.iris }}>
           {fmtDelta(delta)} vs {MONTHS[prevIdx]}
         </span>
-        <button onClick={() => onMonthChange((monthIdx + 1) % 12)} className="ml-auto w-5 h-5 flex items-center justify-center rounded text-[#A3A3CC] hover:text-white hover:bg-white/10 transition-colors">
-          <ChevronRight className="w-3.5 h-3.5" />
+        <button onClick={() => onMonthChange((monthIdx + 1) % 12)} aria-label="Next month"
+                className="w-6 h-6 grid place-items-center rounded-md transition-colors hover:bg-white/10"
+                style={{ color: ROYAL.dim }}>
+          <ChevronRight className="w-4 h-4" />
         </button>
       </div>
 
-      {/* Sun arc */}
-      <div className="px-3 py-1">
+      <div className="px-3.5 py-1">
         <SunArcSvg riseMin={mid.rise} setMin={mid.set} />
       </div>
 
-      {/* Time stats */}
-      <div className="grid grid-cols-3 px-3 pb-2 gap-1">
+      <div className="grid grid-cols-3 gap-2 px-3.5 pb-2.5">
         {[
-          { label: "SUNRISE", value: mid.polarNight ? "—" : fmtTime(mid.rise, tz), color: "#f97316" },
-          { label: "SUNSET",  value: mid.polarNight ? "—" : fmtTime(mid.set, tz),  color: "#818cf8" },
-          { label: "DAYLIGHT",value: fmtDur(mid.dl),                                color: "#ffffff" },
+          { label: "Sunrise", value: mid.polarNight ? "—" : fmtTime(mid.rise, tz), color: ROYAL.gold },
+          { label: "Sunset", value: mid.polarNight ? "—" : fmtTime(mid.set, tz), color: ROYAL.iris },
+          { label: "Daylight", value: fmtDur(mid.dl), color: ROYAL.text },
         ].map((s) => (
           <div key={s.label}>
-            <div className="text-[8px] text-[#6b7280] uppercase tracking-wider">{s.label}</div>
-            <div className="text-xs font-bold mt-0.5" style={{ color: s.color }}>{s.value}</div>
+            <div className="text-[9px] uppercase tracking-[0.18em]" style={{ color: ROYAL.dim }}>{s.label}</div>
+            <div className="text-[13px] font-semibold tabular-nums mt-0.5" style={{ color: s.color }}>{s.value}</div>
           </div>
         ))}
       </div>
 
-      {/* Day/Night bar */}
-      <div className="px-3 pb-2">
-        <div className="flex rounded-full overflow-hidden h-2.5" style={{ background: "rgba(255,255,255,0.06)" }}>
-          <div style={{ width: `${pctDay}%`, background: "linear-gradient(90deg, #f97316, #fbbf24)" }} />
+      <div className="px-3.5 pb-3">
+        <div className="h-2 rounded-full overflow-hidden" style={{ background: "rgba(204,204,255,0.08)" }}>
+          <div style={{ width: `${pctDay}%`, height: "100%",
+                        background: `linear-gradient(90deg, ${ROYAL.gold}, rgba(217,183,117,0.55))` }} />
         </div>
-        <div className="flex justify-between mt-0.5 text-[8px] text-[#6b7280]">
+        <div className="flex justify-between mt-1 text-[10px] tabular-nums" style={{ color: ROYAL.dim }}>
           <span>{pctDay}% day</span><span>{100 - pctDay}% night</span>
         </div>
       </div>
 
-      {/* Through the month */}
-      <div className="px-3 py-2 border-t border-[rgba(204,204,255,0.07)]">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[9px] text-[#6b7280] uppercase tracking-wider font-semibold">Through the Month</span>
-          <span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${delta >= 0 ? "text-green-400 bg-green-500/15" : "text-amber-400 bg-amber-500/15"}`}>
-            {fmtDelta(delta)}
-          </span>
+      <div className="px-3.5 py-2.5 border-t" style={{ borderColor: ROYAL.hairline }}>
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-1.5" style={{ color: ROYAL.dim }}>
+          Through the month
         </div>
-        <div className="grid grid-cols-4 gap-x-1 gap-y-1">
-          {["DATE","RISE","SET","DAYLIGHT"].map((h) => (
-            <div key={h} className="text-[8px] text-[#4b5563] uppercase font-semibold">{h}</div>
-          ))}
-          {thru.map((row) => (
-            <>
-              <div key={`d${row.day}`} className="text-[9px] text-white">{MONTHS[monthIdx].slice(0,1)}{MONTHS[monthIdx].slice(1,3).toLowerCase()} {row.day}</div>
-              <div key={`r${row.day}`} className="text-[9px] text-[#f97316]">{row.polarNight ? "—" : fmtTime(row.rise, tz)}</div>
-              <div key={`s${row.day}`} className="text-[9px] text-[#818cf8]">{row.polarNight ? "—" : fmtTime(row.set, tz)}</div>
-              <div key={`l${row.day}`} className="text-[9px] text-white">{fmtDur(row.dl)}</div>
-            </>
-          ))}
-        </div>
+        <table className="w-full text-[11px] tabular-nums">
+          <thead>
+            <tr>
+              {["Date", "Rise", "Set", "Length"].map((h) => (
+                <th key={h} className="text-left font-medium pb-1"
+                    style={{ color: ROYAL.dim, opacity: 0.8 }}>{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {thru.map((row) => (
+              <tr key={row.day}>
+                <td style={{ color: ROYAL.text }}>
+                  {MONTHS[monthIdx].slice(0, 1)}{MONTHS[monthIdx].slice(1, 3).toLowerCase()} {row.day}
+                </td>
+                <td style={{ color: ROYAL.gold }}>{row.polarNight ? "—" : fmtTime(row.rise, tz)}</td>
+                <td style={{ color: ROYAL.iris }}>{row.polarNight ? "—" : fmtTime(row.set, tz)}</td>
+                <td style={{ color: ROYAL.text }}>{fmtDur(row.dl)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
 
-      {/* Year overview */}
-      <div className="px-3 pb-3 pt-2 border-t border-[rgba(204,204,255,0.07)]">
-        <div className="text-[9px] text-[#6b7280] uppercase tracking-wider mb-2">Year Overview</div>
-        <div className="flex items-end gap-0.5 h-7">
+      <div className="px-3.5 pb-3.5 pt-2.5 border-t" style={{ borderColor: ROYAL.hairline }}>
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-2" style={{ color: ROYAL.dim }}>
+          The year here
+        </div>
+        <div className="flex items-end gap-0.5 h-9">
           {yr.map((d, i) => (
             <button
               key={i}
               onClick={() => onMonthChange(i)}
               title={`${MONTHS[i]}: ${fmtDur(d.dl)}`}
-              className="flex-1 flex flex-col items-center justify-end h-full"
+              className="flex-1 flex items-end h-full"
             >
-              <div
-                className="w-full rounded-sm transition-opacity"
+              <span
+                className="block w-full rounded-sm transition-colors"
                 style={{
-                  height: `${Math.max(10, Math.round((d.dl / maxDl) * 100))}%`,
-                  background:
-                    i === monthIdx
-                      ? "#CCCCFF"
-                      : i === longestIdx
-                      ? "#4ade80"
-                      : i === shortestIdx
-                      ? "#f97316"
-                      : "rgba(204,204,255,0.28)",
-                  opacity: i === monthIdx ? 1 : 0.65,
+                  height: `${Math.max(12, Math.round((d.dl / maxDl) * 100))}%`,
+                  background: i === monthIdx ? ROYAL.gold : "rgba(204,204,255,0.22)",
                 }}
               />
             </button>
           ))}
         </div>
-        <div className="flex justify-between mt-1 text-[7px] text-[#4b5563]">
-          {MONTHS.map((m) => <span key={m}>{m[0]}</span>)}
+        <div className="flex justify-between mt-1 text-[9px]" style={{ color: ROYAL.dim }}>
+          {MONTHS.map((m, i) => (
+            <span key={m} style={{ color: i === monthIdx ? ROYAL.gold : undefined }}>{m[0]}</span>
+          ))}
         </div>
-        <div className="flex justify-between mt-1.5 text-[8px]">
-          <span className="text-white">Longest: <span className="text-green-400">{MONTHS[longestIdx]} {fmtDur(maxDl)}</span></span>
-          <span className="text-white">Shortest: <span className="text-amber-400">{MONTHS[shortestIdx]} {fmtDur(minDl)}</span></span>
+        <div className="flex justify-between mt-2 text-[10px] tabular-nums" style={{ color: ROYAL.dim }}>
+          <span>Longest <span style={{ color: ROYAL.text }}>{MONTHS[longestIdx]} {fmtDur(maxDl)}</span></span>
+          <span>Shortest <span style={{ color: ROYAL.text }}>{MONTHS[shortestIdx]} {fmtDur(minDl)}</span></span>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Leaflet Map with choropleth ─────────────────────────────────────────────
+// ─── Daylight choropleth, on the shared MapLibre base ────────────────────────
+/**
+ * Seventy latitude bands, each shaded by how much daylight that latitude gains
+ * or loses between the middle of last month and the middle of this one. It was
+ * seventy Leaflet rectangles redrawn from scratch on every month change; it is
+ * now one GeoJSON source whose fills are driven by feature properties, so
+ * changing month is a `setData` rather than a teardown.
+ */
 function DaylightMap({
   lat, lon, year, monthIdx, onMonthChange,
 }: {
   lat: number; lon: number; year: number; monthIdx: number;
   onMonthChange: (i: number) => void;
 }) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const mapRef      = useRef<unknown>(null);
-  const markerRef   = useRef<unknown>(null);
-  const choroRef    = useRef<unknown>(null);
+  const handle = useRef<BaseMapHandle>(null);
   const monthIdxRef = useRef(monthIdx);
   const [popup, setPopup] = useState<PopupData | null>(null);
   const [popupMonth, setPopupMonth] = useState(monthIdx);
-  // Leaflet is imported dynamically, so the map does not exist during the first
-  // render pass. The choropleth effect below bails out when the map is missing,
-  // which meant the bands were never drawn until something changed monthIdx -
-  // i.e. the map looked empty until you clicked a month. This flag re-runs that
-  // effect the moment the map is actually ready.
-  const [mapReady, setMapReady] = useState(false);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => { monthIdxRef.current = monthIdx; }, [monthIdx]);
 
-  // Init map once
-  useEffect(() => {
-    if (!containerRef.current) return;
-    let cancelled = false;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    import("leaflet").then((L: any) => {
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      const map = L.map(containerRef.current, {
-        center: [lat, lon], zoom: 4,
-        zoomControl: false, attributionControl: false, scrollWheelZoom: false,
+  /** The band collection for one month — pure, so it memoises cleanly. */
+  const bands = useMemo<GeoJSON.FeatureCollection>(() => {
+    const prevM = ((monthIdx - 1 + 12) % 12) + 1;
+    const curM = monthIdx + 1;
+    const features: GeoJSON.Feature[] = [];
+    for (let lb = -66; lb < 74; lb += 2) {
+      const latMid = lb + 1;
+      const cur = sunTimes(latMid, 0, year, curM, 15);
+      const prv = sunTimes(latMid, 0, year, prevM, 15);
+      const { fillColor, fillOpacity } = choroStyle(cur.dl - prv.dl);
+      features.push({
+        type: "Feature",
+        properties: { fillColor, fillOpacity },
+        geometry: {
+          type: "Polygon",
+          coordinates: [[[-180, lb], [180, lb], [180, lb + 2], [-180, lb + 2], [-180, lb]]],
+        },
       });
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-        maxZoom: 9, subdomains: "abcd",
-      }).addTo(map);
-      L.control.zoom({ position: "topright" }).addTo(map);
+    }
+    return { type: "FeatureCollection", features };
+  }, [monthIdx, year]);
 
-      const icon = L.divIcon({
-        className: "",
-        html: `<div style="width:14px;height:14px;background:#CCCCFF;border:2px solid white;border-radius:50%;box-shadow:0 0 10px rgba(204,204,255,0.9)"></div>`,
-        iconSize: [14, 14], iconAnchor: [7, 7],
-      });
-      markerRef.current = L.marker([lat, lon], { icon }).addTo(map);
-      mapRef.current = map;
-      setMapReady(true);   // triggers the initial choropleth draw
+  const you = useMemo<GeoJSON.FeatureCollection>(() => ({
+    type: "FeatureCollection",
+    features: [{ type: "Feature", properties: {}, geometry: { type: "Point", coordinates: [lon, lat] } }],
+  }), [lat, lon]);
 
-      map.on("click", async (e: { latlng: { lat: number; lng: number } }) => {
-        const { lat: clat, lng: clon } = e.latlng;
-        setPopup({ lat: clat, lon: clon, name: `${Math.abs(clat).toFixed(2)}°${clat>=0?"N":"S"}, ${Math.abs(clon).toFixed(2)}°${clon>=0?"E":"W"}` });
-        setPopupMonth(monthIdxRef.current);
-        reverseGeocode(clat, clon).then((name) => setPopup((p) => p ? { ...p, name } : p));
-      });
+  function onReady(map: maplibregl.Map, beneath: string | undefined) {
+    map.addSource("daylight-bands", { type: "geojson", data: bands });
+    map.addLayer({
+      id: "daylight-bands",
+      type: "fill",
+      source: "daylight-bands",
+      paint: { "fill-color": ["get", "fillColor"], "fill-opacity": ["get", "fillOpacity"] },
+    }, beneath);
+
+    map.addSource("daylight-you", { type: "geojson", data: you });
+    map.addLayer({
+      id: "daylight-you-glow",
+      type: "circle",
+      source: "daylight-you",
+      paint: { "circle-radius": 15, "circle-color": "#d9b775", "circle-opacity": 0.22, "circle-blur": 0.8 },
     });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Update marker when location changes
-  useEffect(() => {
-    if (!mapRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (markerRef.current as any)?.setLatLng([lat, lon]);
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (mapRef.current as any)?.setView([lat, lon], (mapRef.current as any)?.getZoom(), { animate: true });
-  }, [lat, lon]);
-
-  // Update choropleth when month changes
-  useEffect(() => {
-    if (!mapRef.current) return;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    import("leaflet").then((L: any) => {
-      if (!mapRef.current) return;
-      if (choroRef.current) (mapRef.current as any).removeLayer(choroRef.current);
-      const g = L.layerGroup().addTo(mapRef.current);
-      choroRef.current = g;
-      const prevM = ((monthIdx - 1 + 12) % 12) + 1;
-      const curM = monthIdx + 1;
-      for (let lb = -66; lb < 74; lb += 2) {
-        const latMid = lb + 1;
-        const cur = sunTimes(latMid, 0, year, curM, 15);
-        const prv = sunTimes(latMid, 0, year, prevM, 15);
-        const { fillColor, fillOpacity } = choroStyle(cur.dl - prv.dl);
-        L.rectangle([[lb, -180], [lb + 2, 180]], {
-          fillColor, fillOpacity, stroke: false, interactive: false,
-        }).addTo(g);
-      }
+    map.addLayer({
+      id: "daylight-you",
+      type: "circle",
+      source: "daylight-you",
+      paint: {
+        "circle-radius": 6, "circle-color": "#d9b775",
+        "circle-stroke-color": "#070713", "circle-stroke-width": 2,
+      },
     });
-  }, [monthIdx, year, mapReady]);
+
+    map.on("click", (e) => {
+      const { lat: clat, lng: clon } = e.lngLat;
+      setPopup({
+        lat: clat, lon: clon,
+        name: `${Math.abs(clat).toFixed(2)}°${clat >= 0 ? "N" : "S"}, ${Math.abs(clon).toFixed(2)}°${clon >= 0 ? "E" : "W"}`,
+      });
+      setPopupMonth(monthIdxRef.current);
+      void reverseGeocode(clat, clon).then((name) => setPopup((prev) => (prev ? { ...prev, name } : prev)));
+    });
+
+    setReady(true);
+  }
+
+  // Month change is a data swap, not a rebuild.
+  useEffect(() => {
+    if (!ready) return;
+    const src = handle.current?.map()?.getSource("daylight-bands") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(bands);
+  }, [bands, ready]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const src = handle.current?.map()?.getSource("daylight-you") as maplibregl.GeoJSONSource | undefined;
+    src?.setData(you);
+  }, [you, ready]);
 
   return (
-    // `isolate` creates a stacking context around the map. Leaflet gives its own
-    // controls z-index values up to 1000, and these overlays sat at z-[999];
-    // without a stacking context both competed globally and painted straight
-    // over the app sidebar (z-40) whenever it was expanded. Isolating means
-    // nothing inside the map can ever escape above the app chrome again.
-    <div className="relative isolate rounded-xl overflow-hidden border border-[rgba(204,204,255,0.12)]" style={{ height: 420 }}>
-      {/* Month toggle strip */}
-      <div className="absolute top-2 left-0 right-0 z-[999] flex justify-center pointer-events-none">
-        <div className="flex gap-0.5 pointer-events-auto bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-1.5 py-1 border border-[rgba(204,204,255,0.13)]">
+    // `isolate` creates a stacking context around the map so the overlay chrome
+    // below can never escape above the app sidebar.
+    <div className="relative isolate overflow-hidden" style={{ height: 440 }}>
+      {/* The month strip. Champagne on the selected month, to match the ribbon
+          below, so the two controls plainly drive the same thing. */}
+      <div className="absolute top-2.5 left-0 right-0 z-[5] flex justify-center pointer-events-none px-2">
+        <div className="flex gap-0.5 pointer-events-auto rounded-xl px-1.5 py-1 max-w-full overflow-x-auto"
+             style={{
+               background: "rgba(9,9,21,0.9)",
+               backdropFilter: "blur(10px)",
+               WebkitBackdropFilter: "blur(10px)",
+               border: `1px solid ${ROYAL.hairline}`,
+             }}>
           {MONTHS.map((m, i) => (
             <button
               key={m}
               onClick={() => onMonthChange(i)}
-              className={`text-[9px] md:text-[10px] font-bold px-1 md:px-1.5 py-0.5 md:py-1 rounded transition-all ${
-                i === monthIdx ? "bg-[#CCCCFF] text-[#090915]" : "text-[#A3A3CC] hover:text-white hover:bg-white/10"
-              }`}
+              aria-pressed={i === monthIdx}
+              className="text-[10px] md:text-[11px] font-semibold px-1.5 md:px-2 py-1 rounded-lg
+                         transition-colors shrink-0 hover:bg-white/10"
+              style={{
+                background: i === monthIdx ? ROYAL.gold : "transparent",
+                color: i === monthIdx ? ROYAL.ink : ROYAL.dim,
+              }}
             >
               {m}
             </button>
@@ -417,15 +498,30 @@ function DaylightMap({
         </div>
       </div>
 
-      {/* Map div */}
-      <div ref={containerRef} style={{ height: "100%", background: "#090915" }} />
+      <BaseMap
+        ref={handle}
+        center={{ lat, lon }}
+        zoom={3.2}
+        height="100%"
+        className="w-full h-full"
+        onReady={onReady}
+      />
 
       {/* Legend */}
-      <div className="absolute bottom-3 left-3 z-[999] bg-[rgba(9,9,21,0.88)] backdrop-blur-sm rounded-lg px-2.5 py-1.5 border border-[rgba(204,204,255,0.1)]">
-        <div className="text-[8px] text-[#6b7280] uppercase tracking-wider mb-1 font-semibold">Daylight Change</div>
-        <div className="w-20 h-2 rounded-full" style={{ background: "linear-gradient(90deg, rgba(251,191,36,0.9) 0%, rgba(255,255,255,0.08) 50%, rgba(74,222,128,0.9) 100%)" }} />
-        <div className="flex justify-between text-[7px] text-[#6b7280] mt-0.5">
-          <span>-3h</span><span>0</span><span>+3h</span>
+      <div className="absolute bottom-3 left-3 z-[5] rounded-xl px-3 py-2"
+           style={{
+             background: "rgba(9,9,21,0.9)",
+             backdropFilter: "blur(10px)",
+             WebkitBackdropFilter: "blur(10px)",
+             border: `1px solid ${ROYAL.hairline}`,
+           }}>
+        <div className="text-[10px] uppercase tracking-[0.2em] font-semibold mb-1.5" style={{ color: ROYAL.dim }}>
+          Change this month
+        </div>
+        <div className="w-28 h-2 rounded-full"
+             style={{ background: "linear-gradient(90deg, rgba(204,204,255,0.85), rgba(255,255,255,0.06) 50%, rgba(217,183,117,0.9))" }} />
+        <div className="flex justify-between text-[10px] tabular-nums mt-1" style={{ color: ROYAL.dim }}>
+          <span>losing</span><span>0</span><span>gaining</span>
         </div>
       </div>
 
@@ -443,8 +539,10 @@ function DaylightMap({
   );
 }
 
-// ─── Main Daylight Tracker Page ──────────────────────────────────────────────
+
+// ─── The page ────────────────────────────────────────────────────────────────
 export default function DaylightTracker({ location }: Props) {
+  const still = prefersReducedMotion();
   const year = new Date().getFullYear();
   const curMonthIdx = new Date().getMonth();
   const [monthIdx, setMonthIdx] = useState(curMonthIdx);
@@ -452,22 +550,24 @@ export default function DaylightTracker({ location }: Props) {
   const { lat, lon, name } = location;
   const tz = tzOff(lon);
 
-  // Compute full year data for the selected location
-  const yr = yearData(lat, lon, year);
+  const yr = useMemo(() => yearData(lat, lon, year), [lat, lon, year]);
   const maxDl = Math.max(...yr.map((d) => d.dl));
   const minDl = Math.min(...yr.map((d) => d.dl));
   const longestIdx = yr.findIndex((d) => d.dl === maxDl);
   const shortestIdx = yr.findIndex((d) => d.dl === minDl);
   const annualSwing = maxDl - minDl;
 
-  // Current month stats
   const cur = yr[monthIdx];
   const prevIdx = (monthIdx - 1 + 12) % 12;
-  const prevCur = yr[prevIdx];
-  const delta = cur.dl - prevCur.dl;
-  const pctDay = Math.round((cur.dl / 1440) * 100);
+  const delta = cur.dl - yr[prevIdx].dl;
 
-  // Chart data
+  const ribbon: YearMonth[] = yr.map((d, i) => ({
+    short: MONTHS[i],
+    minutes: d.dl,
+    lengthLabel: fmtDur(d.dl),
+    deltaLabel: fmtDelta(d.dl - yr[(i - 1 + 12) % 12].dl),
+  }));
+
   const chartData = yr.map((d, i) => ({
     month: MONTHS[i],
     dl: Math.round(d.dl),
@@ -477,276 +577,127 @@ export default function DaylightTracker({ location }: Props) {
     isActive: i === monthIdx,
   }));
 
-  const TOOLTIP_STYLE = {
-    background: "hsl(232 20% 10%)",
-    border: "1px solid hsl(232 18% 16%)",
-    borderRadius: 8,
-    fontSize: 11,
-  };
-
   return (
-    <div className="p-4 md:p-6 space-y-6">
-      {/* Page header */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Sun className="w-5 h-5 text-[#fbbf24]" />
-          <h2 className="text-xl font-bold tracking-wide">Daylight Tracker</h2>
-        </div>
-        <div className="text-xs text-muted-foreground hidden md:block">
-          See how daylight changes through the year for any location
-        </div>
-      </div>
-
-      {/* Location bar */}
-      <div className="flex items-center gap-2 bg-card border border-border rounded-xl px-4 py-3">
-        <div className="w-7 h-7 rounded-full bg-[rgba(204,204,255,0.1)] border border-[rgba(204,204,255,0.2)] flex items-center justify-center shrink-0">
-          <MapPin className="w-3.5 h-3.5 text-[#CCCCFF]" />
-        </div>
-        <div>
-          <div className="font-semibold text-sm text-white leading-tight">{name}</div>
-          <div className="text-xs text-muted-foreground">
-            {Math.abs(lat).toFixed(2)}°{lat >= 0 ? "N" : "S"}, {Math.abs(lon).toFixed(2)}°{lon >= 0 ? "E" : "W"}
+    <ModuleShell
+      wide
+      eyebrow="Solar geometry · computed on this device"
+      title="Daylight Tracker"
+      subtitle="How the length of the day changes through the year, anywhere on earth. Sunrise and sunset are computed from the NOAA solar position algorithm, not fetched."
+      status={
+        <div className="relative rounded-2xl overflow-hidden px-4 py-3 flex items-center gap-4 flex-wrap"
+             style={{
+               border: `1px solid ${ROYAL.hairline}`,
+               background: `linear-gradient(180deg, rgba(18,18,34,0.72), rgba(10,10,22,0.72))`,
+             }}>
+          <span aria-hidden className="absolute inset-x-0 top-0 h-px"
+                style={{ background: `linear-gradient(90deg, transparent, ${ROYAL.goldSoft}, transparent)` }} />
+          <MapPin className="w-4 h-4 shrink-0" style={{ color: ROYAL.gold }} />
+          <div className="min-w-0">
+            <div className="text-sm font-semibold leading-tight truncate"
+                 style={{ fontFamily: HEADING, color: ROYAL.text }}>{name}</div>
+            <div className="text-[11px] tabular-nums" style={{ color: ROYAL.dim }}>
+              {Math.abs(lat).toFixed(2)}°{lat >= 0 ? "N" : "S"}, {Math.abs(lon).toFixed(2)}°{lon >= 0 ? "E" : "W"}
+              {" · "}search above to change it
+            </div>
+          </div>
+          <div className="ml-auto flex items-center gap-2.5 shrink-0">
+            <ArrowLeftRight className="w-4 h-4" style={{ color: ROYAL.dim }} />
+            <div className="text-right">
+              <div className="text-[10px] uppercase tracking-[0.24em]" style={{ color: ROYAL.dim }}>
+                Annual swing
+              </div>
+              <div className="text-sm font-semibold tabular-nums" style={{ color: ROYAL.text }}>
+                {fmtDur(annualSwing)}
+              </div>
+            </div>
           </div>
         </div>
-        <div className="ml-auto text-xs text-muted-foreground hidden sm:block">
-          Use the search bar above to change location
-        </div>
-      </div>
-
-      {/* Interactive Map */}
-      <DaylightMap
-        lat={lat} lon={lon} year={year}
-        monthIdx={monthIdx} onMonthChange={setMonthIdx}
+      }
+    >
+      <DayArc
+        // LOCAL minutes, not the UTC ones `sunTimes` returns. Handing the raw
+        // values straight to the drawing put Denver's sunrise at half past
+        // twelve in the afternoon — the arc was correct and sitting seven hours
+        // to the right of where the labels underneath it said it was.
+        riseMin={localMin(cur.rise, tz)}
+        setMin={localMin(cur.set, tz)}
+        polarDay={!!cur.polarDay}
+        polarNight={!!cur.polarNight}
+        riseLabel={cur.polarNight ? "Does not rise" : cur.polarDay ? "Always up" : fmtTime(cur.rise, tz)}
+        setLabel={cur.polarNight ? "Does not rise" : cur.polarDay ? "Never sets" : fmtTime(cur.set, tz)}
+        lengthLabel={fmtDur(cur.dl)}
+        deltaLabel={fmtDelta(delta)}
+        deltaUp={delta >= 0}
+        deltaCaption={`vs ${MONTHS[prevIdx]}`}
+        monthLabel={`${MONTH_FULL[monthIdx]}${monthIdx === curMonthIdx ? " · this month" : ""}`}
+        still={still}
       />
 
-      {/* ── Daylight Breakdown ── */}
-      <div className="space-y-4">
-        <div className="flex items-center gap-3">
-          <h3 className="text-base font-bold tracking-wide uppercase">Daylight Breakdown</h3>
-          <div className="text-sm text-muted-foreground">{name}</div>
-        </div>
+      <YearRibbon
+        months={ribbon}
+        selected={monthIdx}
+        longest={longestIdx}
+        shortest={shortestIdx}
+        onSelect={setMonthIdx}
+        still={still}
+      />
 
-        {/* Current Month Hero Card */}
-        <div
-          className="rounded-2xl border p-5"
-          style={{ background: "hsl(232 20% 11%)", borderColor: "rgba(204,204,255,0.18)" }}
-        >
-          <div className="flex items-center gap-2 mb-4">
-            <div className="w-1 h-5 rounded-full bg-[#CCCCFF]" />
-            <span className="font-bold text-sm text-white">
-              {MONTH_FULL[monthIdx].toUpperCase()} — {monthIdx === curMonthIdx ? "CURRENT MONTH" : "SELECTED MONTH"}
-            </span>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <div className="bg-[rgba(255,255,255,0.04)] rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-base">☀️</span>
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">Sunrise</span>
-              </div>
-              <div className="text-2xl font-bold text-[#f97316]">
-                {cur.polarNight ? "Polar Night" : cur.polarDay ? "Never sets" : fmtTime(cur.rise, tz)}
-              </div>
-            </div>
-            <div className="bg-[rgba(255,255,255,0.04)] rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-base">🌙</span>
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">Sunset</span>
-              </div>
-              <div className="text-2xl font-bold text-[#818cf8]">
-                {cur.polarNight ? "Polar Night" : cur.polarDay ? "Never rises" : fmtTime(cur.set, tz)}
-              </div>
-            </div>
-            <div className="bg-[rgba(255,255,255,0.04)] rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className="text-base">⏱️</span>
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">Total Daylight</span>
-              </div>
-              <div className="text-2xl font-bold text-white">{fmtDur(cur.dl)}</div>
-            </div>
-            <div className="bg-[rgba(255,255,255,0.04)] rounded-xl p-3">
-              <div className="flex items-center gap-1.5 mb-1">
-                <span className={`text-base`}>{delta >= 0 ? "📈" : "📉"}</span>
-                <span className="text-[10px] text-[#6b7280] uppercase tracking-wider font-semibold">
-                  vs {MONTHS[prevIdx]}
-                </span>
-              </div>
-              <div className={`text-2xl font-bold ${delta >= 0 ? "text-green-400" : "text-amber-400"}`}>
-                {fmtDelta(delta)}
-              </div>
-            </div>
-          </div>
-          {/* Day/Night bar */}
-          <div className="flex rounded-full overflow-hidden h-3" style={{ background: "rgba(255,255,255,0.06)" }}>
-            <div style={{ width: `${pctDay}%`, background: "linear-gradient(90deg, #f97316, #fbbf24)" }} className="rounded-full" />
-          </div>
-          <div className="flex justify-between mt-1 text-xs text-muted-foreground">
-            <span>{pctDay}% daylight</span>
-            <span>{100 - pctDay}% darkness</span>
-          </div>
-        </div>
+      <Panel title="Where the light is changing"
+             aside={<span className="text-[11px]" style={{ color: ROYAL.dim }}>Tap anywhere for that latitude</span>}
+             padded={false}>
+        <DaylightMap lat={lat} lon={lon} year={year} monthIdx={monthIdx} onMonthChange={setMonthIdx} />
+      </Panel>
 
-        {/* Monthly Grid */}
-        <div className="grid grid-cols-3 gap-2.5">
-          {yr.map((d, i) => {
-            const prevD = yr[(i - 1 + 12) % 12];
-            const dlt = d.dl - prevD.dl;
-            const isActive = i === monthIdx;
-            const isLongest = i === longestIdx;
-            const isShortest = i === shortestIdx;
-            const barPct = Math.round((d.dl / maxDl) * 100);
-            return (
-              <button
-                key={i}
-                onClick={() => setMonthIdx(i)}
-                className={`text-left rounded-xl p-3 border transition-all ${
-                  isActive
-                    ? "border-[#CCCCFF]/50 bg-[rgba(204,204,255,0.08)]"
-                    : "border-border bg-card hover:border-[rgba(204,204,255,0.25)] hover:bg-[rgba(204,204,255,0.04)]"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className={`text-xs font-bold ${isActive ? "text-[#CCCCFF]" : "text-foreground"}`}>
-                    {MONTHS[i]}
-                  </span>
-                  <div
-                    className="h-1.5 rounded-full flex-1 ml-2"
-                    style={{
-                      background: isActive
-                        ? "#CCCCFF"
-                        : isLongest
-                        ? "#4ade80"
-                        : isShortest
-                        ? "#f97316"
-                        : "rgba(204,204,255,0.2)",
-                      width: `${barPct}%`,
-                      maxWidth: "100%",
-                    }}
-                  />
-                </div>
-                <div className="text-sm font-bold text-white">{fmtDur(d.dl)}</div>
-                <div className={`text-xs font-semibold mt-0.5 ${dlt >= 0 ? "text-green-400" : "text-amber-400"}`}>
-                  {fmtDelta(dlt)}
-                </div>
-                <div className="mt-1.5 space-y-0.5">
-                  <div className="text-[9px] text-[#f97316]">
-                    ↑ {d.polarNight ? "—" : fmtTime(d.rise, tz)}
-                  </div>
-                  <div className="text-[9px] text-[#818cf8]">
-                    ↓ {d.polarNight ? "—" : fmtTime(d.set, tz)}
-                  </div>
-                </div>
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Stats trio */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {[
-            {
-              icon: "☀️",
-              label: "Longest Day",
-              sub: `${MONTH_FULL[longestIdx]} — ${fmtDur(maxDl)}`,
-              color: "#4ade80",
-            },
-            {
-              icon: "🌙",
-              label: "Shortest Day",
-              sub: `${MONTH_FULL[shortestIdx]} — ${fmtDur(minDl)}`,
-              color: "#818cf8",
-            },
-            {
-              icon: "↔",
-              label: "Annual Swing",
-              sub: `${fmtDur(annualSwing)} difference`,
-              color: "#fbbf24",
-              iconCmp: <ArrowLeftRight className="w-5 h-5 text-[#fbbf24]" />,
-            },
-          ].map((s) => (
-            <div key={s.label} className="flex items-center gap-3 bg-card border border-border rounded-xl p-4">
-              <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ background: `${s.color}18` }}>
-                {s.iconCmp ?? <span className="text-lg">{s.icon}</span>}
-              </div>
-              <div>
-                <div className="text-xs text-muted-foreground uppercase tracking-wider font-semibold">{s.label}</div>
-                <div className="text-sm font-bold text-white mt-0.5">{s.sub}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* ── Monthly Daylight Chart ── */}
-      <div className="space-y-3">
-        <div className="flex items-center gap-3">
-          <h3 className="text-base font-bold tracking-wide uppercase">Monthly Daylight</h3>
-          <span className="text-sm text-muted-foreground">
-            {Math.abs(lat).toFixed(1)}°{lat >= 0 ? "N" : "S"}, {Math.abs(lon).toFixed(1)}°{lon >= 0 ? "E" : "W"}
-          </span>
-        </div>
-
-        <div className="bg-card border border-border rounded-xl p-4 overflow-x-auto">
-          <div style={{ minWidth: 640 }}>
-            <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={chartData} margin={{ top: 10, right: 10, bottom: 40, left: 10 }}>
-                <XAxis
-                  dataKey="month"
-                  tick={{ fontSize: 10, fill: "#6b7280", fontWeight: 600 }}
-                  tickLine={false}
-                  axisLine={false}
-                />
-                <YAxis
-                  tick={{ fontSize: 9, fill: "#4b5563" }}
-                  tickLine={false}
-                  axisLine={false}
-                  tickFormatter={(v) => `${Math.floor(v / 60)}h`}
-                  domain={[0, maxDl + 60]}
-                />
+      <Panel title="Month by month" defer
+             aside={
+               <span className="text-[11px] tabular-nums" style={{ color: ROYAL.dim }}>
+                 {Math.abs(lat).toFixed(1)}°{lat >= 0 ? "N" : "S"}, {Math.abs(lon).toFixed(1)}°{lon >= 0 ? "E" : "W"}
+               </span>
+             }>
+        <div className="overflow-x-auto">
+          <div style={{ minWidth: 620 }}>
+            <ResponsiveContainer width="100%" height={230}>
+              <BarChart data={chartData} margin={{ top: 8, right: 8, bottom: 8, left: 0 }}>
+                <XAxis dataKey="month" tick={{ fontSize: 10, fill: ROYAL.dim, fontWeight: 600 }}
+                       tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 10, fill: ROYAL.dim }} tickLine={false} axisLine={false}
+                       tickFormatter={(v) => `${Math.floor(v / 60)}h`} domain={[0, maxDl + 60]} width={34} />
                 <Tooltip
-                  contentStyle={TOOLTIP_STYLE}
-                  formatter={(v: number, name: string) => {
-                    if (name === "dl") return [fmtDur(v), "Daylight"];
-                    return [v, name];
-                  }}
-                  labelFormatter={(l) => l}
+                  cursor={{ fill: "rgba(204,204,255,0.05)" }}
                   content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
-                    const d = payload[0].payload;
+                    const d = payload[0].payload as (typeof chartData)[number];
                     return (
-                      <div className="bg-[hsl(232_20%_10%)] border border-[hsl(232_18%_16%)] rounded-lg p-2.5 text-xs space-y-0.5">
-                        <div className="font-bold text-white">{label}</div>
-                        <div className="text-white">{fmtDur(d.dl)}</div>
-                        <div className={d.delta >= 0 ? "text-green-400" : "text-amber-400"}>{fmtDelta(d.delta)}</div>
-                        <div className="text-[#f97316]">↑ {d.rise}</div>
-                        <div className="text-[#818cf8]">↓ {d.set}</div>
+                      <div className="rounded-xl px-3 py-2 text-[11px] space-y-0.5 tabular-nums"
+                           style={{ background: "rgba(9,9,21,0.96)", border: `1px solid ${ROYAL.hairline}` }}>
+                        <div className="font-semibold" style={{ color: ROYAL.text, fontFamily: HEADING }}>{label}</div>
+                        <div style={{ color: ROYAL.text }}>{fmtDur(d.dl)}</div>
+                        <div style={{ color: d.delta >= 0 ? ROYAL.gold : ROYAL.iris }}>{fmtDelta(d.delta)}</div>
+                        <div className="flex items-center gap-1.5" style={{ color: ROYAL.gold }}>
+                          <Sunrise className="w-3 h-3" /> {d.rise}
+                        </div>
+                        <div className="flex items-center gap-1.5" style={{ color: ROYAL.iris }}>
+                          <Sunset className="w-3 h-3" /> {d.set}
+                        </div>
                       </div>
                     );
                   }}
                 />
-                <Bar dataKey="dl" radius={[4, 4, 0, 0]}>
+                <Bar dataKey="dl" radius={[4, 4, 0, 0]} onClick={(_, i) => setMonthIdx(i)}>
                   {chartData.map((entry, index) => (
-                    <Cell
-                      key={index}
-                      fill={
-                        entry.isActive
-                          ? "#CCCCFF"
-                          : index === longestIdx
-                          ? "#4ade80"
-                          : index === shortestIdx
-                          ? "#f97316"
-                          : "rgba(204,204,255,0.3)"
-                      }
-                    />
+                    <Cell key={index} cursor="pointer"
+                          fill={entry.isActive ? ROYAL.gold : "rgba(204,204,255,0.2)"} />
                   ))}
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
           </div>
         </div>
-        <p className="text-xs text-muted-foreground flex items-center gap-1">
-          <span>→</span> Scroll to see all months · Times shown are approximate local time based on longitude
+        <p className="mt-2 text-[11px]" style={{ color: ROYAL.dim }}>
+          Times are local to the longitude shown, to the nearest hour of offset — close enough to plan around,
+          and not a substitute for a clock that knows about daylight saving.
         </p>
-      </div>
-    </div>
+      </Panel>
+    </ModuleShell>
   );
 }

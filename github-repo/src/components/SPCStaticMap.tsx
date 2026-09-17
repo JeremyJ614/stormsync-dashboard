@@ -1,12 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Download, Share2 } from "lucide-react";
 import { BASE_API } from "../config";
 import {
-  PALETTES, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
+  levelsFor, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
   type Kind, type Hazard,
 } from "../lib/spcPalette";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { MAP_W, MAP_H, project } from "../lib/usAlbers";
-import { UsStatesBackdrop, UsStateLabels } from "./UsStatesBackdrop";
+import { UsStatesBackdrop, UsStateLabels, UsNationMask, useUsMaskId } from "./UsStatesBackdrop";
 import type { SPCProduct, DisplayMode } from "./SPCMap";
 
 // A self-contained, non-interactive SPC outlook map in your exact palette. It
@@ -23,12 +24,19 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
   const [status, setStatus] = useState<Status>("loading");
   const [topIdx, setTopIdx] = useState(0);
   const svgRef = useRef<SVGSVGElement>(null);
+  const maskId = useUsMaskId();
 
   const hazard: Hazard = hazardFromProduct(product);
   const kind: Kind = hazard === "cat" ? "cat"
     : mode === "intensity" ? (hazard === "torn" ? "tornadoIntensity" : hazard === "hail" ? "hailIntensity" : "windIntensity")
     : (hazard === "torn" ? "tornadoLikelihood" : hazard === "hail" ? "hailLikelihood" : "windLikelihood");
-  const palette = PALETTES[kind];
+  // Subscribing keeps the map honest while somebody is editing the palette in
+  // the admin panel: `levelsFor` reads the override synchronously, but without
+  // a subscription nothing would tell React to run it again.
+  const paletteState = useSyncExternalStore(
+    subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
+  void paletteState;
+  const palette = levelsFor(kind);
 
   useEffect(() => {
     let cancelled = false;
@@ -45,7 +53,7 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
           if (idx === null) { skipped++; continue; }
           visible++;
           if (idx > maxIdx) maxIdx = idx;
-          const sig = mode === "intensity" && idx === 1;
+          const sig = mode === "intensity" && idx >= 1;
           const g = f.geometry as GeoJSON.Geometry;
           const rings: number[][][][] =
             g?.type === "Polygon" ? [(g as GeoJSON.Polygon).coordinates]
@@ -111,15 +119,37 @@ export function SPCStaticMap({ product, mode, title, subtitle }: { product: SPCP
       <div className="relative rounded-lg overflow-hidden border border-border bg-[#0a0e1a]">
         <svg ref={svgRef} viewBox={`0 0 ${MAP_W} ${MAP_H}`} width={MAP_W} height={MAP_H} xmlns="http://www.w3.org/2000/svg" style={{ width: "100%", height: "auto", display: "block" }}>
           <rect x={0} y={0} width={MAP_W} height={MAP_H} fill="#0a0e1a" />
+          <UsNationMask id={maskId} />
           <UsStatesBackdrop />
-          {polys.map((p, i) => (
-            <path key={i} d={p.d}
-              fill={p.sig ? "none" : palette[p.idx]?.color ?? "#888"}
-              fillOpacity={p.sig ? 0 : 0.6}
-              stroke={p.sig ? "#ffffff" : palette[p.idx]?.color ?? "#888"}
-              strokeWidth={p.sig ? 2.5 : 1}
-              strokeOpacity={0.95} />
-          ))}
+          {/*
+            The conditional-intensity hatch. Colourless on purpose: it lies
+            over the level colour rather than replacing it, so every tier above
+            the base of an Intensity palette finally reaches the map.
+            Previously these areas were `fill="none"` with a white stroke,
+            which meant the legend advertised colours the poster never printed.
+          */}
+          <defs>
+            <pattern id={`${maskId}-sig`} width={8} height={8} patternUnits="userSpaceOnUse"
+                     patternTransform="rotate(45)">
+              <rect width={8} height={8} fill="none" />
+              <line x1={0} y1={0} x2={0} y2={8} stroke="rgba(10,8,18,0.85)" strokeWidth={2.4} />
+            </pattern>
+          </defs>
+          <g mask={`url(#${maskId})`}>
+            {/* Already sorted by level, so each nested contour paints over the
+                one containing it rather than under it. */}
+            {polys.map((p, i) => (
+              <g key={i}>
+                <path d={p.d}
+                  fill={palette[p.idx]?.color ?? "#888"}
+                  fillOpacity={p.sig ? 0.88 : 0.6}
+                  stroke={palette[p.idx]?.color ?? "#888"}
+                  strokeWidth={p.sig ? 2.2 : 1}
+                  strokeOpacity={0.95} />
+                {p.sig && <path d={p.d} fill={`url(#${maskId}-sig)`} stroke="none" />}
+              </g>
+            ))}
+          </g>
           <UsStateLabels />
 
           <rect x={16} y={16} width={280} height={44} rx={8} fill="rgba(0,0,0,0.75)" />

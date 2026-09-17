@@ -1,11 +1,14 @@
-import { useEffect, useRef, useState } from "react";
-import maplibregl from "maplibre-gl";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import * as maplibregl from "maplibre-gl";
+import "../lib/maplibreWorker";
+import { applyRoyalBasemap, STORMSYNC_DARK } from "../lib/basemap";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { BASE_API } from "../config";
 import {
-  PALETTES, KIND_TITLE, classify, hazardFromProduct, levelIndexFor,
+  levelsFor, KIND_TITLE, targetLevel, hazardFromProduct, levelIndexFor,
   type Kind, type Hazard,
 } from "../lib/spcPalette";
+import { subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot } from "../lib/mapPalette";
 import { computeTargetAreas, type TargetArea } from "../lib/spcTargetAreas";
 
 export type SPCProduct =
@@ -19,7 +22,39 @@ export type DisplayMode = "likelihood" | "intensity";
 
 // Free, no-API-key vector basemap (CARTO). Smooth 60fps vector zoom/pan --
 // no raster tiles, no per-tile-load cost.
-const DARK_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const DARK_STYLE = STORMSYNC_DARK;
+
+/**
+ * The significant-severe hatch, drawn once into a canvas.
+ *
+ * A `fill-pattern` cannot be tinted per feature, so this is deliberately
+ * colourless: near-black diagonals over transparency, laid on top of the level
+ * colour rather than instead of it. The area underneath keeps its own hue and
+ * the hatch supplies the "significant" reading — which is the job the hatching
+ * on SPC's own graphics does.
+ *
+ * 16px at pixelRatio 2 is an 8px tile on screen, close enough to SPC's spacing
+ * to read as the same convention without moiré at low zoom.
+ */
+const SIG_HATCH_ID = "spc-sig-hatch";
+
+function sigHatch(): ImageData {
+  const N = 16;
+  const c = document.createElement("canvas");
+  c.width = N; c.height = N;
+  const g = c.getContext("2d")!;
+  g.strokeStyle = "rgba(10,8,18,0.85)";
+  g.lineWidth = 2.2;
+  // Drawn three times, offset by a tile in each direction, so the diagonals
+  // meet across tile edges instead of stopping at them.
+  for (const d of [-N, 0, N]) {
+    g.beginPath();
+    g.moveTo(d, N);
+    g.lineTo(d + N, 0);
+    g.stroke();
+  }
+  return g.getImageData(0, 0, N, N);
+}
 
 function kindFor(hazard: Hazard, mode: DisplayMode): Kind {
   if (hazard === "cat") return "cat";
@@ -49,7 +84,13 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
 
   const hazard: Hazard = hazardFromProduct(product);
   const kind: Kind = kindFor(hazard, mode);
-  const palette = PALETTES[kind];
+  // Subscribing keeps the map honest while somebody is editing the palette in
+  // the admin panel: `levelsFor` reads the override synchronously, but without
+  // a subscription nothing would tell React to run it again.
+  const paletteState = useSyncExternalStore(
+    subscribePalette, getPaletteSnapshot, getPaletteServerSnapshot);
+  void paletteState;
+  const palette = levelsFor(kind);
 
   async function loadData(map: maplibregl.Map) {
     setLoading(true); setError(null); setLowConf(false);
@@ -66,9 +107,17 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
         if (idx === null) { skipped++; continue; }
         visible++;
         if (idx > maxIdx) maxIdx = idx;
-        const isSig = mode === "intensity" && idx === 1;
-        styled.push({ ...f, properties: { ...f.properties, __color: palette[idx]?.color ?? "#888888", __sig: isSig } });
+        // Every conditional-intensity contour gets the hatch, not only the first.
+        const isSig = mode === "intensity" && idx >= 1;
+        styled.push({ ...f, properties: { ...f.properties, __color: palette[idx]?.color ?? "#888888", __sig: isSig, __idx: idx } });
       }
+
+      // Painted in level order, so Intensity 3 lands on top of Intensity 2 on
+      // top of Intensity 1 on top of the risk area. MapLibre draws a layer in
+      // source order, and SPC hands the contours back with the nested ones
+      // first, which is the wrong way round for a stack of nested polygons.
+      styled.sort((a, b) =>
+        Number(a.properties?.__idx ?? 0) - Number(b.properties?.__idx ?? 0));
 
       const src = map.getSource("spc") as maplibregl.GeoJSONSource | undefined;
 
@@ -86,7 +135,7 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
       setTopIdx(maxIdx);
       src?.setData({ type: "FeatureCollection", features: styled });
 
-      const targets = computeTargetAreas(rawFeatures, f => classify(hazard, f));
+      const targets = computeTargetAreas(rawFeatures, f => targetLevel(hazard, f));
       targetsRef.current = targets;
       onTargetsComputed?.(targets);
     } catch {
@@ -112,22 +161,52 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
     mapRef.current = map;
 
     map.on("load", () => {
+      const beneath = applyRoyalBasemap(map);
+
+      if (!map.hasImage(SIG_HATCH_ID)) map.addImage(SIG_HATCH_ID, sigHatch(), { pixelRatio: 2 });
+
       map.addSource("spc", { type: "geojson", data: { type: "FeatureCollection", features: [] } });
+
+      // Risk areas go beneath the boundary and label layers — drawn on top, a
+      // filled outlook hides every state line and place name underneath it.
+      /*
+       * THE BUG THIS FIXES — the Intensity tabs painted one colour, not two.
+       *
+       * A conditional-intensity area was drawn with `fill-opacity: 0` and a
+       * white outline. That is SPC's own convention on their static graphics,
+       * but here it meant every tier above the base of every Intensity palette
+       * existed in the legend and was never once put on the map. The whole tab
+       * read as one colour with a glowing white ring around part of it, which
+       * is exactly how it was reported.
+       *
+       * Now the sig area is filled in its own colour, nearly opaque so it reads
+       * as that colour rather than as a blend with the general area it sits
+       * inside, and the "significant" meaning is carried by a hatch drawn over
+       * the top — which is what the hatching on SPC's own graphics is for.
+       */
       map.addLayer({
         id: "spc-fill", type: "fill", source: "spc",
         paint: {
           "fill-color": ["get", "__color"],
-          "fill-opacity": ["case", ["boolean", ["get", "__sig"], false], 0, 0.6],
+          // 0.86 rather than 0.52: the sig polygon is nested inside the general
+          // one, so at matching opacity the two colours would mix and the
+          // result would be neither of them.
+          "fill-opacity": ["case", ["boolean", ["get", "__sig"], false], 0.86, 0.52],
         },
-      });
+      }, beneath);
+      map.addLayer({
+        id: "spc-hatch", type: "fill", source: "spc",
+        filter: ["boolean", ["get", "__sig"], false],
+        paint: { "fill-pattern": SIG_HATCH_ID, "fill-opacity": 0.9 },
+      }, beneath);
       map.addLayer({
         id: "spc-outline", type: "line", source: "spc",
         paint: {
-          "line-color": ["case", ["boolean", ["get", "__sig"], false], "#ffffff", ["get", "__color"]],
-          "line-width": ["case", ["boolean", ["get", "__sig"], false], 2.5, 1],
-          "line-opacity": 0.95,
+          "line-color": ["get", "__color"],
+          "line-width": ["case", ["boolean", ["get", "__sig"], false], 2.2, 1.6],
+          "line-opacity": 1,
         },
-      });
+      }, beneath);
       setReady(true);
     });
 
@@ -140,7 +219,7 @@ export function SPCMap({ product, mode, height = 340, targetIndex = 0, onTargets
     if (!ready || !mapRef.current) return;
     loadData(mapRef.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ready, product, mode]);
+  }, [ready, product, mode, paletteState]);
 
   // Fly to the requested Target Area (or back to National)
   useEffect(() => {

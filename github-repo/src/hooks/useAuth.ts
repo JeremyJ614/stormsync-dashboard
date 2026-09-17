@@ -2,6 +2,7 @@ import { useCallback, useSyncExternalStore } from "react";
 import { supabase, isSupabaseConfigured } from "../lib/supabase";
 import { logger } from "../lib/logger";
 import { navOverrideFor } from "../lib/navConfig";
+import { viewingAs, subscribeViewAs } from "../lib/impersonate";
 
 export type Tier = 1 | 2 | 3 | 4;
 
@@ -17,6 +18,10 @@ export interface User {
   joinedAt: string;
   badges: string[];
   customAnswers: Record<string, string>;
+  /** When they finished the intro guide. Null means it has not been shown. */
+  introSeenAt: string | null;
+  /** The menu they picked. Null means they are following the admin default. */
+  menuStyle: string | null;
 }
 
 export type QuestionType = "text" | "email" | "select" | "textarea" | "number" | "tel" | "date" | "checkbox";
@@ -36,6 +41,10 @@ export interface BadgeDef {
   color: string;
   description: string;
   group: "Role" | "Tier" | "Achievement";
+  /** Name from the curated set in lib/badgeIcons.ts. Null falls back to a default. */
+  icon?: string | null;
+  /** common | rare | epic | legendary — how ornate the medallion is. */
+  rarity?: "common" | "rare" | "epic" | "legendary";
 }
 
 // `adminOnly` modules are visible and reachable ONLY for admins — they are hidden
@@ -43,8 +52,9 @@ export interface BadgeDef {
 // bundle/add-on lists in the billing admin so they can never be sold.
 export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; adminOnly?: boolean }[] = [
   { id: "/", label: "Home", alwaysOn: true },
+  { id: "/subscription", label: "Subscription", alwaysOn: true },
   { id: "/dashboard", label: "Dashboard" },
-  { id: "/forecast", label: "Forecast" },
+  { id: "/forecast", label: "Daily Brief & Forecast" },
   { id: "/discussion", label: "Forecast Discussion" },
   { id: "/comparator", label: "Run Comparator" },
   { id: "/spc", label: "SPC Outlook" },
@@ -54,9 +64,13 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/ingredients", label: "Storm Ingredients" },
   { id: "/swti", label: "Threat Index" },
   { id: "/timing", label: "Severe Timing" },
-  { id: "/warnings", label: "Warning Center" },
+  { id: "/warnings", label: "Warnings & Reports" },
   { id: "/aqi", label: "AQI Forecast" },
   { id: "/hazards", label: "Hazards & Drought" },
+  { id: "/rivers", label: "River & Flood Gauges" },
+  { id: "/fire", label: "Fire Weather" },
+  { id: "/winter", label: "Winter Center" },
+  { id: "/cameras", label: "Traffic Cameras" },
   { id: "/summary", label: "Daylight Tracker" },
   { id: "/sswxcon", label: "SSWXCon Score" },
   { id: "/mosquito", label: "Mosquito Index" },
@@ -68,9 +82,12 @@ export const ALL_MODULES: { id: string; label: string; alwaysOn?: boolean; admin
   { id: "/wpi", label: "Weather Pattern AI" },
   { id: "/duel", label: "AI Forecast Duel" },
   { id: "/glossary", label: "Weather Glossary" },
-  { id: "/chasing", label: "Storm Chasing", adminOnly: true },
+  { id: "/chasing", label: "Storm Chasing" },
+  { id: "/chases", label: "StormSync Chases" },
+  { id: "/flooding", label: "Flooding Outlook" },
   { id: "/history", label: "Severe Weather History" },
   { id: "/loyalty", label: "Loyalty Dashboard" },
+  { id: "/raffles", label: "Raffles", alwaysOn: true },
   { id: "/game", label: "Forecast Game" },
   { id: "/trivia", label: "Daily Trivia" },
   { id: "/faq", label: "FAQ", alwaysOn: true },
@@ -107,6 +124,8 @@ export interface ProfileRow {
   custom_answers: Record<string, string> | null;
   joined_at: string;
   created_at: string;
+  intro_seen_at?: string | null;
+  menu_style?: string | null;
 }
 
 export function rowToUser(r: ProfileRow): User {
@@ -123,6 +142,8 @@ export function rowToUser(r: ProfileRow): User {
     customAnswers: r.custom_answers ?? {},
     joinedAt: r.joined_at,
     createdAt: r.created_at,
+    introSeenAt: r.intro_seen_at ?? null,
+    menuStyle: (r.menu_style as string | null) ?? null,
   };
 }
 
@@ -182,11 +203,36 @@ function init() {
       if (!state.user) emit({ user: null, loading: true });
       setTimeout(async () => {
         emit({ user: await loadProfile(uid), loading: false });
+        // Award anything newly qualified for. Runs after the profile is in
+        // hand so the UI is never waiting on it, and is a no-op when there is
+        // nothing to give — the database refuses a second award for the same
+        // badge, so this cannot double-notify however often it fires.
+        try {
+          const { data: earned } = await supabase.rpc("evaluate_badges");
+          if (Array.isArray(earned) && earned.length) {
+            emit({ user: await loadProfile(uid), loading: false });
+          }
+        } catch { /* a badge is never worth breaking sign-in over */ }
       }, 0);
     } else {
       emit({ user: null, loading: false });
     }
   });
+}
+
+/**
+ * Reload the signed-in member's profile and push it to every subscriber.
+ *
+ * The store is otherwise driven only by Supabase auth events, which do not fire
+ * when a row changes underneath us. Anything that writes to `profiles` and
+ * expects the UI to notice — finishing the intro guide, an admin granting a
+ * module — calls this afterwards.
+ */
+export async function refreshProfile(): Promise<void> {
+  const { data } = await supabase.auth.getUser();
+  const uid = data?.user?.id;
+  if (!uid) return;
+  emit({ user: await loadProfile(uid), loading: false });
 }
 
 function subscribe(cb: () => void) {
@@ -209,7 +255,15 @@ export interface AuthResult {
 
 export function useAuth() {
   const snap = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
-  const user = snap.user;
+  const realUser = snap.user;
+
+  // "View as this member" (lib/impersonate). The lens replaces the profile that
+  // drives gating and navigation; it never touches the Supabase session, so
+  // every read and write is still authorised as the admin who is signed in.
+  // Non-admins have nothing to view as, so the lens is ignored for them.
+  const lens = useSyncExternalStore(subscribeViewAs, viewingAs, () => null);
+  const viewAs = realUser?.isAdmin ? lens : null;
+  const user = viewAs ?? realUser;
 
   const login = useCallback(async (email: string, pin: string): Promise<AuthResult> => {
     if (!isSupabaseConfigured) return { ok: false, error: "Backend not configured" };
@@ -218,8 +272,27 @@ export function useAuth() {
       email: email.trim(),
       password: pinToPassword(pin),
     });
-    if (error) return { ok: false, error: "Invalid email or PIN" };
-    return { ok: true };
+    if (!error) return { ok: true };
+
+    // Only a 400/401 actually means the credentials were wrong. Everything else
+    // is the backend being unable to answer — a project restriction (402), a
+    // rate limit (429), an outage (5xx) — and telling a member their PIN is
+    // wrong when it is not sends them off resetting a PIN that works, and tells
+    // the owner nothing about what is really broken.
+    const status = (error as { status?: number }).status ?? 0;
+    if (status === 400 || status === 401) return { ok: false, error: "Invalid email or PIN" };
+    if (status === 429) {
+      return { ok: false, error: "Too many attempts just now — wait a minute and try again." };
+    }
+    logger.error("Sign-in failed for a reason other than credentials", {
+      scope: "auth", status, message: error.message,
+    });
+    return {
+      ok: false,
+      error: status === 402
+        ? "StormSync is temporarily unavailable — the service is over its plan limit. Nothing is wrong with your PIN."
+        : "StormSync could not be reached right now. Your PIN is fine — please try again shortly.",
+    };
   }, []);
 
   // Self-signup never carries a tier — new accounts start at Tier 1 and an admin
@@ -259,7 +332,15 @@ export function useAuth() {
     : 0;
   const loyaltyPoints = user ? monthsActive * 100 + user.referrals * 250 : 0;
 
-  return { user, loading: snap.loading, login, signup, logout, loyaltyPoints, monthsActive };
+  return {
+    user,
+    /** The signed-in account, regardless of any "view as" lens. */
+    realUser,
+    /** The member being viewed through the lens, or null. */
+    viewAs,
+    loading: snap.loading,
+    login, signup, logout, loyaltyPoints, monthsActive,
+  };
 }
 
 export function hasModuleAccess(user: User | null, path: string): boolean {
@@ -271,19 +352,86 @@ export function hasModuleAccess(user: User | null, path: string): boolean {
   if (nav && !nav.visible && !user?.isAdmin) return false; // hidden by an admin
   if (mod?.alwaysOn) return true;
   if (!user) return path === "/" || path === "/faq" || path === "/contact" || path === "/login";
+  // Advanced means every module, as a rule rather than as a list.
+  //
+  // Access was decided purely by `enabled_modules`, which is written once when
+  // somebody buys. That silently broke every time a module was added: the tier
+  // that the Plans page describes as "everything, nothing to choose" and the FAQ
+  // describes as "every module in the app" was showing "not in your plan" for
+  // anything newer than the member's purchase. Real Advanced members were
+  // sitting on 34 to 37 of 38.
+  //
+  // Encoding it here means the rule cannot go stale again the next time a
+  // module ships. Lower tiers still read their own list, because for them the
+  // list IS the product.
+  if (user.tier >= 4) return true;
   return user.enabledModules.includes(path);
+}
+
+/**
+ * Whether a module should appear in the sidebar at all — as opposed to whether
+ * the member can open it (`hasModuleAccess`).
+ *
+ * These are deliberately different questions. A module the member has not paid
+ * for still belongs in the menu, shown locked, because a module nobody can see
+ * is a module nobody buys. Only three things remove a row entirely: it is
+ * parked pre-launch, it is admin-only, or an admin has hidden it.
+ */
+export function navVisible(user: User | null, path: string): boolean {
+  if (HIDDEN_MODULES.has(path)) return false;
+  const mod = ALL_MODULES.find((m) => m.id === path);
+  const nav = navOverrideFor(path);
+  if (nav?.adminOnly || mod?.adminOnly) return !!user?.isAdmin;
+  if (nav && !nav.visible && !user?.isAdmin) return false;
+  return true;
 }
 
 /**
  * Verify the Emergency Storm Contact PIN without ever reading it client-side
  * (the PIN is not selectable by members under RLS — see `check_emergency_pin`).
  */
-export async function checkEmergencyPin(candidate: string): Promise<boolean> {
-  if (!isSupabaseConfigured) return false;
+/**
+ * Result of an emergency-PIN check.
+ *
+ * "wrong" and "unavailable" have to be told apart. `check_emergency_pin` is
+ * granted to `authenticated` and not to `anon`, so a signed-out visitor gets a
+ * permission error — and collapsing that into `false` tells them their PIN is
+ * wrong and sends them hunting for digits, when the actual problem is that they
+ * are not signed in. On a line meant for someone watching a wall cloud, that is
+ * the worst possible moment to give a misleading answer.
+ */
+export type PinResult = "ok" | "wrong" | "unavailable";
+
+export async function verifyEmergencyPin(candidate: string): Promise<PinResult> {
+  if (!isSupabaseConfigured) return "unavailable";
   const { data, error } = await supabase.rpc("check_emergency_pin", { candidate });
   if (error) {
     logger.error("Emergency PIN check failed", { scope: "auth", error });
-    return false;
+    return "unavailable";
   }
-  return data === true;
+  return data === true ? "ok" : "wrong";
+}
+
+/** Boolean form, for callers that genuinely only need pass/fail. */
+export async function checkEmergencyPin(candidate: string): Promise<boolean> {
+  return (await verifyEmergencyPin(candidate)) === "ok";
+}
+
+/**
+ * Record that the member has been through the intro guide.
+ *
+ * `intro_seen_at` is the member's own preference about their own onboarding, so
+ * it is not one of the columns `protect_profile_columns` guards and they write
+ * it directly. Passing null is how the replay control in My Profile arms it to
+ * run again on the next load.
+ */
+export async function setIntroSeen(seen: boolean): Promise<boolean> {
+  const { data: auth } = await supabase.auth.getUser();
+  const uid = auth?.user?.id;
+  if (!uid) return false;
+  const { error } = await supabase
+    .from("profiles")
+    .update({ intro_seen_at: seen ? new Date().toISOString() : null })
+    .eq("id", uid);
+  return !error;
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Trophy, Loader2, Crown, Medal, Award, Flame } from "lucide-react";
 import { getLeaderboard, PERIODS, type LeaderRow, type Period } from "../lib/gamePoints";
+import { listWinners, periodLabel } from "../lib/leaderboardWinners";
 
 /**
  * Combined leaderboard — Forecast Game + Trivia totalled together (P-5.1),
@@ -201,9 +202,73 @@ export function Leaderboard({ meId }: { meId?: string }) {
         </>
       )}
 
+      <HallOfFame />
+
       <p className="text-[10px] text-muted-foreground text-center">
         Forecast Game and Daily Trivia points are combined into one standing.
       </p>
+    </div>
+  );
+}
+
+/**
+ * Past champions.
+ *
+ * The board only ever showed the period you are in, so winning a month left no
+ * trace the day after it ended. These are the sealed records — the thing a
+ * member can point at a year later.
+ *
+ * Renders nothing until there is something to show, so the section does not sit
+ * empty on a new account.
+ */
+function HallOfFame() {
+  const q = useQuery({
+    queryKey: ["leaderboard-winners"],
+    queryFn: () => listWinners(12),
+    staleTime: 10 * 60_000,
+  });
+  const winners = q.data ?? [];
+  if (winners.length === 0) return null;
+
+  return (
+    <div className="bg-card border border-border rounded-2xl overflow-hidden">
+      {/* Says which board these crowns come from. The Forecast Game keeps its
+          own champions, so an unqualified "Past champions" next to that one
+          reads as two answers to the same question. */}
+      <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 flex-wrap">
+        <Crown className="w-3.5 h-3.5 text-yellow-400" />
+        <span className="text-[11px] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+          Past champions
+        </span>
+        <span className="text-[10px] text-muted-foreground/70">· overall points</span>
+      </div>
+      <div className="divide-y divide-border">
+        {winners.map((w) => (
+          <div key={w.id} className="px-4 py-2.5 flex items-center gap-3">
+            <div
+              className="w-8 h-8 rounded-full grid place-items-center shrink-0"
+              style={{
+                background: w.period === "year"
+                  ? "linear-gradient(160deg,#fef3c7,#fbbf24 45%,#b45309)"
+                  : "linear-gradient(160deg,#ede9fe,#c084fc 45%,#6d28d9)",
+                color: "#1a1408",
+              }}
+            >
+              <Crown className="w-4 h-4" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="text-sm font-semibold truncate">{w.userName}</div>
+              <div className="text-[11px] text-muted-foreground">
+                {w.period === "year" ? "Champion of " : ""}{periodLabel(w.period, w.periodStart)}
+                {w.note ? ` · ${w.note}` : ""}
+              </div>
+            </div>
+            <div className="text-xs font-bold text-muted-foreground shrink-0">
+              {w.points.toLocaleString()}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

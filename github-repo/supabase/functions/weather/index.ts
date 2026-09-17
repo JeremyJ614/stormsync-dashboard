@@ -16,6 +16,18 @@
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const UA = "StormSyncVIP/1.0 (contact: admin@stormsync.media)";
+/**
+ * What a slim alert keeps — see the `fields=slim` branch of `/nws/alerts`.
+ *
+ * This is deliberately the exact field set the app's own `NWSAlertSummary`
+ * type declares, minus nothing: if a module ever needs another field, add it
+ * in both places and the compiler will point at every call site.
+ */
+const KEEP_ALERT_FIELDS = [
+  "id", "areaDesc", "headline", "severity", "event",
+  "onset", "expires", "status", "messageType", "sent",
+] as const;
+
 const NWS = "https://api.weather.gov";
 const SPC = "https://www.spc.noaa.gov";
 const SWPC = "https://services.swpc.noaa.gov";
@@ -696,7 +708,67 @@ Deno.serve(async (req) => {
         ? `${NWS}/alerts/active?status=actual&point=${encodeURIComponent(point)}`
         : `${NWS}/alerts/active?status=actual`;
       const r = await fetchJSON(q);
-      return json(await r.json(), 200, 120);
+      const body = await r.json();
+
+      // TWO THINGS THIS ROUTE USED TO GET WRONG.
+      //
+      // 1. `limit` was accepted and ignored. The app asks for `?limit=500` and
+      //    the national feed simply returned everything — `limit=5` and
+      //    `limit=500` came back byte-identical. A parameter that does nothing
+      //    is worse than no parameter, because the caller believes it worked.
+      //
+      // 2. The whole NWS record was passed through untouched. Measured on a
+      //    normal afternoon: 340 active alerts, 952,285 bytes of JSON, on every
+      //    load of the warnings map and the SSWXCon score. Fields nothing in
+      //    this app has ever read account for most of it — `parameters` 15.8%,
+      //    `affectedZones` 6.7%, `references` 3.9%, `@id` 3.5%, `geocode` 3.4%,
+      //    `eventCode` 1.8% — and `description` plus `instruction` are another
+      //    24% that only matter once somebody opens a single alert.
+      //
+      // `fields=slim` projects to what a map pin and a list row need. It is
+      // opt-in, so the point query (a handful of alerts for one location, where
+      // the full text IS displayed) keeps every field by saying nothing.
+      const slim = url.searchParams.get("fields") === "slim";
+      const limit = Math.min(
+        Math.max(Number(url.searchParams.get("limit") ?? 0) || 0, 0),
+        2000,
+      );
+
+      if (body && Array.isArray(body.features)) {
+        let features = body.features;
+
+        if (slim) {
+          features = features.map((f: Record<string, unknown>) => ({
+            type: "Feature",
+            // Geometry is only 1% of the payload and it is what draws the
+            // polygon, so it always stays.
+            geometry: (f as { geometry?: unknown }).geometry ?? null,
+            properties: KEEP_ALERT_FIELDS.reduce(
+              (acc: Record<string, unknown>, k) => {
+                const props = (f as { properties?: Record<string, unknown> }).properties ?? {};
+                if (k in props) acc[k] = props[k];
+                return acc;
+              },
+              {},
+            ),
+          }));
+        }
+
+        // Newest first before truncating, so a cap drops the stalest alerts
+        // rather than an arbitrary slice of the feed.
+        if (limit > 0 && features.length > limit) {
+          features = features
+            .slice()
+            .sort((a: { properties?: { sent?: string } }, b: { properties?: { sent?: string } }) =>
+              String(b.properties?.sent ?? "").localeCompare(String(a.properties?.sent ?? "")),
+            )
+            .slice(0, limit);
+        }
+
+        return json({ ...body, features }, 200, 120);
+      }
+
+      return json(body, 200, 120);
     }
 
     // ---- NWS forecast / generic product passthrough (SSRF-guarded) --------

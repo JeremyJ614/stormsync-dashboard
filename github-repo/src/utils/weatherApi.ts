@@ -130,13 +130,21 @@ export async function fetchNWSPoints(lat: number, lon: number): Promise<NWSPoint
   return res.json();
 }
 
-export interface NWSAlertFeature {
+/**
+ * What every alert carries, national feed included.
+ *
+ * Split from `NWSAlertFeature` on purpose. The national feed is fetched with
+ * `fields=slim` and genuinely does NOT contain `description` or `instruction`
+ * — 340 alerts of full NWS records is 952 KB, and those two fields are 24% of
+ * it for text nothing on the warnings map or the SSWXCon score ever shows. If
+ * a module later wants the text nationally, it has to say so, and the compiler
+ * will stop it from silently reading `undefined` in the meantime.
+ */
+export interface NWSAlertSummary {
   properties: {
     id: string;
     areaDesc: string;
     headline: string;
-    description: string;
-    instruction: string;
     severity: string;
     event: string;
     onset: string;
@@ -144,6 +152,14 @@ export interface NWSAlertFeature {
     status: string;
     messageType: string;
     sent: string;
+  };
+}
+
+/** A full alert, as returned for a single point — the text included. */
+export interface NWSAlertFeature extends NWSAlertSummary {
+  properties: NWSAlertSummary["properties"] & {
+    description: string;
+    instruction: string;
   };
 }
 
@@ -158,8 +174,12 @@ export async function fetchNWSAlerts(lat: number, lon: number): Promise<NWSAlert
   return data.features || [];
 }
 
-export async function fetchAllUSAlerts(): Promise<NWSAlertFeature[]> {
-  const res = await fetchWithTimeout(API(`api/nws/alerts?limit=500`));
+export async function fetchAllUSAlerts(): Promise<NWSAlertSummary[]> {
+  // `fields=slim` drops the fields no national-feed consumer reads. Measured on
+  // a live feed of 340 alerts: 952,285 bytes of JSON down to 224,095, or 113 KB
+  // to 25 KB gzipped. `limit` is now actually enforced by the edge function —
+  // it used to be accepted and ignored.
+  const res = await fetchWithTimeout(API(`api/nws/alerts?limit=500&fields=slim`));
   // Same reasoning as fetchNWSAlerts: [] here would score as a quiet nation.
   if (!res.ok) throw new Error(`National NWS alert feed unavailable (${res.status})`);
   const data = await res.json();

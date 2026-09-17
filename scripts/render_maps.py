@@ -47,6 +47,17 @@ import cartopy.feature as cfeature
 
 import xarray as xr
 
+# A render may legitimately lose a parameter or two — a source file that has
+# not published yet, one field that failed every forecast hour. Below this
+# fraction of the stored count it is not attrition, it is the wrong script.
+#
+# 0.9, not 0.8: at 0.8 an HRRR run could quietly shed five of its twenty-three
+# parameters and still publish, which is most of a tab's worth of fields going
+# missing without anyone being told. Refusing is the safe direction — the
+# previous manifest stays up, so the cost of a false positive is a stale run
+# rather than a gutted one.
+FEWER_PARAMS_TOLERANCE = 0.9
+
 HRRR_BUCKET = "https://noaa-hrrr-bdp-pds.s3.amazonaws.com"
 GFS_BUCKET = "https://noaa-gfs-bdp-pds.s3.amazonaws.com"
 # HREF has no public S3 mirror — NCEP publishes it on NOMADS only, one GRIB2 per
@@ -933,6 +944,29 @@ class Supa:
                    data=data, timeout=120)
         return f"{self.url}/storage/v1/object/public/model-maps/{path}"
 
+    def newest_param_count(self, model: str) -> int | None:
+        """
+        How many parameters the most recent stored run for this model has.
+
+        Used by the regression guard in `main`. Returns None when nothing is
+        stored yet or the lookup fails — a guard that cannot read the previous
+        state must not block a render.
+        """
+        try:
+            r = SESSION.get(f"{self.url}/rest/v1/model_runs",
+                            headers=self.h, timeout=30,
+                            params={"select": "params", "model": f"eq.{model}",
+                                    "region": "eq.conus",
+                                    "order": "rendered_at.desc", "limit": "1"})
+            if r.status_code != 200:
+                return None
+            rows = r.json()
+            if not rows:
+                return None
+            return len(rows[0].get("params") or [])
+        except (requests.RequestException, ValueError):
+            return None
+
     def save_run(self, row: dict):
         # The manifest is the last thing written and the only thing the viewer
         # reads, so losing it to a busy moment would waste the entire render.
@@ -1270,6 +1304,10 @@ def main() -> int:
     ap.add_argument("--keep-runs", type=int, default=8,
                     help="cycles of frames to retain per model (the viewer shows 6)")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--allow-fewer-params", action="store_true",
+                    help="Permit publishing fewer parameters than the stored run. "
+                         "Only for a deliberate reduction — see the regression "
+                         "guard in main().")
     a = ap.parse_args()
 
     url, key = os.environ.get("SUPABASE_URL"), os.environ.get("SUPABASE_SERVICE_ROLE_KEY")
@@ -1361,9 +1399,40 @@ def main() -> int:
         "rendered_at": datetime.now(timezone.utc).isoformat(),
     }
     if supa:
+        # ── REGRESSION GUARD ──────────────────────────────────────────────
+        #
+        # THE INCIDENT THIS EXISTS FOR. Scheduled GitHub Actions workflows
+        # always run from the DEFAULT branch. While the parameter expansion sat
+        # unmerged on a feature branch, every scheduled render kept executing
+        # main's older copy of this script — 8 HRRR parameters instead of 23,
+        # 6 GFS instead of 40, no HREF at all — and each run quietly overwrote
+        # the viewer's newest manifest with the smaller set. Nothing failed.
+        # Nothing logged. The Model Runs page simply lost most of its
+        # parameters, and the only way to notice was to open it and count.
+        #
+        # So: a run that would publish materially fewer parameters than the one
+        # already stored refuses to write, loudly, with a non-zero exit. The
+        # frames it rendered are already uploaded and harmless; what it will not
+        # do is replace a good manifest with a worse one.
+        #
+        # A real, intended reduction passes `--allow-fewer-params`.
+        n_now = len(row["params"])
+        n_prev = supa.newest_param_count(a.model)
+        if (n_prev is not None and not a.allow_fewer_params
+                and n_now < n_prev * FEWER_PARAMS_TOLERANCE):
+            print(
+                f"REFUSING TO SAVE: this render produced {n_now} parameters for "
+                f"{a.model}, but the stored run has {n_prev}. That is the "
+                f"signature of an older copy of this script running against a "
+                f"newer manifest — check which branch the workflow checked out. "
+                f"Pass --allow-fewer-params if the reduction is intended.",
+                file=sys.stderr,
+            )
+            return 1
+
         supa.save_run(row)
         supa.purge(a.keep_runs)
-        print("manifest saved; old runs purged")
+        print(f"manifest saved ({n_now} parameters); old runs purged")
     else:
         print(json.dumps({**row, "frames": {k: len(v) for k, v in row["frames"].items()}}, indent=1))
     return 0

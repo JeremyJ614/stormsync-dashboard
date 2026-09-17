@@ -131,22 +131,46 @@ export interface ChaseOutlook {
 }
 
 /**
- * Today's row, or the most recent one.
+ * The row for the chase day the reader is in — never a future one.
  *
- * Falling back to the most recent row rather than showing nothing is deliberate:
- * if this morning's run failed, yesterday's answer with an honest date stamp on
- * it is more useful than an empty page. The page shows the date either way, so
- * nobody can mistake a stale outlook for a fresh one.
+ * THE BUG THIS FIXES. This took the newest `outlook_date` with no ceiling. The
+ * engine writes the COMING day's row at 00:30 UTC, which is half past eight in
+ * the evening Eastern — so from 8:30pm the newest row was tomorrow's, and the
+ * module swapped to tomorrow's target while the reader was still in tonight's
+ * chase. Reported from the field at nine in the evening Eastern, which is
+ * exactly when it would first be noticed.
+ *
+ * Capping the query at `chaseDayLocal()` keeps the early-written row in the
+ * table, where it is useful, without letting it take over the page.
+ *
+ * Falling back to the most recent row rather than showing nothing is deliberate
+ * and is kept: if this morning's run failed, yesterday's answer with an honest
+ * date stamp on it is more useful than an empty page. The page shows the date
+ * either way, so nobody can mistake a stale outlook for a fresh one.
  */
 export async function fetchChaseOutlook(): Promise<ChaseOutlook | null> {
+  const today = chaseDayLocal();
   const { data, error } = await supabase
+    .from("chase_outlook")
+    .select("*")
+    .lte("outlook_date", today)
+    .order("outlook_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  if (data) return data as ChaseOutlook;
+
+  // Nothing at or before today at all — a brand-new install, or the table only
+  // holds the row that was written ahead. Showing that is still better than an
+  // empty page, and it carries its own date.
+  const { data: any_, error: e2 } = await supabase
     .from("chase_outlook")
     .select("*")
     .order("outlook_date", { ascending: false })
     .limit(1)
     .maybeSingle();
-  if (error) throw error;
-  return (data as ChaseOutlook | null) ?? null;
+  if (e2) throw e2;
+  return (any_ as ChaseOutlook | null) ?? null;
 }
 
 /**
@@ -191,14 +215,19 @@ export async function fetchChaseYearContext(): Promise<ChaseYearContext | null> 
  * mid-chase, with the storms still going. The row is simply there early for
  * anyone who wants to look ahead.
  *
- * The reader's day therefore still rolls in the small hours, so
- * this is the local calendar date with the small hours still counted as the day
- * before — matching the module's own definition of a chase day, which runs from
- * the afternoon through to 2 am.
+ * The reader's day rolls at 8 in the morning, local time. It used to roll at 3
+ * am, which covered a chase running past midnight but still handed the reader a
+ * new day before they had woken up to it — and a 3 am roll cannot help with the
+ * real complaint anyway, because the page was flipping at half past eight in
+ * the EVENING (see `fetchChaseOutlook`). Eight in the morning is the boundary
+ * asked for: a chase that runs to 2 am is still on its own day when you get
+ * home, and the new day arrives with breakfast rather than in your sleep.
  */
+export const CHASE_DAY_ROLL_HOUR = 8;
+
 export function chaseDayLocal(now: Date = new Date()): string {
   const d = new Date(now);
-  if (d.getHours() < 3) d.setDate(d.getDate() - 1);
+  if (d.getHours() < CHASE_DAY_ROLL_HOUR) d.setDate(d.getDate() - 1);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 

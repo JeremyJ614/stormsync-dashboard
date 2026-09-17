@@ -77,6 +77,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
+      // Realtime is not used anywhere in this app and cannot be tree-shaken —
+      // SupabaseClient constructs a RealtimeClient unconditionally. Aliasing it
+      // to a stub takes 16,318 bytes gzipped off the main chunk. See
+      // src/lib/supabaseRealtimeStub.ts before removing this.
+      "@supabase/realtime-js": path.resolve(
+        import.meta.dirname,
+        "src/lib/supabaseRealtimeStub.ts",
+      ),
     },
     dedupe: ["react", "react-dom"],
   },

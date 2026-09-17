@@ -1,7 +1,7 @@
 import { memo } from "react";
 import { Link } from "wouter";
 import { motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, EyeOff, Plus } from "lucide-react";
+import { ChevronLeft, ChevronRight, CloudOff, EyeOff, Plus } from "lucide-react";
 import { ROYAL, HEADING, SPRING } from "../../lib/royal";
 import type { ModuleTile as Tile, Reading, Tone } from "../../lib/dashboardModules";
 import { TileVisual } from "./TileVisual";
@@ -52,12 +52,20 @@ interface Props {
   index: number;
   /** True while the member is rearranging. */
   editing?: boolean;
+  /**
+   * The shared conditions fetch failed.
+   *
+   * Without this the tile cannot tell "not landed yet" from "will never
+   * land", and it showed the waiting shimmer for both — forever. See the
+   * body below.
+   */
+  unavailable?: boolean;
   onMove?: (delta: number) => void;
   onHide?: () => void;
 }
 
 export const ModuleTile = memo(function ModuleTile({
-  tile, reading, still, index, editing, onMove, onHide,
+  tile, reading, still, index, editing, unavailable, onMove, onHide,
 }: Props) {
   const tone = TONE[reading?.tone ?? "quiet"];
   const Icon = tile.icon;
@@ -132,6 +140,26 @@ export const ModuleTile = memo(function ModuleTile({
             <div className="text-[10.5px] mt-1 truncate" style={{ color: ROYAL.dim }}>{reading!.note}</div>
           )}
         </>
+      ) : unavailable ? (
+        /*
+         * THE BUG THIS FIXES. There was no branch here: any tile without a
+         * figure got the waiting shimmer below, whether its data was on the
+         * way or had already failed. Caught in production with Open-Meteo
+         * answering 429, the dashboard correctly said "conditions unavailable"
+         * in its own status line while the tiles underneath it pulsed grey
+         * forever — which reads as "still loading", indefinitely, directly
+         * beneath a notice saying it is not.
+         *
+         * Saying so costs one line and is the honest answer. It also matches
+         * how the rest of the app behaves when a feed is down: refuse, rather
+         * than imply.
+         */
+        <div className="mt-3 flex items-start gap-1.5" role="status">
+          <CloudOff className="w-3.5 h-3.5 shrink-0 mt-[1px]" style={{ color: ROYAL.dim }} />
+          <span className="text-[11px] leading-snug" style={{ color: ROYAL.dim }}>
+            Couldn't read conditions
+          </span>
+        </div>
       ) : (
         /*
          * Waiting, not empty. Only modules with a reading are on the wall at

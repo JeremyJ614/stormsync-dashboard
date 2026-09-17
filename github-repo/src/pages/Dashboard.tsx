@@ -277,6 +277,10 @@ export default function Dashboard({ location }: Props) {
                     still={still}
                     index={n++}
                     editing={editing}
+                    // The status line above already says conditions are
+                    // unavailable; without this the tiles under it pulsed as
+                    // though they were still loading, forever.
+                    unavailable={wx.isError}
                     onMove={(d) => reorder(t.path, d)}
                     onHide={() => apply({ ...prefs, hidden: [...prefs.hidden, t.path] })}
                   />

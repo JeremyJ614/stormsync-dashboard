@@ -12,8 +12,8 @@ import { ROYAL, HEADING, EASE, prefersReducedMotion } from "../lib/royal";
 /**
  * Picking your own menu.
  *
- * There are fifteen of these and they are not variations — a radar scope, a
- * comic page, a neon street, a black hole. Which one is "right" is not a
+ * These are not variations on one menu — a thumb arc, a comic page, a bento
+ * mega panel, a hex dock. Which one is "right" is not a
  * question with an answer, so the admin setting is the DEFAULT and this is the
  * choice.
  *
@@ -61,9 +61,9 @@ export function MenuPicker({ compact = false }: { compact?: boolean }) {
     <div className="space-y-2.5">
       {!compact && (
         <p className="text-[12px] leading-relaxed" style={{ color: ROYAL.dim }}>
-          Fifteen ways to get around the app, and none of them is the right one — pick whichever you
-          like. It changes the moment you tap it, so open the menu and have a look. You can change it
-          again whenever you want, here or in your profile.
+          {MENU_STYLES.length} ways to get around the app, and none of them is the right one — pick
+          whichever you like. It changes the moment you tap it, so open the menu and have a look.
+          You can change it again whenever you want, here or in your profile.
         </p>
       )}
 

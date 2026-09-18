@@ -29,7 +29,7 @@ on:
       function:
         description: "Which function to deploy"
         type: choice
-        options: [chase-target, storm-engine, both, all]
+        options: [chase-target, storm-engine, weather, both, all]
         default: both
 
 concurrency:
@@ -84,7 +84,7 @@ jobs:
             echo "::endgroup::"
           done
 
-      - name: Confirm what is now live
+      - name: Confirm what is now live, and that JWT settings match config.toml
         env:
           SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
           PROJECT_REF: ${{ secrets.SUPABASE_PROJECT_REF }}
@@ -92,6 +92,55 @@ jobs:
           # A deploy that reports success but leaves the old version live is the
           # failure this workflow exists to prevent, so the versions are read
           # back rather than assumed.
+          #
+          # `verify_jwt` is read back too, and a mismatch FAILS the job. On
+          # 2026-09-17 the `weather` function was redeployed from somewhere
+          # without this repo's config.toml — the dashboard's editor does
+          # exactly that — and the CLI's default flipped verification ON. The
+          # browser sends no Authorization header to that proxy, so every NWS,
+          # SPC and Open-Meteo call behind it returned 401 and every map in the
+          # app went blank. Nothing reported an error: the deploy "succeeded",
+          # the function was ACTIVE, and only the flag had moved. A silent
+          # setting that can take the whole app down has to be checked, not
+          # trusted.
           curl -sS -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
-            "https://api.supabase.com/v1/projects/$PROJECT_REF/functions" \
-            | python3 -c "import json,sys,datetime; [print('%-24s v%-4s %-8s updated %s' % (f['slug'], f.get('version'), f.get('status'), datetime.datetime.utcfromtimestamp(f['updated_at']/1000).strftime('%Y-%m-%d %H:%M:%SZ'))) for f in json.load(sys.stdin)]"
+            "https://api.supabase.com/v1/projects/$PROJECT_REF/functions" > /tmp/live.json
+          python3 - <<'PY'
+          import datetime, json, re, sys
+
+          live = json.load(open("/tmp/live.json"))
+
+          # config.toml is the declaration; anything it does not name keeps the
+          # CLI default, which is verification ON.
+          want, slug = {}, None
+          for line in open("supabase/config.toml"):
+              m = re.match(r"\s*\[functions\.([^\]]+)\]", line)
+              if m:
+                  slug = m.group(1)
+                  want.setdefault(slug, True)
+              elif slug and re.match(r"\s*verify_jwt\s*=", line):
+                  want[slug] = line.split("=", 1)[1].strip() == "true"
+
+          bad = []
+          for f in sorted(live, key=lambda x: x["slug"]):
+              s, got = f["slug"], f.get("verify_jwt")
+              exp = want.get(s)
+              mark = ""
+              if exp is not None and got != exp:
+                  mark = f"  <-- MISMATCH, config.toml says {exp}"
+                  bad.append((s, exp, got))
+              when = datetime.datetime.utcfromtimestamp(
+                  f["updated_at"] / 1000).strftime("%Y-%m-%d %H:%M:%SZ")
+              print(f"{s:<24} v{str(f.get('version')):<4} "
+                    f"{f.get('status',''):<8} verify_jwt={str(got):<5} "
+                    f"updated {when}{mark}")
+
+          if bad:
+              print()
+              for s, exp, got in bad:
+                  print(f"::error::{s} is live with verify_jwt={got} but "
+                        f"config.toml declares {exp}. Redeploy {s} from this "
+                        f"repository — deploying it from the Supabase dashboard "
+                        f"resets this flag and 401s every caller.")
+              sys.exit(1)
+          PY

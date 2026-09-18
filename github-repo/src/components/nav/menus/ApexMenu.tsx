@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 import { useLocation } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Compass, Lock } from "lucide-react";
@@ -9,10 +9,12 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
 /**
  * Apex.
  *
- * A thumb-anchored arc you can drive two ways: press and drag to sweep through
- * the set and release on one, or tap to open it and tap to choose. Whatever is
- * nearest the thumb magnifies like a dock and ticks under it, so it is operable
- * without looking down at the screen.
+ * A thumb-anchored arc. Press the trigger and it opens and stays open; tap a
+ * node to choose it. Whatever is nearest the thumb magnifies like a dock, so it
+ * is operable without looking down at the screen.
+ *
+ * It used to also be drivable by press-drag-release, and that mode is gone —
+ * see `onTrigger` for why it made the arc feel like it had to be held.
  *
  * WHAT MADE THE ORIGINAL CRASH, AND WHY IT CANNOT HERE. It read a stats object
  * that could be undefined and dereferenced it during render, so any route where
@@ -24,13 +26,11 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
  * null and never to a guess, a release with no index closes rather than
  * navigating somewhere arbitrary, and every array access is checked.
  *
- * The other three bugs it shipped with are gone the same way. Drag state lives
- * in one ref, so the pointer-up handler always reads current values — as React
- * state it was stale and tap-to-close silently did nothing. A tap is separated
- * from a drag by DISTANCE, not by whether a move event fired, because touch
- * always emits a few pixels of jitter and every tap was being read as a drag.
- * And pointer capture is released explicitly, so a drag ending off-screen cannot
- * strand the arc in a dragging state.
+ * The other three bugs it shipped with were all in the drag path — stale drag
+ * state, a tap being read as a drag because touch always jitters a few pixels,
+ * and pointer capture surviving a drag that ended off-screen. Deleting that
+ * path deletes all three along with the class of bug they came from: there is
+ * no longer any gesture state to go stale, leak, or be misread.
  *
  * The style is the app's: a milled arc, champagne nodes, and a trigger that is a
  * ring gauge reading how far through the set your thumb currently is.
@@ -39,23 +39,12 @@ import { ROYAL, HEADING, EASE } from "../../../lib/royal";
 /** The arc sweeps the top half, where a thumb actually reaches. */
 const START_ANGLE = -166;
 const END_ANGLE = -14;
-/** Past this many pixels a press is a drag, not a tap. */
-const DRAG_PX = 12;
-/** Inside this radius nothing is selected, so a wobble at the thumb cannot pick. */
-const DEAD_ZONE = 48;
-/** A release more than this far off an item's bearing selects nothing. */
-const CATCH_DEG = 26;
 
 export function ApexMenu({ nav }: { nav: MenuNav }) {
   const { open, section, current, toggle, close, openSection, back, calm, containerRef } = nav;
   const [, navigate] = useLocation();
   const entries = entriesFor(nav);
   const [hover, setHover] = useState<number | null>(null);
-
-  // Everything the pointer handlers need, in one ref. As React state these went
-  // stale between pointerdown and pointerup and the arc stopped responding.
-  const drag = useRef({ active: false, moved: false, wasOpen: false, ox: 0, oy: 0, id: -1 });
-  const lastHover = useRef<number | null>(null);
 
   const n = Math.max(1, entries.length);
   // A crowded arc needs a longer radius, or the nodes touch.
@@ -73,20 +62,6 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
     return { x: Math.cos(r) * radius, y: Math.sin(r) * radius };
   }, [angleFor, radius]);
 
-  /** Nearest item to a pointer position, or null when it is not on the arc. */
-  const resolve = useCallback((cx: number, cy: number): number | null => {
-    const dx = cx - drag.current.ox;
-    const dy = cy - drag.current.oy;
-    if (Math.hypot(dx, dy) < DEAD_ZONE) return null;
-    const a = (Math.atan2(dy, dx) * 180) / Math.PI;
-    let best = -1, bestD = Infinity;
-    for (let i = 0; i < n; i++) {
-      const d = Math.abs(a - angleFor(i));
-      if (d < bestD) { bestD = d; best = i; }
-    }
-    return bestD <= CATCH_DEG && best >= 0 ? best : null;
-  }, [n, angleFor]);
-
   /** Act on an index, whether it came from a release or a tap. */
   const choose = useCallback((i: number) => {
     const e = entries[i];
@@ -95,41 +70,21 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
     else openSection(e.index);
   }, [entries, close, openSection, navigate]);
 
-  const onDown = (ev: React.PointerEvent) => {
-    const r = ev.currentTarget.getBoundingClientRect();
-    drag.current = {
-      active: true, moved: false, wasOpen: open,
-      ox: r.left + r.width / 2, oy: r.top + r.height / 2, id: ev.pointerId,
-    };
-    // Capture so a drag ending off-screen still delivers its pointerup.
-    try { ev.currentTarget.setPointerCapture(ev.pointerId); } catch { /* optional */ }
-    if (!open) toggle();
-  };
-
-  const onMove = (ev: React.PointerEvent) => {
-    if (!drag.current.active) return;
-    if (Math.hypot(ev.clientX - drag.current.ox, ev.clientY - drag.current.oy) > DRAG_PX) drag.current.moved = true;
-    if (!drag.current.moved) return;
-    const next = resolve(ev.clientX, ev.clientY);
-    if (next !== lastHover.current) { lastHover.current = next; setHover(next); }
-  };
-
-  const onUp = (ev?: React.PointerEvent) => {
-    if (!drag.current.active) return;
-    if (ev) { try { ev.currentTarget.releasePointerCapture(drag.current.id); } catch { /* already gone */ } }
-    const { moved, wasOpen } = drag.current;
-    drag.current.active = false;
-
-    if (moved) {
-      const i = lastHover.current;
-      // A release off the arc closes; it never guesses a destination.
-      if (i !== null) choose(i); else close();
-    } else if (wasOpen) {
-      close();
-    }
-    lastHover.current = null;
-    setHover(null);
-  };
+  /*
+   * The trigger is a plain toggle.
+   *
+   * It used to be press-drag-release: pressing opened the arc, moving more than
+   * twelve pixels armed a selection, and lifting either went somewhere or shut
+   * the menu. On a thumb that is not a choice you opt into — a press is never
+   * perfectly still, so almost every open ended in a release that closed the
+   * thing you had just opened, and the only way to keep the arc up was to hold
+   * your thumb down. Hence "you have to hold it".
+   *
+   * Press opens and it stays open. The nodes are ordinary buttons, so a tap
+   * picks one and a tap anywhere else, or on the trigger again, closes. Nothing
+   * is armed by movement, so a slide costs nothing.
+   */
+  const onTrigger = () => { toggle(); setHover(null); };
 
   /*
    * Something is always named.
@@ -329,7 +284,7 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
               animate={{ opacity: 1 }}
               transition={calm ? { duration: 0 } : { delay: 0.3 }}
             >
-              Drag to choose · release to go
+              Tap a section to open it
             </motion.p>
           </motion.div>
         )}
@@ -338,10 +293,7 @@ export function ApexMenu({ nav }: { nav: MenuNav }) {
       {/* The trigger doubles as a gauge: the ring fills to wherever the thumb
           currently is along the arc, so the control reports the gesture. */}
       <motion.button
-        onPointerDown={onDown}
-        onPointerMove={onMove}
-        onPointerUp={onUp}
-        onPointerCancel={() => onUp()}
+        onClick={onTrigger}
         aria-label={open ? "Close the menu" : "Open the menu"}
         aria-expanded={open}
         className="absolute left-1/2 grid place-items-center touch-none"

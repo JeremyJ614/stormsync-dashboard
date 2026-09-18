@@ -20,3 +20,9 @@ npm-debug.log*
 .vscode/
 .idea/
 *.swp
+
+# Supabase CLI scratch state. `supabase functions deploy` and `supabase link`
+# write the linked project ref and a CLI version stamp here. It is per-machine
+# state, not repository content, and committing it makes every developer's
+# checkout fight over whose project the CLI last talked to.
+supabase/.temp/

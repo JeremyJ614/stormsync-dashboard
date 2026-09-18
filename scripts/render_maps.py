@@ -738,9 +738,11 @@ def canvas():
 # The cost, however, is not indistinguishable. pcolormesh draws one quad per
 # cell and cartopy projects every vertex into Lambert Conformal, so the work is
 # quadratic in this number: 0.58M quads at 4x against 2.30M at 8x. Measured on
-# the runner, a 40-parameter GFS run went from 7.8 minutes to over 25 and was
-# heading for the job's own 45-minute timeout — on a 2,000-minute monthly
-# allowance that is the whole budget, spent on a difference nobody can see.
+# the runner across several 40-parameter GFS runs, 4x takes about 7.8 minutes
+# and 8x about 9.6 — call it a quarter more, four times a day, for a difference
+# that is invisible. One 8x run also stretched past 25 minutes against a
+# 45-minute job timeout; that was an outlier rather than the norm, but it is
+# the kind of outlier that publishes nothing when it lands wrong.
 UPSAMPLE = {"gfs": 4}
 
 

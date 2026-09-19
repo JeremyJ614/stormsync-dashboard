@@ -69,25 +69,76 @@ export function LockMark({ size = 12 }: { size?: number }) {
   return <Lock style={{ width: size, height: size, color: ROYAL.dim, flex: "none" }} aria-hidden />;
 }
 
-/** The dimmed ground behind an open menu. Tapping it closes. */
-export function Scrim({ nav, tint }: { nav: MenuNav; tint?: string }) {
+/**
+ * How much ground a menu takes off the page behind it.
+ *
+ * `full` is for menus that own the screen; `light` dims but keeps the page
+ * legible, for sidebars and panels beside content; `none` is a bare
+ * click-catcher for the pills, which exist precisely so you can keep reading.
+ */
+export type ScrimWeight = "full" | "light" | "none";
+
+/**
+ * The ground behind an open menu. Tapping it closes.
+ *
+ * THIS WAS OPAQUE AND IT SHOULD NEVER HAVE BEEN. The first version set a
+ * `background` gradient and then `backgroundColor: ROYAL.ink` after it — and in
+ * a style object the later key wins, so every menu blanked the page behind it
+ * to solid ink. On a sidebar that read as heavy-handed; on the pills, whose
+ * entire purpose is to float over content you are still reading, it looked like
+ * the app had crashed. There is one background declaration here now, and its
+ * alpha is in the value.
+ */
+export function Scrim({ nav, weight = "full" }: { nav: MenuNav; weight?: ScrimWeight }) {
+  const fill =
+    weight === "none" ? "transparent"
+    : weight === "light" ? "rgba(4, 4, 11, 0.52)"
+    : "rgba(4, 4, 11, 0.78)";
   return (
     <motion.div
       className="absolute inset-0"
       style={{
-        background: tint ?? `radial-gradient(80% 50% at 50% 40%, ${ROYAL.goldFaint}, transparent 66%),`
-          + `linear-gradient(180deg, #08080f, #04040b)`,
-        backgroundColor: ROYAL.ink,
-        backdropFilter: "blur(14px) saturate(1.15)",
-        WebkitBackdropFilter: "blur(14px) saturate(1.15)",
+        background: fill,
+        backdropFilter: weight === "full" ? "blur(14px) saturate(1.15)" : "none",
+        WebkitBackdropFilter: weight === "full" ? "blur(14px) saturate(1.15)" : "none",
         pointerEvents: nav.open ? "auto" : "none",
       }}
       initial={false}
       animate={{ opacity: nav.open ? 1 : 0 }}
       transition={{ duration: nav.calm ? 0 : 0.26 }}
       onClick={nav.close}
-      aria-hidden={!nav.open}
+      aria-hidden
     />
+  );
+}
+
+/**
+ * A drawn chevron rather than an icon-font one.
+ *
+ * Lucide's chevron is a uniform stroke, which at 12px against champagne reads
+ * as a grey tick. This is a filled arrowhead with a lit leading edge and a
+ * shadowed trailing one, so it catches the light the same way the rest of the
+ * champagne furniture does.
+ */
+export function GoldArrow({ size = 13, open = false, calm = false }: { size?: number; open?: boolean; calm?: boolean }) {
+  return (
+    <motion.svg
+      width={size} height={size} viewBox="0 0 12 12" aria-hidden
+      style={{ flex: "none", overflow: "visible" }}
+      initial={false}
+      animate={{ rotate: open ? 90 : 0 }}
+      transition={calm ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 20 }}
+    >
+      <defs>
+        <linearGradient id={`ga-${size}-${open ? "o" : "c"}`} x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" stopColor="#f0d9a8" />
+          <stop offset="55%" stopColor={ROYAL.gold} />
+          <stop offset="100%" stopColor="#9c7734" />
+        </linearGradient>
+      </defs>
+      <path d="M3.4 1.2 L9.2 6 L3.4 10.8 Z" fill={`url(#ga-${size}-${open ? "o" : "c"})`} />
+      <path d="M3.4 1.2 L9.2 6" stroke="rgba(255,255,255,0.55)" strokeWidth="0.7" strokeLinecap="round" fill="none" />
+    </motion.svg>
   );
 }
 

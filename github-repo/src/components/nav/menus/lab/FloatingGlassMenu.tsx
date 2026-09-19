@@ -18,6 +18,16 @@ import { BackRow, EntryAction, LAB_EASE, LockMark, Scrim, Trigger, Wordmark, del
  * wraps — and an index-derived thumb drifts further from the truth with every
  * row below the first. It is measured in a layout effect so the thumb is in the
  * right place on the frame the panel first paints, not one frame later.
+ *
+ * IT BOUNCES TO ITS TARGET, AND ONLY IN Y. The thumb used to arrive on a stiff,
+ * near-critically-damped spring — correct, and completely silent. This one is
+ * under-damped (ζ ≈ 0.53) and slower, so it overshoots the row it is heading
+ * for and settles back into it, which is what makes the rail read as a scrubber
+ * being thrown rather than a highlight being redrawn.
+ *
+ * Its height is NOT on that spring. A thumb that bounces sideways is lively; a
+ * thumb whose length springs past the row it is measuring looks like a bug, so
+ * the two properties carry separate transitions and only travel is springy.
  */
 export function FloatingGlassMenu({ nav }: { nav: MenuNav }) {
   const { open, calm, containerRef } = nav;
@@ -43,7 +53,7 @@ export function FloatingGlassMenu({ nav }: { nav: MenuNav }) {
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
-      <Scrim nav={nav} />
+      <Scrim nav={nav} weight="light" />
 
       <AnimatePresence>
         {open && (
@@ -79,7 +89,10 @@ export function FloatingGlassMenu({ nav }: { nav: MenuNav }) {
                   }}
                   initial={false}
                   animate={{ y: thumb.y, height: thumb.h }}
-                  transition={calm ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 26 }}
+                  transition={calm ? { duration: 0 } : {
+                    y: { type: "spring", stiffness: 120, damping: 11, mass: 0.9 },
+                    height: { type: "spring", stiffness: 260, damping: 26 },
+                  }}
                 />
               </div>
 

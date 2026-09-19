@@ -168,6 +168,27 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   const pushTransform = menuNav.open ? PUSH_TRANSFORMS[menuStyle] : undefined;
   const pushed = Boolean(pushTransform);
 
+  /*
+   * A push shoves the app off the right-hand edge, and that overflow is real:
+   * the document grows sideways, and on a phone the layout viewport grows with
+   * it. Everything anchored to `right:` then measures against the wider box and
+   * drifts — Dual Pane Push's own close button ended up 250px past the edge of
+   * the screen, unreachable, with the menu it closes still open.
+   *
+   * Clipping at the root is the fix, and only while a push is open: the app is
+   * *meant* to leave the screen, so the overflow it makes is not content anyone
+   * needs to reach. It goes on `html` rather than `body` because the root's
+   * overflow propagates to the viewport, which keeps the header's `sticky`
+   * working; on `body` it would not.
+   */
+  useEffect(() => {
+    if (!pushed) return;
+    const root = document.documentElement;
+    const prev = root.style.overflowX;
+    root.style.overflowX = "hidden";
+    return () => { root.style.overflowX = prev; };
+  }, [pushed]);
+
   const currentNav = ALL_NAV_ITEMS.find((n) => n.path === pathname);
 
   return (

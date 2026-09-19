@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Plus } from "lucide-react";
 import type { MenuNav } from "../useMenuNav";
@@ -17,6 +18,15 @@ import { BackRow, EntryAction, LAB_EASE, LockMark, Scrim, delay } from "./shared
  * follows the button up and then reads it, rather than both arriving at once and
  * competing.
  *
+ * THE TRIGGER SPINS ON EVERY TAP. Rotating between 0 and 135 degrees animated
+ * only the difference, so opening turned the plus an eighth of a turn and that
+ * was all the button ever did. The turn count is carried in state and goes up
+ * by one on each tap, so the target angle is always a full revolution further
+ * on than the last: the plus spins right round and lands as a cross on the way
+ * open, spins again and lands as a plus on the way closed. It is a tween rather
+ * than a spring because a spring with enough snap to cross 360 degrees quickly
+ * overshoots past the landing and wobbles back into it.
+ *
  * The column is capped and scrolls. A FAB stack is a shortcut surface, and one
  * that runs off the top of the screen has stopped being a shortcut — so with a
  * long section the stack scrolls rather than growing past the viewport.
@@ -24,6 +34,7 @@ import { BackRow, EntryAction, LAB_EASE, LockMark, Scrim, delay } from "./shared
 export function LabelledStackMenu({ nav }: { nav: MenuNav }) {
   const { open, calm, containerRef } = nav;
   const entries = entriesFor(nav);
+  const [turns, setTurns] = useState(0);
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
@@ -96,7 +107,7 @@ export function LabelledStackMenu({ nav }: { nav: MenuNav }) {
       </AnimatePresence>
 
       <button
-        onClick={nav.toggle}
+        onClick={() => { setTurns((t) => t + 1); nav.toggle(); }}
         aria-label={open ? "Close the menu" : "Open the menu"}
         aria-expanded={open}
         className="absolute grid place-items-center rounded-full"
@@ -110,8 +121,8 @@ export function LabelledStackMenu({ nav }: { nav: MenuNav }) {
       >
         <motion.span
           initial={false}
-          animate={{ rotate: open ? 135 : 0 }}
-          transition={calm ? { duration: 0 } : { type: "spring", stiffness: 380, damping: 22 }}
+          animate={{ rotate: turns * 360 + (open ? 135 : 0) }}
+          transition={calm ? { duration: 0 } : { duration: 0.58, ease: LAB_EASE }}
         >
           <Plus style={{ width: 23, height: 23, color: "#0b0b12" }} />
         </motion.span>

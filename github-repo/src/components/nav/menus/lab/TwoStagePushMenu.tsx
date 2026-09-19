@@ -1,16 +1,28 @@
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, ChevronRight, Menu, X } from "lucide-react";
+import { Menu, X } from "lucide-react";
 import type { MenuNav } from "../useMenuNav";
 import { entriesFor } from "../entries";
 import { ROYAL, HEADING } from "../../../../lib/royal";
-import { BackRow, EntryAction, LAB_EASE, LockMark, delay } from "./shared";
+import { BackRow, EntryAction, GoldArrow, LAB_EASE, LockMark, delay } from "./shared";
 
 /**
  * J3 · Two-Stage Push.
  *
  * Stage one is an icon rail; stage two expands it into a labelled panel. The
  * rail is useful on its own, so most of the time you never need stage two.
+ *
+ * THE SECOND STAGE IS REACHED FROM THE BOTTOM OF THE RAIL, not from a control
+ * floating somewhere near it. It was a button pinned to the screen's bottom-left
+ * that slid sideways as the panel grew, which made it read as a separate piece
+ * of furniture that happened to be nearby. It belongs at the end of the rail's
+ * own column, under the options it is about to label, so the gesture is "keep
+ * going down the rail" rather than "find the other button".
+ *
+ * THE TRIGGER SITS BELOW THE HEADER. At the top-left corner it covered the
+ * wordmark and the page title, which are the two things telling you where you
+ * are. It clears the header now and the rail's top padding clears the trigger,
+ * so the three never stack.
  *
  * HOW THE APP KNOWS WHICH STAGE IT IS IN. The push distance differs between the
  * stages — a 64px rail should nudge the page, a 300px panel should move it
@@ -22,6 +34,10 @@ import { BackRow, EntryAction, LAB_EASE, LockMark, delay } from "./shared";
  * the page shoved over with no menu to explain why.
  */
 const PUSH_VAR = "--sswx-push";
+
+/** Clear of the header, and the rail clear of it in turn. */
+const TRIGGER_TOP = "calc(58px + env(safe-area-inset-top, 0px))";
+const RAIL_TOP = "calc(110px + env(safe-area-inset-top, 0px))";
 
 export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
   const { open, calm, containerRef } = nav;
@@ -38,7 +54,14 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
   }, [open, expanded]);
 
   return (
-    <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
+    <div ref={containerRef} className="fixed inset-0 z-[70] pointer-events-none">
+      {/* Above the pushed app, not under it.
+          Layout floats the pushed app at z-65 so Canvas Push's full-screen
+          scrim cannot bury the very thing that is meant to be moving aside. A
+          push with no scrim has nothing to bury, and paying that cost anyway
+          put this menu's own close button underneath the app's header: on
+          screen, visible, and swallowing every tap. Nothing here overlaps the
+          app once it has moved, so the menu sits on top. */}
       <AnimatePresence>
         {open && (
           <>
@@ -46,7 +69,8 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
             <motion.nav
               className="absolute inset-y-0 left-0 flex flex-col items-center gap-1 overflow-y-auto"
               style={{
-                width: 64, pointerEvents: "auto", paddingTop: 68, paddingBottom: 16,
+                width: 64, pointerEvents: "auto", paddingTop: RAIL_TOP,
+                paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
                 background: `linear-gradient(180deg, ${ROYAL.ink2}, ${ROYAL.ink})`,
                 borderRight: `1px solid ${ROYAL.hairline}`,
               }}
@@ -61,7 +85,7 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                 return (
                   <EntryAction
                     key={e.key} entry={e} nav={nav}
-                    className="grid place-items-center rounded-[11px] relative"
+                    className="grid place-items-center rounded-[11px] relative flex-none"
                     style={{ width: 44, height: 44, color: ROYAL.dim }}
                   >
                     <Icon style={{ width: 18, height: 18, color: ROYAL.gold }} />
@@ -69,6 +93,35 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                   </EntryAction>
                 );
               })}
+
+              {/* Stage two's handle, at the end of the column it expands. */}
+              <span aria-hidden className="flex-none"
+                    style={{ width: 28, height: 1, margin: "7px 0 6px",
+                             background: ROYAL.goldFaint }} />
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                aria-label={expanded ? "Hide the names" : "Show the names"}
+                aria-expanded={expanded}
+                className="grid place-items-center rounded-[11px] flex-none"
+                style={{
+                  width: 44, height: 36,
+                  background: expanded ? ROYAL.goldFaint : "rgba(255,255,255,0.03)",
+                  border: `1px solid ${expanded ? ROYAL.goldSoft : ROYAL.hairline}`,
+                  transition: calm ? "none" : "background .24s, border-color .24s",
+                }}
+              >
+                {/* The panel opens sideways, so the arrow turns through a
+                    half-turn to point back the way it came — not the quarter
+                    turn an accordion's would take. */}
+                <motion.span
+                  className="grid place-items-center"
+                  initial={false}
+                  animate={{ rotate: expanded ? 180 : 0 }}
+                  transition={calm ? { duration: 0 } : { type: "spring", stiffness: 320, damping: 20 }}
+                >
+                  <GoldArrow size={13} calm={calm} />
+                </motion.span>
+              </button>
             </motion.nav>
 
             {/* Stage two — the labelled panel beside it. */}
@@ -77,7 +130,9 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                 <motion.nav
                   className="absolute inset-y-0 flex flex-col overflow-y-auto"
                   style={{
-                    left: 64, width: 236, pointerEvents: "auto", padding: "68px 12px 16px",
+                    left: 64, width: 236, pointerEvents: "auto",
+                    paddingTop: RAIL_TOP, paddingLeft: 12, paddingRight: 12,
+                    paddingBottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
                     background: `linear-gradient(180deg, ${ROYAL.ink2}, ${ROYAL.ink})`,
                     borderRight: `1px solid ${ROYAL.hairline}`,
                   }}
@@ -92,6 +147,7 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                     return (
                       <motion.div
                         key={e.key}
+                        className="flex-none"
                         initial={calm ? false : { opacity: 0, x: -12 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={calm ? { duration: 0 } : { duration: 0.34, ease: LAB_EASE, delay: delay(i, calm, 0.06, 0.04) }}
@@ -99,7 +155,7 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                         <EntryAction
                           entry={e} nav={nav}
                           className="flex items-center gap-2.5 rounded-[10px] w-full text-left"
-                          style={{ padding: "10px 11px", color: ROYAL.dim }}
+                          style={{ height: 44, padding: "0 11px", color: ROYAL.dim }}
                         >
                           <Icon style={{ width: 16, height: 16, color: ROYAL.gold, flex: "none" }} />
                           <span className="text-[13px] font-semibold truncate flex-1"
@@ -111,29 +167,10 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
                       </motion.div>
                     );
                   })}
-                  <div className="pt-3"><BackRow nav={nav} /></div>
+                  <div className="pt-3 flex-none"><BackRow nav={nav} /></div>
                 </motion.nav>
               )}
             </AnimatePresence>
-
-            {/* The stage handle, pinned to the rail's outer edge. */}
-            <motion.button
-              onClick={() => setExpanded((v) => !v)}
-              aria-label={expanded ? "Collapse the labels" : "Expand the labels"}
-              aria-expanded={expanded}
-              className="absolute grid place-items-center rounded-[10px]"
-              style={{
-                bottom: "calc(16px + env(safe-area-inset-bottom, 0px))",
-                width: 40, height: 40, zIndex: 82, pointerEvents: "auto",
-                background: ROYAL.panel, border: `1px solid ${ROYAL.goldSoft}`,
-              }}
-              initial={false}
-              animate={{ left: expanded ? 258 : 12 }}
-              transition={calm ? { duration: 0 } : { duration: 0.44, ease: LAB_EASE }}
-            >
-              {expanded ? <ChevronLeft style={{ width: 17, height: 17, color: ROYAL.gold }} />
-                        : <ChevronRight style={{ width: 17, height: 17, color: ROYAL.gold }} />}
-            </motion.button>
           </>
         )}
       </AnimatePresence>
@@ -144,7 +181,7 @@ export function TwoStagePushMenu({ nav }: { nav: MenuNav }) {
         aria-expanded={open}
         className="absolute grid place-items-center rounded-[11px]"
         style={{
-          top: "calc(12px + env(safe-area-inset-top, 0px))", left: 12,
+          top: TRIGGER_TOP, left: 12,
           width: 42, height: 42, zIndex: 84, pointerEvents: "auto",
           background: ROYAL.panel,
           backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",

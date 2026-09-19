@@ -1,10 +1,10 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronRight, Layers } from "lucide-react";
+import { Layers } from "lucide-react";
 import type { MenuNav } from "../useMenuNav";
 import { ROYAL, HEADING } from "../../../../lib/royal";
-import { LAB_EASE, LockMark, Scrim, Trigger, Wordmark, delay } from "./shared";
+import { GoldArrow, LAB_EASE, LockMark, Scrim, Trigger, Wordmark, delay } from "./shared";
 
 /**
  * F2 · Exclusive with Rail.
@@ -16,6 +16,13 @@ import { LAB_EASE, LockMark, Scrim, Trigger, Wordmark, delay } from "./shared";
  * once the panel would be taller than the screen and the rail marker would be
  * pointing at something scrolled out of view. Opening one closes the rest, so
  * the panel stays roughly a screen tall whatever the member is entitled to.
+ *
+ * THE ARROWS ARE DRAWN, NOT BORROWED. Lucide's chevron is a uniform stroke, and
+ * at 12px in champagne it reads as a grey tick rather than a piece of the same
+ * furniture as the rail's gradient marker. `GoldArrow` is a filled head with a
+ * champagne gradient across it and a lit leading edge, and it springs through
+ * its quarter-turn rather than easing, so the section header answers the tap
+ * with the same weight the marker does.
  *
  * THE REVEAL IS A GRID ROW, NOT A HEIGHT. `grid-template-rows: 0fr -> 1fr` is
  * the one honest way to animate "to whatever height this content turns out to
@@ -49,7 +56,7 @@ export function ExclusiveRailMenu({ nav }: { nav: MenuNav }) {
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
-      <Scrim nav={nav} />
+      <Scrim nav={nav} weight="light" />
 
       <AnimatePresence>
         {open && (
@@ -106,13 +113,7 @@ export function ExclusiveRailMenu({ nav }: { nav: MenuNav }) {
                     >
                       <Icon style={{ width: 15, height: 15, color: ROYAL.gold, flex: "none" }} />
                       <span className="flex-1 truncate">{s.label}</span>
-                      <ChevronRight
-                        style={{
-                          width: 12, height: 12, color: ROYAL.gold, flex: "none",
-                          transform: isOpen ? "rotate(90deg)" : "none",
-                          transition: calm ? "none" : "transform .36s cubic-bezier(.22,1,.36,1)",
-                        }}
-                      />
+                      <GoldArrow size={12} open={isOpen} calm={calm} />
                     </button>
 
                     <div

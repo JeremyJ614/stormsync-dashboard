@@ -33,7 +33,7 @@ export function AuroraSidebarMenu({ nav }: { nav: MenuNav }) {
 
   return (
     <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
-      <Scrim nav={nav} />
+      <Scrim nav={nav} weight="light" />
 
       <AnimatePresence>
         {open && (

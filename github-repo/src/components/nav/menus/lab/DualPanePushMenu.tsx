@@ -20,22 +20,45 @@ import { BackRow, EntryAction, LAB_EASE, LockMark, delay } from "./shared";
  * covering it after all, which is the thing this kind exists not to do — so the
  * pushed app stays lit and tappable-to-close, and the panel simply sits beside
  * it.
+ *
+ * THE LIST STARTS AT THE TOP. It was centred, and a centred flex column that
+ * outgrows its scroller overflows both ends at once — the browser will not let
+ * you scroll back above the start, so the first sections were unreachable and
+ * the last ran off the bottom. Nine modules in Severe Weather is enough to do
+ * it on a phone. Top-aligned it simply scrolls, and the numbered index reads
+ * downward from 01 the way a numbered index should.
+ *
+ * Its trigger clears the header for the same reason Tabbed Mega's does: at
+ * y=12 on the right it sat on the profile button.
  */
+
+/** Clear of the app header. */
+const TRIGGER_TOP = "calc(58px + env(safe-area-inset-top, 0px))";
+
 export function DualPanePushMenu({ nav }: { nav: MenuNav }) {
   const { open, calm, containerRef } = nav;
   const entries = entriesFor(nav);
 
   return (
-    <div ref={containerRef} className="fixed inset-0 z-[60] pointer-events-none">
+    <div ref={containerRef} className="fixed inset-0 z-[70] pointer-events-none">
+      {/* Above the pushed app, not under it.
+          Layout floats the pushed app at z-65 so Canvas Push's full-screen
+          scrim cannot bury the very thing that is meant to be moving aside. A
+          push with no scrim has nothing to bury, and paying that cost anyway
+          put this menu's own close button underneath the app's header: on
+          screen, visible, and swallowing every tap. Nothing here overlaps the
+          app once it has moved, so the menu sits on top. */}
       <AnimatePresence>
         {open && (
           <motion.nav
-            className="absolute inset-y-0 left-0 flex flex-col justify-center overflow-y-auto"
+            className="absolute inset-y-0 left-0 flex flex-col overflow-y-auto"
             style={{
               width: "74%", maxWidth: 340, pointerEvents: "auto",
               background: `linear-gradient(160deg, ${ROYAL.ink2}, ${ROYAL.ink})`,
               borderRight: `1px solid ${ROYAL.hairline}`,
-              padding: "52px 20px",
+              paddingTop: "calc(30px + env(safe-area-inset-top, 0px))",
+              paddingLeft: 20, paddingRight: 20,
+              paddingBottom: "calc(28px + env(safe-area-inset-bottom, 0px))",
             }}
             initial={calm ? { opacity: 0 } : { x: "-100%" }}
             animate={calm ? { opacity: 1 } : { x: 0 }}
@@ -47,6 +70,7 @@ export function DualPanePushMenu({ nav }: { nav: MenuNav }) {
             {entries.map((e, i) => (
               <motion.div
                 key={e.key}
+                className="flex-none"
                 initial={calm ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={calm ? { duration: 0 } : { duration: 0.4, ease: LAB_EASE, delay: delay(i, calm, 0.14, 0.046) }}
@@ -74,7 +98,7 @@ export function DualPanePushMenu({ nav }: { nav: MenuNav }) {
               </motion.div>
             ))}
 
-            <div className="pt-5"><BackRow nav={nav} /></div>
+            <div className="pt-5 flex-none"><BackRow nav={nav} /></div>
           </motion.nav>
         )}
       </AnimatePresence>
@@ -85,7 +109,7 @@ export function DualPanePushMenu({ nav }: { nav: MenuNav }) {
         aria-expanded={open}
         className="absolute grid place-items-center rounded-[11px]"
         style={{
-          top: "calc(12px + env(safe-area-inset-top, 0px))", right: 12,
+          top: TRIGGER_TOP, right: 12,
           width: 42, height: 42, zIndex: 80, pointerEvents: "auto",
           background: ROYAL.panel,
           backdropFilter: "blur(12px)", WebkitBackdropFilter: "blur(12px)",

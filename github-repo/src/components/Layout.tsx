@@ -15,7 +15,7 @@ import { ALL_NAV_ITEMS, useNavSections } from "../lib/navModel";
 import { MenuHost } from "./nav/MenuHost";
 import { PushInvite } from "./PushInvite";
 import { useMenuNav } from "./nav/menus/useMenuNav";
-import { subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot, styleFor } from "../lib/menuStyle";
+import { subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot, styleFor, type MenuStyle } from "../lib/menuStyle";
 import { SavedLocations } from "./SavedLocations";
 import { OfflineBar } from "./OfflineBar";
 import { NotificationBell } from "./NotificationBell";
@@ -149,8 +149,45 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
   const menuCfg = useSyncExternalStore(subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot);
   const menuStyle = styleFor(menuCfg, Boolean(user?.isAdmin), user?.menuStyle);
   const menuNav = useMenuNav(location);
-  // Canvas Push tilts the app itself away, which only Layout can do.
-  const pushed = menuStyle === "push" && menuNav.open;
+  /*
+   * The push styles move the app itself, which only Layout can do — the page
+   * content is Layout's child, not the menu's, and a child cannot transform its
+   * own ancestor.
+   *
+   * Two-Stage Push needs two distances, one per stage, and the stage lives
+   * inside that menu. Rather than thread a callback through MenuNav for one
+   * style, it writes the distance to `--sswx-push` on the document root and the
+   * transform below reads it. It clears the property on unmount, so the default
+   * in the var() is what applies if the menu is ever gone.
+   */
+  const PUSH_TRANSFORMS: Partial<Record<MenuStyle, string>> = {
+    push: "perspective(900px) translateZ(-200px) translateX(62%) rotateY(-16deg)",
+    dualPush: "translateX(74%) scale(0.94)",
+    twoStagePush: "translateX(var(--sswx-push, 0px)) scale(0.985)",
+  };
+  const pushTransform = menuNav.open ? PUSH_TRANSFORMS[menuStyle] : undefined;
+  const pushed = Boolean(pushTransform);
+
+  /*
+   * A push shoves the app off the right-hand edge, and that overflow is real:
+   * the document grows sideways, and on a phone the layout viewport grows with
+   * it. Everything anchored to `right:` then measures against the wider box and
+   * drifts — Dual Pane Push's own close button ended up 250px past the edge of
+   * the screen, unreachable, with the menu it closes still open.
+   *
+   * Clipping at the root is the fix, and only while a push is open: the app is
+   * *meant* to leave the screen, so the overflow it makes is not content anyone
+   * needs to reach. It goes on `html` rather than `body` because the root's
+   * overflow propagates to the viewport, which keeps the header's `sticky`
+   * working; on `body` it would not.
+   */
+  useEffect(() => {
+    if (!pushed) return;
+    const root = document.documentElement;
+    const prev = root.style.overflowX;
+    root.style.overflowX = "hidden";
+    return () => { root.style.overflowX = prev; };
+  }, [pushed]);
 
   const currentNav = ALL_NAV_ITEMS.find((n) => n.path === pathname);
 
@@ -170,18 +207,23 @@ export function Layout({ children, location, onSetLocation, onDetectLocation, is
         style={pushed ? {
           // The menu overlay paints at z-60, so the pushed app has to sit above
           // it or the backdrop simply covers the thing that is supposed to be
-          // tilting away — which is the entire effect.
+          // moving aside — which is the entire effect.
           position: "relative",
           zIndex: 65,
           // Far enough right that the app clears the 340px menu column instead of
           // sitting on top of its labels — the menu has to be readable, not just
           // present.
-          transform: "perspective(900px) translateZ(-200px) translateX(62%) rotateY(-16deg)",
+          transform: pushTransform,
           borderRadius: 28,
           overflow: "hidden",
           boxShadow: "-24px 24px 48px rgba(0,0,0,.8)",
-          opacity: 0.7,
-          pointerEvents: "none",
+          // Canvas Push dims the tilted app because it is behind a lit menu.
+          // The two off-canvas pushes do not: their whole point is that the page
+          // moves aside rather than being covered, and a dimmed page beside an
+          // undimmed panel is a covered page with extra steps. They stay
+          // tappable too, so tapping the app is a second way to close.
+          opacity: menuStyle === "push" ? 0.7 : 1,
+          pointerEvents: menuStyle === "push" ? "none" : "auto",
           transition: menuNav.calm ? "none" : "transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s, border-radius .4s",
         } : {
           transition: menuNav.calm ? "none" : "transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s, border-radius .4s",

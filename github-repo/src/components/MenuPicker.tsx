@@ -3,7 +3,7 @@ import { motion } from "framer-motion";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { useAuth, refreshProfile } from "../hooks/useAuth";
 import {
-  MENU_STYLES, MENU_META, saveMyMenuStyle, styleFor,
+  MENU_STYLES, MENU_META, groupedStyles, saveMyMenuStyle, styleFor,
   subscribeMenuStyles, getMenuStylesSnapshot, getMenuStylesServerSnapshot,
   type MenuStyle,
 } from "../lib/menuStyle";
@@ -92,7 +92,11 @@ export function MenuPicker({ compact = false }: { compact?: boolean }) {
       </button>
 
       <div className={compact ? "space-y-1.5 max-h-[46vh] overflow-y-auto pr-0.5" : "space-y-1.5"}>
-        {MENU_STYLES.map((s, i) => {
+        {groupedStyles().map(({ group, styles }) => (
+        <div key={group} className="space-y-1.5">
+        <div className="text-[9.5px] uppercase tracking-[0.18em] pt-1.5"
+             style={{ color: ROYAL.gold, opacity: 0.8 }}>{group}</div>
+        {styles.map((s, i) => {
           const meta = MENU_META[s];
           const on = user.menuStyle === s;
           return (
@@ -119,6 +123,10 @@ export function MenuPicker({ compact = false }: { compact?: boolean }) {
                         style={{ color: ROYAL.text, fontFamily: HEADING }}>
                     {meta.label}
                   </span>
+                  <span className="text-[9px] px-1.5 py-px rounded-full"
+                        style={{ color: ROYAL.dim, border: `1px solid ${ROYAL.hairline}` }}>
+                    {meta.kind}
+                  </span>
                   {live === s && !on && (
                     <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-[0.1em]"
                           style={{ background: "rgba(217,183,117,0.15)", color: ROYAL.gold }}>
@@ -134,6 +142,8 @@ export function MenuPicker({ compact = false }: { compact?: boolean }) {
             </motion.button>
           );
         })}
+        </div>
+        ))}
       </div>
 
       {note && (

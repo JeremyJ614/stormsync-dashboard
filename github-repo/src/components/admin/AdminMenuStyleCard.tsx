@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Check, Loader2, Menu as MenuIcon } from "lucide-react";
 import {
-  MENU_STYLES, MENU_META, loadMenuStyles, saveMenuStyles,
+  MENU_STYLES, MENU_META, groupedStyles, loadMenuStyles, saveMenuStyles,
   type MenuStyle, type MenuStyleConfig,
 } from "../../lib/menuStyle";
 import { ROYAL } from "../../lib/royal";
@@ -84,6 +84,159 @@ function Preview({ style }: { style: MenuStyle }) {
           }} />
         </>
       )}
+
+      {/* ── Portal Lab ───────────────────────────────────────────────────── */}
+
+      {style === "auroraSidebar" && (
+        <>
+          <div className="absolute inset-y-0 left-0" style={{ width: 22, background: "rgba(255,255,255,.06)" }} />
+          <div className="absolute inset-y-0" style={{
+            left: 4, width: 9, transform: "skewX(-9deg)",
+            background: `linear-gradient(90deg, transparent, ${ROYAL.irisSoft}, transparent)`,
+          }} />
+          {[10, 22, 34, 46].map((t) => (
+            <div key={t} className={box} style={{ left: 4, top: t, width: 14, height: 3, background: gold, opacity: 0.8 }} />
+          ))}
+        </>
+      )}
+
+      {style === "stackedCards" && (
+        <>
+          {[8, 22, 36, 50].map((t, i) => (
+            <div key={t} className={box} style={{
+              left: i === 1 ? 7 : 3, top: t, width: 24, height: 11,
+              background: "rgba(255,255,255,.07)",
+              boxShadow: i === 1 ? `-2px 0 0 0 ${ROYAL.iris}` : "none",
+              border: `1px solid ${i === 1 ? ROYAL.iris : "transparent"}`,
+            }} />
+          ))}
+        </>
+      )}
+
+      {style === "floatingGlass" && (
+        <>
+          <div className="absolute rounded-[6px]" style={{
+            left: 5, top: 7, bottom: 7, width: 26,
+            background: "rgba(255,255,255,.06)", border: `1px solid ${ROYAL.hairline}`,
+          }} />
+          <div className={box} style={{ left: 8, top: 16, width: 2, height: 30, background: gold }} />
+          {[16, 26, 36, 46].map((t) => (
+            <div key={t} className={box} style={{ left: 13, top: t + 2, width: 14, height: 2.5, background: "rgba(255,255,255,.4)" }} />
+          ))}
+        </>
+      )}
+
+      {style === "tabbedMega" && (
+        <>
+          <div className="absolute inset-x-0 top-0" style={{ height: 10, background: "rgba(255,255,255,.07)" }} />
+          <div className="absolute" style={{ left: 0, top: 10, width: 18, bottom: 34, background: "rgba(255,255,255,.05)" }} />
+          {[14, 22, 30].map((t) => (
+            <div key={t} className={box} style={{ left: 3, top: t, width: 12, height: 3, background: gold, opacity: 0.8 }} />
+          ))}
+          {[14, 21, 28, 35].map((t) => (
+            <div key={t} className={box} style={{ left: 22, top: t, width: 26, height: 2.5, background: "rgba(255,255,255,.3)" }} />
+          ))}
+        </>
+      )}
+
+      {style === "bentoMega" && (
+        <>
+          <div className="absolute inset-x-0 top-0" style={{ height: 10, background: "rgba(255,255,255,.07)" }} />
+          <div className={box} style={{ left: 4, top: 14, width: 44, height: 18, background: `linear-gradient(120deg, ${ROYAL.goldSoft}, ${ROYAL.irisSoft})` }} />
+          <div className={box} style={{ left: 4, top: 35, width: 21, height: 13, background: "rgba(255,255,255,.07)" }} />
+          <div className={box} style={{ left: 27, top: 35, width: 21, height: 13, background: "rgba(255,255,255,.07)" }} />
+          <div className={box} style={{ left: 4, top: 51, width: 44, height: 13, background: "rgba(255,255,255,.07)" }} />
+        </>
+      )}
+
+      {style === "dualPush" && (
+        <>
+          <div className="absolute inset-y-0 rounded-l-[4px]" style={{ left: 30, right: -6, background: "rgba(255,255,255,.10)" }} />
+          {[12, 24, 36, 48].map((t) => (
+            <div key={t} className={box} style={{ left: 4, top: t, width: 22, height: 6, background: "rgba(255,255,255,.55)" }} />
+          ))}
+        </>
+      )}
+
+      {style === "twoStagePush" && (
+        <>
+          <div className="absolute inset-y-0 left-0" style={{ width: 12, background: "rgba(255,255,255,.07)" }} />
+          <div className="absolute inset-y-0" style={{ left: 12, width: 20, background: "rgba(255,255,255,.05)" }} />
+          <div className="absolute inset-y-0 rounded-l-[4px]" style={{ left: 34, right: -6, background: "rgba(255,255,255,.10)" }} />
+          {[12, 24, 36, 48].map((t) => (
+            <div key={t} className={box} style={{ left: 4, top: t, width: 4, height: 4, background: gold, opacity: 0.85 }} />
+          ))}
+        </>
+      )}
+
+      {style === "railAccordion" && (
+        <>
+          <div className="absolute inset-y-0 left-0" style={{ width: 30, background: "rgba(255,255,255,.05)" }} />
+          <div className={box} style={{ left: 2, top: 14, width: 2, height: 26, background: `linear-gradient(180deg, ${gold}, ${ROYAL.iris})` }} />
+          {[10, 44, 56].map((t) => (
+            <div key={t} className={box} style={{ left: 7, top: t, width: 19, height: 3.5, background: "rgba(255,255,255,.5)" }} />
+          ))}
+          {[20, 27, 34].map((t) => (
+            <div key={t} className={box} style={{ left: 12, top: t, width: 14, height: 2.5, background: gold, opacity: 0.7 }} />
+          ))}
+        </>
+      )}
+
+      {style === "labelledStack" && (
+        <>
+          {[34, 46, 58].map((t, i) => (
+            <div key={t}>
+              <div className={box} style={{ left: 40, top: t, width: 8, height: 8, borderRadius: 999, background: "rgba(255,255,255,.14)", border: `1px solid ${ROYAL.hairline}` }} />
+              <div className={box} style={{ left: 40 - 18 - i, top: t + 2, width: 16 + i, height: 4, background: "rgba(255,255,255,.28)" }} />
+            </div>
+          ))}
+          <div className={box} style={{ left: 38, top: 70, width: 11, height: 11, borderRadius: 999, background: gold }} />
+        </>
+      )}
+
+      {style === "morphSheet" && (
+        <>
+          <div className="absolute rounded-[5px]" style={{
+            left: 4, right: 4, bottom: 4, height: 38,
+            background: "rgba(255,255,255,.08)", border: `1px solid ${ROYAL.hairline}`,
+          }} />
+          <div className={box} style={{ left: 21, top: 50, width: 10, height: 2, background: ROYAL.hairline }} />
+          {[56, 64, 72].map((t) => (
+            <div key={t} className={box} style={{ left: 8, top: t, width: 30, height: 2.5, background: "rgba(255,255,255,.36)" }} />
+          ))}
+        </>
+      )}
+
+      {style === "segmentedPill" && (
+        <>
+          <div className="absolute rounded-full" style={{
+            left: 4, right: 4, bottom: 8, height: 14,
+            background: "rgba(255,255,255,.08)", border: `1px solid ${ROYAL.hairline}`,
+          }} />
+          <div className="absolute rounded-full" style={{
+            left: 6, bottom: 10, width: 15, height: 10,
+            background: `linear-gradient(135deg, ${ROYAL.goldSoft}, ${ROYAL.irisSoft})`,
+          }} />
+          {[24, 34].map((l) => (
+            <div key={l} className={box} style={{ left: l, bottom: 13.5, width: 8, height: 3, background: "rgba(255,255,255,.35)" }} />
+          ))}
+        </>
+      )}
+
+      {style === "collapsingPill" && (
+        <>
+          {[14, 24, 34].map((t) => (
+            <div key={t} className={box} style={{ left: 6, top: t, width: 40, height: 2.5, background: "rgba(255,255,255,.2)" }} />
+          ))}
+          <div className="absolute rounded-full" style={{
+            left: 15, right: 15, bottom: 8, height: 14,
+            background: "rgba(255,255,255,.08)", border: `1px solid ${ROYAL.hairline}`,
+          }} />
+          <div className="absolute rounded-full" style={{
+            left: 17, bottom: 10, width: 14, height: 10, background: ROYAL.goldFaint,
+          }} />
+        </>
+      )}
     </div>
   );
 }
@@ -98,7 +251,11 @@ function Column({
       {/* More styles than fit comfortably; the column scrolls rather than the
           previews shrinking to the point of being indistinguishable. */}
       <div className="space-y-2 max-h-[560px] overflow-y-auto pr-1">
-        {MENU_STYLES.map((s) => {
+        {groupedStyles().map(({ group, styles }) => (
+        <div key={group} className="space-y-2">
+        <div className="text-[9.5px] uppercase tracking-[0.18em] pt-1"
+             style={{ color: ROYAL.gold, opacity: 0.8 }}>{group}</div>
+        {styles.map((s) => {
           const meta = MENU_META[s];
           const active = s === value;
           return (
@@ -116,6 +273,8 @@ function Column({
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
                   <span className="text-[13px] font-semibold" style={{ color: ROYAL.text }}>{meta.label}</span>
+                  <span className="text-[9px] px-1.5 py-px rounded-full shrink-0"
+                        style={{ color: ROYAL.dim, border: `1px solid ${ROYAL.hairline}` }}>{meta.kind}</span>
                   {active && <Check className="w-3.5 h-3.5 shrink-0" style={{ color: ROYAL.gold }} />}
                 </div>
                 <p className="text-[11px] mt-0.5 leading-snug" style={{ color: ROYAL.dim }}>{meta.blurb}</p>
@@ -124,6 +283,8 @@ function Column({
             </button>
           );
         })}
+        </div>
+        ))}
       </div>
     </div>
   );
